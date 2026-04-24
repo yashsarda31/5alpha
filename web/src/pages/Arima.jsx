@@ -86,6 +86,25 @@ const Arima = () => {
               },
               {
                 x: forecastData.forecast.dates,
+                y: forecastData.forecast.upper,
+                type: 'scatter',
+                mode: 'lines',
+                line: {width: 0},
+                showlegend: false,
+                hoverinfo: 'skip'
+              },
+              {
+                x: forecastData.forecast.dates,
+                y: forecastData.forecast.lower,
+                type: 'scatter',
+                mode: 'lines',
+                fill: 'tonexty',
+                fillcolor: 'rgba(212, 175, 55, 0.15)',
+                line: {width: 0},
+                name: 'Confidence Interval'
+              },
+              {
+                x: forecastData.forecast.dates,
                 y: forecastData.forecast.prices,
                 type: 'scatter',
                 mode: 'lines',

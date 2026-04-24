@@ -126,28 +126,32 @@ const Screener = () => {
       </div>
       
       {loading ? <p>Scanning Universe...</p> : (
-        <table style={{width: '100%', textAlign: 'left', borderCollapse: 'collapse', marginTop: '20px'}}>
-          <thead>
-            <tr style={{borderBottom: '1px solid var(--primary-gold)', color: 'var(--primary-gold)'}}>
-              <th style={{padding: '10px'}}>Ticker</th>
-              <th>Price</th>
-              <th>Market Cap (B)</th>
-              <th>P/E (TTM)</th>
-              <th>Div Yield (%)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((row) => (
-              <tr key={row.ticker} style={{borderBottom: '1px solid #333'}}>
-                <td style={{padding: '10px', fontWeight: 'bold'}}>{row.ticker}</td>
-                <td>${row.price.toFixed(2)}</td>
-                <td>${row.marketCap.toFixed(2)}</td>
-                <td>{row.peRatio ? row.peRatio.toFixed(2) : 'N/A'}</td>
-                <td style={{color: row.divYield > 0 ? 'var(--green-gain)' : 'inherit'}}>{row.divYield.toFixed(2)}%</td>
+        data.length > 0 ? (
+          <table style={{width: '100%', textAlign: 'left', borderCollapse: 'collapse', marginTop: '20px'}}>
+            <thead>
+              <tr style={{borderBottom: '1px solid var(--primary-gold)', color: 'var(--primary-gold)'}}>
+                <th style={{padding: '10px'}}>Ticker</th>
+                <th>Price</th>
+                <th>Market Cap (B)</th>
+                <th>P/E (TTM)</th>
+                <th>Div Yield (%)</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.map((row) => (
+                <tr key={row.ticker} style={{borderBottom: '1px solid #333'}}>
+                  <td style={{padding: '10px', fontWeight: 'bold'}}>{row.ticker}</td>
+                  <td>${row.price.toFixed(2)}</td>
+                  <td>${row.marketCap.toFixed(2)}</td>
+                  <td>{row.peRatio ? row.peRatio.toFixed(2) : 'N/A'}</td>
+                  <td style={{color: row.divYield > 0 ? 'var(--green-gain)' : 'inherit'}}>{row.divYield.toFixed(2)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p style={{marginTop: '20px', color: 'var(--text-secondary)'}}>No tickers matched your criteria. Adjust your filters or add more tickers.</p>
+        )
       )}
       
       {data.length > 0 && !loading && (
