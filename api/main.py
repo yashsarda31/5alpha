@@ -381,8 +381,9 @@ if os.path.isdir(WEB_DIST_DIR):
     @app.exception_handler(404)
     async def custom_404_handler(request, exc):
         path = request.url.path
+        from fastapi.responses import JSONResponse
         if path.startswith("/api/"):
-            return {"detail": "Not Found"}
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
         
         index_path = os.path.join(WEB_DIST_DIR, "index.html")
         if os.path.isfile(index_path):
