@@ -210,6 +210,7 @@ def forecast_sarimax(req: ARIMARequest):
     if df.empty:
         raise HTTPException(status_code=404, detail="Data not found")
         
+    df = df.ffill().bfill()
     prices = df['Close'].values[-252:] # last year of trading days
     dates = df.index[-252:].strftime('%Y-%m-%d').tolist()
     
@@ -217,16 +218,27 @@ def forecast_sarimax(req: ARIMARequest):
     try:
         # Add constant drift (trend='c') and weekly seasonality (s=5) 
         # to prevent standard ARIMA random-walk flatlining.
-        model = SARIMAX(prices, order=(2, 1, 2), seasonal_order=(1, 0, 1, 5), trend='c') 
+        model = SARIMAX(prices, order=(1, 1, 1), seasonal_order=(1, 0, 1, 5), trend='c') 
         fit_model = model.fit(disp=False)
-        forecast = fit_model.forecast(steps=req.days)
+        
+        forecast_res = fit_model.get_forecast(steps=req.days)
+        forecast = forecast_res.predicted_mean
+        conf_int = forecast_res.conf_int()
+        
+        lower_bound = conf_int[:, 0]
+        upper_bound = conf_int[:, 1]
         
         last_date = df.index[-1]
         future_dates = [(last_date + pd.Timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, req.days + 1)]
         
         return {
             "historical": {"dates": dates, "prices": prices.tolist()},
-            "forecast": {"dates": future_dates, "prices": forecast.tolist()}
+            "forecast": {
+                "dates": future_dates, 
+                "prices": forecast.tolist(),
+                "lower": lower_bound.tolist(),
+                "upper": upper_bound.tolist()
+            }
         }
     except Exception as e:
          raise HTTPException(status_code=400, detail=str(e))
