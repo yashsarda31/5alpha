@@ -1,0 +1,192 @@
+/* Bloomberg Terminal Style */
+.bbg-dashboard {
+  background-color: #000000;
+  color: var(--primary-gold);
+  font-family: 'Consolas', 'Courier New', monospace;
+  padding: 10px;
+  min-height: 100%;
+}
+
+.bbg-header {
+  border-bottom: 2px solid var(--primary-gold);
+  padding-bottom: 5px;
+  margin-bottom: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bbg-title {
+  font-size: 20px;
+  font-weight: bold;
+  text-transform: uppercase;
+  color: var(--primary-gold);
+}
+
+.bbg-status {
+  display: flex;
+  gap: 15px;
+  font-size: 14px;
+}
+
+.bbg-status-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bbg-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.bbg-status-dot.green { background-color: #00ff00; box-shadow: 0 0 5px #00ff00; }
+.bbg-status-dot.red { background-color: #ff0000; box-shadow: 0 0 5px #ff0000; }
+
+.bbg-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.bbg-panel {
+  background: #050505;
+  border: 1px solid #333;
+  padding: 10px;
+  border-radius: 2px;
+}
+
+.bbg-panel-title {
+  font-size: 14px;
+  color: var(--primary-accent);
+  border-bottom: 1px solid #333;
+  padding-bottom: 5px;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.bbg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.bbg-table th {
+  text-align: left;
+  color: #888;
+  border-bottom: 1px solid #222;
+  padding: 4px;
+  font-weight: normal;
+}
+
+.bbg-table td {
+  padding: 4px;
+  border-bottom: 1px dotted #222;
+}
+
+.bbg-table tr:hover td {
+  background: #111;
+}
+
+.text-up { color: #00ff00; }
+.text-down { color: #ff0000; }
+.text-white { color: #ffffff; }
+.text-blue { color: var(--primary-accent); }
+.text-amber { color: var(--primary-gold); }
+
+.bbg-nav-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.bbg-nav-card {
+  border: 1px solid #333;
+  padding: 15px;
+  background: #0a0a0a;
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bbg-nav-card:hover {
+  background: #111;
+  border-color: var(--primary-gold);
+}
+
+.bbg-nav-icon {
+  font-size: 20px;
+}
+
+.bbg-nav-title {
+  color: var(--primary-gold);
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.bbg-nav-desc {
+  font-size: 12px;
+  color: #888;
+}
+
+.bbg-heatmap {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: 100px 100px;
+  gap: 5px;
+}
+
+.bbg-heat-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  color: #000;
+  font-weight: bold;
+  font-size: 16px;
+  padding: 10px;
+}
+
+.bg-up { background-color: #00ff00; }
+.bg-down { background-color: #ff0000; }
+.bg-neutral { background-color: #555555; }
+
+@media (max-width: 850px) {
+  .bbg-grid > .bbg-panel {
+    grid-column: span 12 !important;
+  }
+
+  .bbg-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .bbg-title {
+    font-size: 15px;
+  }
+
+  .bbg-heatmap {
+    grid-template-rows: 80px 80px;
+  }
+
+  .bbg-heat-cell {
+    font-size: 13px;
+    padding: 6px;
+    text-align: center;
+  }
+
+  .bbg-nav-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
+  .bbg-nav-card {
+    padding: 12px;
+  }
+}

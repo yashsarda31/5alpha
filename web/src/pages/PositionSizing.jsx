@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const PositionSizing = () => {
   const [capital, setCapital] = useState(10000);
@@ -122,15 +124,13 @@ const PositionSizing = () => {
             ) : (
               <div className="ai-insight">
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center' }}>
-                  <div style={{ fontWeight: '700', color: 'var(--primary-gold-dark)', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                    Gemini Risk Management
-                  </div>
-                  <button onClick={runAiAnalysis} disabled={aiLoading} style={{ width: 'auto', padding: '4px 12px', fontSize: '11px' }} className="secondary">
+                  <h3>Gemini Risk Management</h3>
+                  <button onClick={runAiAnalysis} disabled={aiLoading} style={{ width: 'auto', padding: '6px 14px', fontSize: '12px' }} className="secondary">
                     {aiLoading ? <><span className="spinner"></span> RE-ANALYZING...</> : "REFRESH"}
                   </button>
                 </div>
-                <div style={{ fontSize: '14px', lineHeight: '1.7', color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
-                  {aiReport}
+                <div className="ai-insight-content">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiReport}</ReactMarkdown>
                 </div>
               </div>
             )}

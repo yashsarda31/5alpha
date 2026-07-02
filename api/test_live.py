@@ -3,7 +3,7 @@ import requests
 BASE_URL = "http://localhost:8000/api"
 
 def test_screener_endpoint():
-    response = requests.get(f"{BASE_URL}/screener")
+    response = requests.post(f"{BASE_URL}/screener", json={"tickers": "AAPL"})
     assert response.status_code == 200
     data = response.json()
     assert "data" in data

@@ -4,7 +4,7 @@ from main import app
 client = TestClient(app)
 
 def test_screener_endpoint():
-    response = client.get("/api/screener")
+    response = client.post("/api/screener", json={"tickers": "AAPL"})
     assert response.status_code == 200
     data = response.json()
     assert "data" in data
@@ -36,3 +36,92 @@ def test_arima_endpoint():
     data = response.json()
     assert "forecast" in data
     assert len(data["forecast"]["dates"]) == 5
+
+def test_momentum_endpoint():
+    response = client.get("/api/momentum?market=us")
+    assert response.status_code == 200
+    data = response.json()
+    assert "data" in data
+
+def test_fundamentals_endpoint():
+    response = client.get("/api/fundamentals/AAPL")
+    assert response.status_code == 200
+    data = response.json()
+    assert "ticker" in data
+    assert data["ticker"] == "AAPL"
+    assert "marketCap" in data
+
+def test_news_endpoint():
+    response = client.get("/api/news/AAPL")
+    # 401 if missing key, 400 if invalid key, 200 if successful
+    assert response.status_code in (200, 400, 401)
+    if response.status_code == 200:
+        data = response.json()
+        assert "articles" in data
+
+
+def test_option_chain_expiries():
+    response = client.get("/api/option-chain/expiries/nifty")
+    assert response.status_code == 200
+    data = response.json()
+    assert "expiries" in data
+    assert "lotSize" in data
+    assert len(data["expiries"]) > 0
+    assert data["lotSize"] == 65
+
+
+def test_option_chain_data():
+    response = client.get("/api/option-chain/data/nifty")
+    assert response.status_code == 200
+    data = response.json()
+    assert "spotData" in data
+    assert "vixData" in data
+    assert "optionChain" in data
+    assert "opDatas" in data["optionChain"]
+    assert "opTotals" in data["optionChain"]
+    assert len(data["optionChain"]["opDatas"]) > 0
+
+
+def test_druck_minervini_endpoint_without_key():
+    response = client.post(
+        "/api/ai/druck-minervini",
+        data={"ticker": "AAPL", "apiKey": ""},
+        files={"file": ("chart.png", b"mock_image_bytes")}
+    )
+    assert response.status_code == 400
+
+
+def test_druck_minervini_endpoint_mock(monkeypatch):
+    class MockResponse:
+        text = "Mocked Analysis. Strategic Conviction Score (1-10): 9. Entry Trigger Price: $150.00. Stop-Loss Price: $140.00."
+
+    class MockModels:
+        def generate_content(self, model, contents):
+            return MockResponse()
+
+    class MockClient:
+        def __init__(self, api_key):
+            self.models = MockModels()
+
+    from google import genai
+    monkeypatch.setattr(genai, "Client", MockClient)
+
+    response = client.post(
+        "/api/ai/druck-minervini",
+        data={
+            "ticker": "AAPL",
+            "macro_context": "Federal Reserve cuts rates",
+            "apiKey": "mock_key"
+        },
+        files={"file": ("chart.png", b"mock_image_bytes")}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "report" in data
+    assert "sepa_checks" in data
+    assert "chart_data" in data
+    assert "rule1" in data["sepa_checks"]
+    assert "dates" in data["chart_data"]
+
+
+

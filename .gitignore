@@ -1,0 +1,29 @@
+.vercel
+
+# Environment files with secrets — never commit
+.env
+.env.local
+.env.*.local
+web/.env
+web/.env.local
+web/.env.*.local
+
+# Local user database (credentials live here — never commit)
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+.env*
+
+# Scratch / debug artifacts (ad-hoc curl dumps, logs, exploration output)
+*.log
+logs.json
+logs.txt
+page.html
+web/eslint_output.txt
+api/niftytrader_loaded.png

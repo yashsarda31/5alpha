@@ -1,47 +1,119 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+const COLUMNS = [
+  { key: 'ticker', label: 'Ticker', numeric: false },
+  { key: 'price', label: 'Price', numeric: true },
+  { key: 'marketCap', label: 'Mkt Cap (B)', numeric: true },
+  { key: 'peRatio', label: 'P/E (TTM)', numeric: true },
+  { key: 'roe', label: 'ROE (%)', numeric: true },
+  { key: 'epsGrowth', label: 'EPS Grw (%)', numeric: true },
+  { key: 'divYield', label: 'Div Yield (%)', numeric: true },
+];
+
+const currencyFor = (ticker) => {
+  const t = (ticker || '').toUpperCase();
+  return t.endsWith('.NS') || t.endsWith('.BO') ? '₹' : '$';
+};
+
+// Named universes resolved server-side (backend holds the ticker lists)
+const UNIVERSES = {
+  'Nifty 100': { key: 'nifty100', count: 100, desc: 'Large-cap NSE (India)' },
+  'Nifty 200': { key: 'nifty200', count: 200, desc: 'Large & mid-cap NSE (India)' },
+  'S&P 100': { key: 'sp100', count: 100, desc: 'US mega-cap' },
+  'Nasdaq 100': { key: 'nasdaq100', count: 100, desc: 'US tech & growth' },
+};
 
 const Screener = () => {
   const [data, setData] = useState([]);
+  const [hasRun, setHasRun] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReport, setAiReport] = useState("");
 
   const [tickers, setTickers] = useState("AAPL, MSFT, NVDA, RELIANCE.NS, TCS.NS, HDFCBANK.NS");
   const [maxPe, setMaxPe] = useState("");
   const [minDiv, setMinDiv] = useState("");
+  const [minRoe, setMinRoe] = useState("");
+  const [minEpsGrowth, setMinEpsGrowth] = useState("");
   const [preset, setPreset] = useState("Custom");
+  const [scanMeta, setScanMeta] = useState(null);
+
+  const [sortKey, setSortKey] = useState('marketCap');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const isUniverse = preset !== 'Custom';
+  const universeMeta = UNIVERSES[preset];
+  const requestedCount = isUniverse
+    ? (universeMeta?.count || 0)
+    : tickers.split(',').filter(t => t.trim()).length;
 
   const handlePresetChange = (e) => {
-    const val = e.target.value;
-    setPreset(val);
-    if (val === "Nifty 100") {
-      setTickers("RELIANCE.NS, TCS.NS, HDFCBANK.NS, ICICIBANK.NS, INFY.NS, SBIN.NS, BHARTIARTL.NS, LT.NS, ITC.NS, HINDUNILVR.NS, AXISBANK.NS, BAJFINANCE.NS, MARUTI.NS, KOTAKBANK.NS, SUNPHARMA.NS, TITAN.NS, ONGC.NS, TATAMOTORS.NS, NTPC.NS, MM.NS");
-    } else if (val === "S&P 500") {
-      setTickers("AAPL, MSFT, NVDA, AMZN, META, GOOGL, GOOG, BRK-B, TSLA, LLY, AVGO, V, JPM, UNH, MA, JNJ, XOM, PG, HD, COST");
-    }
+    // Universe ticker lists live on the backend; switching a preset only
+    // changes which universe key we send (custom tickers stay intact).
+    setPreset(e.target.value);
   };
 
   const fetchScreener = async (e) => {
     if (e) e.preventDefault();
     setLoading(true);
+    setError(null);
     setAiReport("");
     try {
-      const payload = { tickers };
+      const payload = {};
+      if (isUniverse && universeMeta) {
+        payload.universe = universeMeta.key;
+      } else {
+        payload.tickers = tickers;
+      }
       if (maxPe) payload.max_pe = parseFloat(maxPe);
       if (minDiv) payload.min_div_yield = parseFloat(minDiv);
+      if (minRoe) payload.min_roe = parseFloat(minRoe);
+      if (minEpsGrowth) payload.min_eps_growth = parseFloat(minEpsGrowth);
       const res = await axios.post('/api/screener', payload);
       setData(res.data.data);
+      setScanMeta({
+        requested: res.data.requested ?? requestedCount,
+        scanned: res.data.scanned ?? res.data.data.length,
+        truncated: res.data.truncated ?? false,
+      });
+      setHasRun(true);
     } catch (err) {
-      console.error("Screener fetch failed:", err);
+      setError(err.response?.data?.detail || err.message || "Failed to fetch screener data");
     }
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchScreener();
-    // eslint-disable-next-line
-  }, []);
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'ticker' ? 'asc' : 'desc');
+    }
+  };
+
+  const sortedData = useMemo(() => {
+    const rows = [...data];
+    rows.sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      // Push null/undefined metrics to the bottom regardless of direction
+      if (av === null || av === undefined) return 1;
+      if (bv === null || bv === undefined) return -1;
+      const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return rows;
+  }, [data, sortKey, sortDir]);
+
+  const sortIndicator = (key) => {
+    if (sortKey !== key) return <span style={{ opacity: 0.3 }}> ↕</span>;
+    return <span style={{ color: 'var(--primary-gold)' }}>{sortDir === 'asc' ? ' ▲' : ' ▼'}</span>;
+  };
 
   const runAiAnalysis = async () => {
     if (data.length === 0) return;
@@ -68,92 +140,187 @@ const Screener = () => {
     <div>
       <h2>Quantitative Screener</h2>
       <p style={{color: "var(--text-secondary)"}}>Live trailing institutional metrics across custom ticker universe.</p>
-      
+
       <div className="card" style={{ marginBottom: '20px', padding: '20px' }}>
-        <form onSubmit={fetchScreener} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
-          <div className="form-group" style={{ gridColumn: '1 / -1', display: 'flex', gap: '15px' }}>
-            <div style={{ flex: 1 }}>
+        <form onSubmit={fetchScreener} className="screener-form">
+          <div className="form-group screener-universe-row">
+            <div style={{ flex: 1, minWidth: 0 }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Screener Universe</label>
-              <select 
-                value={preset} 
+              <select
+                value={preset}
                 onChange={handlePresetChange}
-                style={{ width: '100%' }}
+                style={{ width: '100%', marginBottom: 0 }}
               >
-                <option value="Custom">Custom</option>
-                <option value="Nifty 100">Top Nifty 100</option>
-                <option value="S&P 500">Top S&P 500</option>
+                <option value="Custom">Custom tickers</option>
+                {Object.entries(UNIVERSES).map(([name, meta]) => (
+                  <option key={name} value={name}>{name} ({meta.count} stocks)</option>
+                ))}
               </select>
             </div>
-            <div style={{ flex: 3 }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Tickers (Comma-separated)</label>
-              <input 
-                type="text" 
-                value={tickers} 
-                onChange={(e) => { setTickers(e.target.value); setPreset("Custom"); }} 
-                required 
-                style={{ width: '100%', marginBottom: '24px' }}
-              />
+            <div style={{ flex: 3, minWidth: 0 }}>
+              {isUniverse ? (
+                <>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Universe</label>
+                  <div
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '12px',
+                      padding: '11px 16px', borderRadius: '10px',
+                      background: 'var(--primary-accent-soft)',
+                      border: '1px solid var(--primary-accent-border)',
+                    }}
+                  >
+                    <span style={{ fontSize: '20px' }}>📊</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: 'var(--primary-accent)' }}>
+                        {preset} — scanning {universeMeta?.count} stocks
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {universeMeta?.desc}. Live metrics fetched on demand.
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Tickers (Comma-separated)</label>
+                  <input
+                    type="text"
+                    value={tickers}
+                    onChange={(e) => { setTickers(e.target.value); setPreset("Custom"); }}
+                    onFocus={(e) => e.target.select()}
+                    required
+                    style={{ width: '100%', marginBottom: 0 }}
+                  />
+                </>
+              )}
             </div>
           </div>
           <div className="form-group">
             <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Max P/E Ratio (Optional)</label>
-            <input 
-              type="number" 
-              step="0.1" 
-              value={maxPe} 
-              onChange={(e) => setMaxPe(e.target.value)} 
-              placeholder="e.g. 50" 
-              style={{ width: '100%' }}
+            <input
+              type="number"
+              step="0.1"
+              value={maxPe}
+              onChange={(e) => setMaxPe(e.target.value)}
+              placeholder="e.g. 50"
+              style={{ width: '100%', marginBottom: 0 }}
             />
           </div>
           <div className="form-group">
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Min Div Yield % (Optional)</label>
-            <input 
-              type="number" 
-              step="0.1" 
-              value={minDiv} 
-              onChange={(e) => setMinDiv(e.target.value)} 
-              placeholder="e.g. 1.5" 
-              style={{ width: '100%' }}
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Min Div Yield %</label>
+            <input
+              type="number"
+              step="0.1"
+              value={minDiv}
+              onChange={(e) => setMinDiv(e.target.value)}
+              placeholder="e.g. 1.5"
+              style={{ width: '100%', marginBottom: 0 }}
             />
           </div>
-          <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
+          <div className="form-group">
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Min ROE %</label>
+            <input
+              type="number"
+              step="0.1"
+              value={minRoe}
+              onChange={(e) => setMinRoe(e.target.value)}
+              placeholder="e.g. 15"
+              style={{ width: '100%', marginBottom: 0 }}
+            />
+          </div>
+          <div className="form-group">
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Min EPS Grw. %</label>
+            <input
+              type="number"
+              step="0.1"
+              value={minEpsGrowth}
+              onChange={(e) => setMinEpsGrowth(e.target.value)}
+              placeholder="e.g. 10"
+              style={{ width: '100%', marginBottom: 0 }}
+            />
+          </div>
+          <div className="form-group screener-submit" style={{ display: 'flex', alignItems: 'flex-end' }}>
             <button type="submit" disabled={loading} style={{ width: '100%', padding: '14px', height: 'fit-content' }}>
               {loading ? <><span className="spinner"></span> SCANNING...</> : 'RUN SCREEN'}
             </button>
           </div>
         </form>
       </div>
-      
-      {loading ? <p>Scanning Universe...</p> : (
+
+      {loading ? (
+        <div className="table-container" style={{ padding: '24px' }}>
+          <div className="skeleton skeleton-header"></div>
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="skeleton skeleton-row" style={{ height: '40px', marginTop: '16px' }}></div>
+          ))}
+        </div>
+      ) : error ? (
+        <div className="error" style={{ color: 'var(--red-loss)', padding: '20px', backgroundColor: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.2)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h3 style={{ marginBottom: '8px', fontSize: '16px', color: 'var(--red-loss)' }}>Screening Failed</h3>
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{error}</p>
+          </div>
+          <button onClick={fetchScreener} style={{ width: 'auto', padding: '8px 16px', background: 'rgba(255, 69, 58, 0.15)', border: '1px solid var(--red-loss)', color: 'var(--red-loss)' }}>Retry</button>
+        </div>
+      ) : (
         data.length > 0 ? (
-          <table style={{width: '100%', textAlign: 'left', borderCollapse: 'collapse', marginTop: '20px'}}>
-            <thead>
-              <tr style={{borderBottom: '1px solid var(--primary-gold)', color: 'var(--primary-gold)'}}>
-                <th style={{padding: '10px'}}>Ticker</th>
-                <th>Price</th>
-                <th>Market Cap (B)</th>
-                <th>P/E (TTM)</th>
-                <th>Div Yield (%)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((row) => (
-                <tr key={row.ticker} style={{borderBottom: '1px solid #333'}}>
-                  <td style={{padding: '10px', fontWeight: 'bold'}}>{row.ticker}</td>
-                  <td>${row.price.toFixed(2)}</td>
-                  <td>${row.marketCap.toFixed(2)}</td>
-                  <td>{row.peRatio ? row.peRatio.toFixed(2) : 'N/A'}</td>
-                  <td style={{color: row.divYield > 0 ? 'var(--green-gain)' : 'inherit'}}>{row.divYield.toFixed(2)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>{data.length}</strong> of {scanMeta?.scanned ?? requestedCount} stocks passed the screen
+                {scanMeta?.truncated && (
+                  <span style={{ color: 'var(--primary-gold)', marginLeft: '8px' }}>
+                    (scanned {scanMeta.scanned}/{scanMeta.requested} within time budget)
+                  </span>
+                )}
+              </span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Tap a column header to sort</span>
+            </div>
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    {COLUMNS.map(col => (
+                      <th
+                        key={col.key}
+                        onClick={() => handleSort(col.key)}
+                        style={{ textAlign: col.numeric ? 'right' : 'left', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                        title={`Sort by ${col.label}`}
+                      >
+                        {col.label}{sortIndicator(col.key)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedData.map((row) => (
+                    <tr key={row.ticker}>
+                      <td style={{fontWeight: '600'}}>{row.ticker}</td>
+                      <td style={{textAlign: 'right'}}>{currencyFor(row.ticker)}{row.price.toFixed(2)}</td>
+                      <td style={{textAlign: 'right'}}>{currencyFor(row.ticker)}{row.marketCap.toFixed(2)}</td>
+                      <td style={{textAlign: 'right'}}>{row.peRatio ? row.peRatio.toFixed(2) : 'N/A'}</td>
+                      <td style={{textAlign: 'right'}}>{row.roe ? row.roe.toFixed(2) + '%' : 'N/A'}</td>
+                      <td style={{textAlign: 'right', color: row.epsGrowth > 0 ? 'var(--green-gain)' : (row.epsGrowth < 0 ? 'var(--red-loss)' : 'inherit')}}>{row.epsGrowth ? row.epsGrowth.toFixed(2) + '%' : 'N/A'}</td>
+                      <td style={{textAlign: 'right', color: row.divYield > 0 ? 'var(--green-gain)' : 'inherit'}}>{row.divYield.toFixed(2)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : hasRun ? (
+          <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
+            <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔍</div>
+            <h3 style={{ marginBottom: '8px' }}>No stocks passed your filters</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
+              All {scanMeta?.scanned ?? requestedCount} stocks were screened out. Try relaxing the P/E, dividend, ROE, or EPS growth limits.
+            </p>
+          </div>
         ) : (
-          <p style={{marginTop: '20px', color: 'var(--text-secondary)'}}>No tickers matched your criteria. Adjust your filters or add more tickers.</p>
+          <p style={{marginTop: '20px', color: 'var(--text-secondary)'}}>Click RUN SCREEN to analyze the market, or adjust your filters.</p>
         )
       )}
-      
+
       {data.length > 0 && !loading && (
         <div style={{ marginTop: '40px' }}>
           {!aiReport ? (
@@ -163,15 +330,13 @@ const Screener = () => {
           ) : (
             <div className="ai-insight">
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center' }}>
-                <div style={{ fontWeight: '700', color: 'var(--primary-gold-dark)', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                  Gemini Quant Screener Analysis
-                </div>
-                <button onClick={runAiAnalysis} disabled={aiLoading} style={{ width: 'auto', padding: '4px 12px', fontSize: '11px' }} className="secondary">
-                  {aiLoading ? "RE-ANALYZING..." : "REFRESH"}
+                <h3>Gemini Quant Screener Analysis</h3>
+                <button onClick={runAiAnalysis} disabled={aiLoading} style={{ width: 'auto', padding: '6px 14px', fontSize: '12px' }} className="secondary">
+                  {aiLoading ? <><span className="spinner"></span> RE-ANALYZING...</> : "REFRESH"}
                 </button>
               </div>
-              <div style={{ fontSize: '14px', lineHeight: '1.7', color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
-                {aiReport}
+              <div className="ai-insight-content">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiReport}</ReactMarkdown>
               </div>
             </div>
           )}
