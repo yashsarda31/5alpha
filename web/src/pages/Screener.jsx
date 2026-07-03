@@ -20,6 +20,29 @@ const currencyFor = (ticker) => {
   return t.endsWith('.NS') || t.endsWith('.BO') ? '₹' : '$';
 };
 
+// Guru presets fill the filter boxes transparently — users can see and tweak
+// exactly what each screen applies before running it.
+const GURU_SCREENS = {
+  buffett: {
+    name: 'Buffett', icon: '🏛', accent: 'var(--primary-gold)',
+    desc: 'Quality at a fair price: durable profitability (ROE ≥ 15%), sensible valuation (P/E ≤ 25), still growing (EPS ≥ 5%), strong Alpha Score.',
+    filters: { maxPe: '25', minDiv: '', minRoe: '15', minEpsGrowth: '5', minMomentum: '', minAlphaScore: '60' },
+    sort: 'alphaScore',
+  },
+  minervini: {
+    name: 'Minervini', icon: '🚀', accent: 'var(--primary-accent)',
+    desc: 'SEPA-style leaders: strong multi-timeframe momentum (≥ 15%) with accelerating earnings (EPS growth ≥ 20%). Trend first, valuation second.',
+    filters: { maxPe: '', minDiv: '', minRoe: '', minEpsGrowth: '20', minMomentum: '15', minAlphaScore: '' },
+    sort: 'momentum',
+  },
+  greenblatt: {
+    name: 'Greenblatt', icon: '🧮', accent: 'var(--green-gain)',
+    desc: 'Magic Formula proxy: good businesses (ROE ≥ 20% for return on capital) at cheap prices (P/E ≤ 20 for earnings yield ≥ 5%).',
+    filters: { maxPe: '20', minDiv: '', minRoe: '20', minEpsGrowth: '', minMomentum: '', minAlphaScore: '' },
+    sort: 'roe',
+  },
+};
+
 // Named universes resolved server-side (backend holds the ticker lists)
 const UNIVERSES = {
   'Nifty 100': { key: 'nifty100', count: 100, desc: 'Large-cap NSE (India)' },
@@ -45,9 +68,30 @@ const Screener = () => {
   const [minAlphaScore, setMinAlphaScore] = useState("");
   const [preset, setPreset] = useState("Custom");
   const [scanMeta, setScanMeta] = useState(null);
+  const [activeGuru, setActiveGuru] = useState(null);
 
   const [sortKey, setSortKey] = useState('marketCap');
   const [sortDir, setSortDir] = useState('desc');
+
+  const applyGuru = (key) => {
+    const g = GURU_SCREENS[key];
+    if (activeGuru === key) {
+      // Toggle off — clear the filters it set
+      setActiveGuru(null);
+      setMaxPe(''); setMinDiv(''); setMinRoe(''); setMinEpsGrowth(''); setMinMomentum(''); setMinAlphaScore('');
+      return;
+    }
+    setActiveGuru(key);
+    setMaxPe(g.filters.maxPe);
+    setMinDiv(g.filters.minDiv);
+    setMinRoe(g.filters.minRoe);
+    setMinEpsGrowth(g.filters.minEpsGrowth);
+    setMinMomentum(g.filters.minMomentum);
+    setMinAlphaScore(g.filters.minAlphaScore);
+    setSortKey(g.sort);
+    setSortDir('desc');
+    if (preset === 'Custom') setPreset('Nifty 100');
+  };
 
   const isUniverse = preset !== 'Custom';
   const universeMeta = UNIVERSES[preset];
@@ -150,6 +194,33 @@ const Screener = () => {
     <div>
       <h2>Quantitative Screener</h2>
       <p style={{color: "var(--text-secondary)"}}>Live trailing institutional metrics across custom ticker universe.</p>
+
+      <div style={{ display: 'flex', gap: '10px', margin: '16px 0 12px 0', flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Guru screens:</span>
+        {Object.entries(GURU_SCREENS).map(([key, g]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => applyGuru(key)}
+            className="secondary"
+            style={{
+              width: 'auto', padding: '8px 16px', borderRadius: '18px', fontSize: '13px',
+              border: `1px solid ${activeGuru === key ? g.accent : 'var(--border-color)'}`,
+              color: activeGuru === key ? g.accent : 'var(--text-primary)',
+              boxShadow: activeGuru === key ? `0 0 12px ${g.accent}33` : 'none'
+            }}
+          >
+            {g.icon} {g.name}
+          </button>
+        ))}
+      </div>
+
+      {activeGuru && (
+        <div className="card" style={{ padding: '12px 16px', marginBottom: '14px', fontSize: '13px', color: 'var(--text-secondary)', borderLeft: `3px solid ${GURU_SCREENS[activeGuru].accent}` }}>
+          <strong style={{ color: GURU_SCREENS[activeGuru].accent }}>{GURU_SCREENS[activeGuru].icon} {GURU_SCREENS[activeGuru].name} screen:</strong>{' '}
+          {GURU_SCREENS[activeGuru].desc} The filter boxes below now hold these criteria — tweak them freely, then RUN SCREEN.
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: '20px', padding: '20px' }}>
         <form onSubmit={fetchScreener} className="screener-form">

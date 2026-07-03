@@ -2403,6 +2403,95 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0):
     return data
 
 
+# --- Focus List: today's stocks worth watching, aggregated from the engines ---
+FOCUS_CACHE_TTL = 300
+_FOCUS_INDEX_SYMBOLS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50"}
+
+@app.get("/api/focus")
+async def get_focus_list():
+    cache_key = "focus_list"
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < FOCUS_CACHE_TTL:
+        return API_CACHE[cache_key]['data']
+
+    # Reuse the cached engines rather than re-hitting NSE/Yahoo
+    signals = await get_market_signals()
+    try:
+        momentum = await get_momentum("in")
+    except HTTPException:
+        momentum = {"data": []}
+
+    focus = {}
+
+    def add(symbol, tag, detail, weight, side=None):
+        sym = (symbol or "").replace(".NS", "").upper()
+        if not sym or sym in _FOCUS_INDEX_SYMBOLS:
+            return
+        entry = focus.setdefault(sym, {"symbol": sym, "reasons": [], "weight": 0, "side": None})
+        entry["reasons"].append({"tag": tag, "detail": detail})
+        entry["weight"] += weight
+        if side and not entry["side"]:
+            entry["side"] = side
+
+    # 1. High-conviction futures setups (strongest signal)
+    for p in signals.get("setups", {}).get("plans", []):
+        add(p["symbol"], f"{p['side']} setup",
+            f"conviction {p['score']}/100 · entry ₹{p['entry']:,} · stop ₹{p['stop']:,} · target ₹{p['target']:,}",
+            p["score"], side=p["side"])
+
+    # 2. Momentum leaders (multi-month trend)
+    for i, m in enumerate((momentum.get("data") or [])[:5]):
+        add(m["ticker"], "Momentum leader",
+            f"#{i + 1} by composite momentum · {m['score']:+.1f}% (1m/6m/12m avg)",
+            35 - i * 4, side="LONG")
+
+    # 3. Fresh stock-option buildups (institutional flow)
+    buildups = signals.get("options", {}).get("buildups", {})
+    for kind, tag, weight, side in (
+        ("long_buildup", "Long buildup", 22, "LONG"),
+        ("short_buildup", "Short buildup", 22, "SHORT"),
+        ("short_covering", "Short covering", 15, "LONG"),
+    ):
+        seen_syms = set()
+        for c in buildups.get(kind, [])[:6]:
+            if c["symbol"] in seen_syms:
+                continue
+            seen_syms.add(c["symbol"])
+            add(c["symbol"], tag, f"{c['contract']} · price {c['pChange']:+.1f}% · OI {c['oiChangePct']:+.0f}%", weight, side=side)
+
+    # 4. Day's biggest heavyweight movers (from the dashboard feed)
+    dash = API_CACHE.get("dashboard", {}).get("data") or {}
+    for m in (dash.get("movers") or [])[:4]:
+        if abs(m.get("change_pct") or 0) >= 1.0:
+            add(m["ticker"], "Big mover", f"{m['change_pct']:+.2f}% today · ₹{m['last']:,}", 12,
+                side="LONG" if m["change_pct"] > 0 else "SHORT")
+
+    ranked = sorted(focus.values(), key=lambda x: -x["weight"])[:12]
+    for entry in ranked:
+        entry["weight"] = round(entry["weight"])
+
+    # Index context so the list reads with the day's backdrop
+    oc_nifty = next((oc for oc in signals.get("options", {}).get("indices", []) if oc["symbol"] == "NIFTY"), None)
+    data = {
+        "as_of": signals.get("as_of"),
+        "market_open": signals.get("market_open"),
+        "market_note": signals.get("market_note"),
+        "context": {
+            "regime": signals.get("regime", {}).get("overall"),
+            "direction": signals.get("regime", {}).get("dir"),
+            "vix": signals.get("regime", {}).get("vix"),
+            "vol_label": signals.get("regime", {}).get("vol", {}).get("label"),
+            "nifty_spot": oc_nifty["spot"] if oc_nifty else None,
+            "nifty_support": oc_nifty["support"] if oc_nifty else None,
+            "nifty_resistance": oc_nifty["resistance"] if oc_nifty else None,
+            "nifty_max_pain": oc_nifty["max_pain"] if oc_nifty else None,
+            "index_bias": signals.get("setups", {}).get("index_bias"),
+        },
+        "stocks": ranked,
+    }
+    API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+    return data
+
+
 # --- Authentication (local-first, SQLite) ---
 # Users and sessions live in a SQLite file on this machine — no external services.
 # Passwords are stored as salted PBKDF2-HMAC-SHA256 hashes; session tokens are

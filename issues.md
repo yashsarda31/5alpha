@@ -77,6 +77,12 @@
 - Porting bug caught during browser verification: `build_index_ideas` used a bare `else` where the terminal had `elif bias == "BEARISH"`, mislabeling NEUTRAL readings as BEARISH — fixed with an explicit NEUTRAL idea.
 - Covered by `test_market_signals` in api/test_main.py (28 tests total). Verified live in-browser (desktop + mobile) and on prod (~2.8s response).
 
+## Learn tab, Focus List, guru screens (2026-07-03)
+- **🎓 Learn** (`/learn`): curated static library, 3 tracks (Investing/Trading/Options) × ~7 canonical resources each, with type/level badges and a suggested path per track. Free resources link to official sources (Buffett letters, Damodaran YouTube, Marks memos, Poor Charlie's Almanack on Stripe Press, Zerodha Varsity, Adam Grimes course, OIC, Cboe, tastylive); books link to Goodreads.
+- **🎯 Focus List** (`/focus` + `/api/focus`): aggregates the engines already running — signal setups (weight = conviction score), top-5 momentum leaders, stock-option buildups, heavyweight movers — deduped per symbol with merged reason chips and a summed focus weight (verified: SBIN merged Momentum leader + Big mover). Context strip shows regime, NIFTY S/R + max pain, VIX, options bias, LIVE/CLOSED pill. Cached 5 min; reuses signals/momentum caches.
+- **Guru screens** in Quant Screener: Buffett (ROE≥15, PE≤25, EPS≥5, alpha≥60 → sorted by Alpha Score), Minervini (momentum≥15, EPS growth≥20 → sorted by momentum), Greenblatt Magic-Formula proxy (PE≤20, ROE≥20 → sorted by ROE). Chips fill the filter boxes transparently (editable), toggle off to clear, auto-select Nifty 100 when on Custom. Verified live: Buffett 15/101 (COALINDIA/BPCL-type value), Minervini 5/101 (ADANIPOWER/MOTHERSON-type momentum).
+- Tests: test_focus_list + test_screener_guru_style_filters (30 total).
+
 ## Screener: momentum + Alpha Nova Score filters (2026-07-03)
 - Two new screen dimensions: `min_momentum` (composite (1m+6m+12m)/3 return %, identical math to the Momentum Leaders tab — cross-validated: SHRIRAMFIN +25.4 in both) and `min_alpha_score` (0–100).
 - **Alpha Nova Score (est.)** is computed server-side for every row at zero extra network cost: same formula as the DCF tab (50 + (predictability−3)×10 + clamp(MoS×40, ±25) + PE<25 bonus), with fair value from a two-stage EPS model (10y at `earningsGrowth` clamped 2–50%, 10y terminal 4%, 11% discount) using only `info` fields. Null for negative-EPS names (sinks in sort).

@@ -139,3 +139,28 @@ def test_market_signals():
         assert plan["side"] in ("LONG", "SHORT")
         assert 0 <= plan["score"] <= 100
         assert plan["entry"] > 0 and plan["stop"] > 0 and plan["target"] > 0
+
+
+def test_focus_list():
+    response = client.get("/api/focus")
+    assert response.status_code == 200
+    data = response.json()
+    assert "context" in data and "stocks" in data
+    assert isinstance(data["stocks"], list)
+    for s in data["stocks"]:
+        assert s["symbol"] and s["weight"] > 0
+        assert len(s["reasons"]) >= 1
+        for r in s["reasons"]:
+            assert r["tag"] and r["detail"]
+
+
+def test_screener_guru_style_filters():
+    # Greenblatt-style: cheap (PE<=20) + high return on equity (>=20)
+    response = client.post("/api/screener", json={
+        "tickers": "AAPL, MSFT, KO, TCS.NS, COALINDIA.NS",
+        "max_pe": 20, "min_roe": 20
+    })
+    assert response.status_code == 200
+    for row in response.json()["data"]:
+        assert row["peRatio"] is None or row["peRatio"] <= 20
+        assert row["roe"] >= 20

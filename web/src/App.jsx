@@ -12,6 +12,8 @@ import Fundamentals from './pages/Fundamentals';
 import News from './pages/News';
 import OptionChain from './pages/OptionChain';
 import MarketSignals from './pages/MarketSignals';
+import FocusList from './pages/FocusList';
+import Learn from './pages/Learn';
 import DruckMinervini from './pages/DruckMinervini';
 import TradingGame from './pages/TradingGame';
 
@@ -64,6 +66,9 @@ const AppLayout = () => {
           <NavLink to="/signals" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>⚡</span> Market Signals
           </NavLink>
+          <NavLink to="/focus" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
+            <span style={{marginRight: '12px', opacity: 0.8}}>🎯</span> Focus List
+          </NavLink>
           <NavLink to="/chart" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>📈</span> Chart Analyser
           </NavLink>
@@ -100,6 +105,9 @@ const AppLayout = () => {
           </NavLink>
           <NavLink to="/trading-game" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>🎮</span> Discipline Arena
+          </NavLink>
+          <NavLink to="/learn" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
+            <span style={{marginRight: '12px', opacity: 0.8}}>🎓</span> Learn
           </NavLink>
         </nav>
         
@@ -138,6 +146,8 @@ const AppLayout = () => {
           <Route path="/news" element={<News />} />
           <Route path="/option-chain" element={<OptionChain />} />
           <Route path="/signals" element={<MarketSignals />} />
+          <Route path="/focus" element={<FocusList />} />
+          <Route path="/learn" element={<Learn />} />
           <Route path="/trading-game" element={<TradingGame />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
