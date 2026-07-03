@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { PageHeader } from '../components/ui';
 
 // Curated, canonical resources per track. Free resources link to the official
 // source; books link to Goodreads (buy/borrow anywhere).
@@ -58,10 +59,11 @@ const Learn = () => {
 
   return (
     <div className="fade-in" style={{ maxWidth: '1000px', margin: '0 auto' }}>
-      <h2 style={{ marginBottom: '4px' }}>🎓 Learn</h2>
-      <p style={{ color: 'var(--text-secondary)', marginTop: 0, fontSize: '14px' }}>
-        A curated shelf of world-class material — canonical books, and courses that are genuinely free from the original source.
-      </p>
+      <PageHeader
+        code="LEARN"
+        title="Learn"
+        subtitle="A curated shelf of world-class material — canonical books, and courses that are genuinely free from the original source."
+      />
 
       <div style={{ display: 'flex', gap: '10px', margin: '18px 0', flexWrap: 'wrap' }}>
         {Object.entries(TRACKS).map(([name, t]) => (

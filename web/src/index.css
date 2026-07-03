@@ -4,24 +4,37 @@
   --bg-panel: rgba(28, 28, 30, 0.65);
   --bg-panel-hover: rgba(44, 44, 46, 0.8);
 
-  --text-primary: #F5F5F7;
-  --text-secondary: #86868B;
+  /* Text roles — WCAG-AA on the dark glass. No dark-on-dark, ever. */
+  --text-primary: #F5F5F7;   /* ~19:1 — titles, values */
+  --text-secondary: #A1A1AA; /* ~7:1 — body, labels (safe at 10px) */
+  --text-tertiary: #6B6B75;  /* throwaway captions only, >=12px, never data */
 
   --border-color: rgba(255, 255, 255, 0.1);
   --border-highlight: rgba(255, 255, 255, 0.2);
 
-  --primary-accent: #3EE6FF; /* Electric Ice Blue */
+  --primary-accent: #3EE6FF; /* Electric Ice Blue — labels / interactive */
   --primary-accent-soft: rgba(62, 230, 255, 0.12);
   --primary-accent-border: rgba(62, 230, 255, 0.35);
   --primary-accent-glow: rgba(62, 230, 255, 0.25);
-  --primary-gold: #F5DC8C; /* Light Golden */
+  --primary-gold: #F5DC8C; /* Light Golden — key figures */
   --primary-gold-dark: #E3C566;
   --primary-gold-hover: #FAE7AC;
   --primary-gold-glow: rgba(245, 220, 140, 0.25);
 
   --red-loss: #FF453A; /* Apple Red */
   --green-gain: #32D74B; /* Apple Green */
-  
+
+  /* Glass Terminal design tokens */
+  --font-mono: 'SF Mono', ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
+  --r-sm: 8px;
+  --r-tile: 12px;
+  --r-card: 16px;
+  --r-pill: 20px;
+  --surface-tile: rgba(255, 255, 255, 0.04);
+  --surface-panel: rgba(18, 18, 20, 0.65);
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-hairline: rgba(255, 255, 255, 0.05);
+
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -34,6 +47,12 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* Tabular monospace numerals — figures that align in columns */
+.tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 body {
