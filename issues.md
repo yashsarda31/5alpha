@@ -77,6 +77,13 @@
 - Porting bug caught during browser verification: `build_index_ideas` used a bare `else` where the terminal had `elif bias == "BEARISH"`, mislabeling NEUTRAL readings as BEARISH — fixed with an explicit NEUTRAL idea.
 - Covered by `test_market_signals` in api/test_main.py (28 tests total). Verified live in-browser (desktop + mobile) and on prod (~2.8s response).
 
+## Live-market test pass (2026-07-03, 09:15–09:32 IST)
+- Deep-validated `/api/signals` during live hours with a structural checker (walks the whole payload for NaN/inf, verifies plan geometry LONG stop<entry<target / SHORT inverse, R:R ≈ 1.5, PCR/max-pain sanity): ALL PASSED locally and on prod. Pill correctly flips to MARKET LIVE; plans went 0 → 1 → 8 through the first 15 minutes as names crossed the 2,000-trade liquidity gate (by design — same as the terminal).
+- Verified 60s auto-refresh in-browser: `as_of` rolled over without a loading-skeleton flash; plan rows grew live; zero console errors.
+- **Bug fixed — TATAMOTORS delisted on Yahoo** (Oct-2025 demerger): silently dropped from dashboard movers, momentum universe, and Nifty-100 screener. Replaced with `TMPV`(.NS) and added `TMCV`(.NS); verified all three surfaces now include them.
+- **Bug fixed — wasted Yahoo call per stock option-chain request**: `fetch_yfinance_spot_data` tried the bare symbol before `.NS`, always failing first (log noise "$RELIANCE: possibly delisted"). Now tries `.NS` first for plain symbols.
+- Full sweep re-run: 28 backend tests, 9 live endpoints, dashboard/option-chain/momentum/screener walked in-browser with live data, prod re-deployed and re-validated.
+
 ## Screener universe expansion + first git commit (2026-07-03)
 - Screener now covers named universes resolved server-side: Nifty 100, Nifty 200, S&P 100, Nasdaq 100 (lists in `SCREENER_UNIVERSES` in api/main.py). Frontend sends a `universe` key (not a 200-ticker string); the preset shows a summary chip instead of dumping tickers into the textbox. Custom tickers still supported.
 - Backend scales workers to universe size (cap 32) and uses a 45s `as_completed` time budget, returning partial results with `{requested, scanned, truncated}` rather than hanging. Unknown/delisted symbols filter out gracefully. Prod Nifty 200 scan = all 200 in ~28s.

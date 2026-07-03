@@ -91,7 +91,7 @@ class MomentumRequest(BaseModel):
 # lists can be generous without breaking the response.
 _NIFTY100 = [
     "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN", "BHARTIARTL", "LT", "ITC", "HINDUNILVR",
-    "AXISBANK", "BAJFINANCE", "MARUTI", "KOTAKBANK", "SUNPHARMA", "TITAN", "ONGC", "TATAMOTORS", "NTPC", "M&M",
+    "AXISBANK", "BAJFINANCE", "MARUTI", "KOTAKBANK", "SUNPHARMA", "TITAN", "ONGC", "TMPV", "TMCV", "NTPC", "M&M",
     "ADANIENT", "ADANIPORTS", "POWERGRID", "ASIANPAINT", "BAJAJFINSV", "WIPRO", "JSWSTEEL", "TATASTEEL", "COALINDIA", "NESTLEIND",
     "GRASIM", "HINDALCO", "SBILIFE", "HDFCLIFE", "TECHM", "EICHERMOT", "DRREDDY", "CIPLA", "APOLLOHOSP", "BRITANNIA",
     "INDUSINDBK", "HEROMOTOCO", "BAJAJ-AUTO", "TATACONSUM", "BPCL", "SHRIRAMFIN", "TRENT", "BEL", "DIVISLAB", "HAL",
@@ -965,7 +965,7 @@ async def get_momentum(market: str = "us"):
     if market.lower() == 'in':
         tickers = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS",
                    "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "HINDUNILVR.NS", "LT.NS",
-                   "BAJFINANCE.NS", "HCLTECH.NS", "MARUTI.NS", "SUNPHARMA.NS", "TATAMOTORS.NS",
+                   "BAJFINANCE.NS", "HCLTECH.NS", "MARUTI.NS", "SUNPHARMA.NS", "TMPV.NS", "TMCV.NS",
                    "KOTAKBANK.NS", "M&M.NS", "ULTRACEMCO.NS", "AXISBANK.NS", "NTPC.NS",
                    "ONGC.NS", "TITAN.NS", "ADANIENT.NS", "ADANIPORTS.NS", "POWERGRID.NS",
                    "ASIANPAINT.NS", "BAJAJFINSV.NS", "WIPRO.NS", "JSWSTEEL.NS", "TATASTEEL.NS",
@@ -1129,9 +1129,14 @@ def fetch_yfinance_spot_data(symbol: str):
             pass
         return None, None
         
-    hist, resolved_sym = fetch(yf_symbol)
-    if hist is None and not yf_symbol.endswith(".NS") and not yf_symbol.startswith("^"):
+    # This path serves NSE option-chain symbols, so try the .NS listing first —
+    # the bare symbol almost never exists on Yahoo and just burns a failed call
+    if "." not in yf_symbol and not yf_symbol.startswith("^"):
         hist, resolved_sym = fetch(f"{yf_symbol}.NS")
+        if hist is None:
+            hist, resolved_sym = fetch(yf_symbol)
+    else:
+        hist, resolved_sym = fetch(yf_symbol)
         
     if hist is not None and not hist.empty:
         current_price = float(hist['Close'].iloc[-1])
@@ -1810,8 +1815,9 @@ async def get_fiidii():
     return res
 
 
+# TMPV = Tata Motors Passenger Vehicles (post-Oct-2025 demerger; TATAMOTORS is delisted on Yahoo)
 DASHBOARD_MOVERS = ["RELIANCE.NS", "HDFCBANK.NS", "TCS.NS", "INFY.NS", "ICICIBANK.NS",
-                    "SBIN.NS", "BHARTIARTL.NS", "LT.NS", "ITC.NS", "TATAMOTORS.NS"]
+                    "SBIN.NS", "BHARTIARTL.NS", "LT.NS", "ITC.NS", "TMPV.NS"]
 
 def _is_indian_market_open():
     ist = timezone(timedelta(hours=5, minutes=30))
