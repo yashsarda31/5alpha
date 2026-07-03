@@ -77,6 +77,12 @@
 - Porting bug caught during browser verification: `build_index_ideas` used a bare `else` where the terminal had `elif bias == "BEARISH"`, mislabeling NEUTRAL readings as BEARISH — fixed with an explicit NEUTRAL idea.
 - Covered by `test_market_signals` in api/test_main.py (28 tests total). Verified live in-browser (desktop + mobile) and on prod (~2.8s response).
 
+## Screener: momentum + Alpha Nova Score filters (2026-07-03)
+- Two new screen dimensions: `min_momentum` (composite (1m+6m+12m)/3 return %, identical math to the Momentum Leaders tab — cross-validated: SHRIRAMFIN +25.4 in both) and `min_alpha_score` (0–100).
+- **Alpha Nova Score (est.)** is computed server-side for every row at zero extra network cost: same formula as the DCF tab (50 + (predictability−3)×10 + clamp(MoS×40, ±25) + PE<25 bonus), with fair value from a two-stage EPS model (10y at `earningsGrowth` clamped 2–50%, 10y terminal 4%, 11% discount) using only `info` fields. Null for negative-EPS names (sinks in sort).
+- **Momentum needs a 14-month history per ticker**, so it's computed only when the momentum filter is set; the frontend hides the Momentum column when absent. Nifty 200 with momentum + alpha + PE filters: 201 scanned in ~7s local / ~19s prod, within the 45s budget.
+- Both columns are sortable; alpha ≥60 renders gold. Form grid rearranged to 4 columns (2 rows), unchanged 2-col mobile.
+
 ## Live-market test pass (2026-07-03, 09:15–09:32 IST)
 - Deep-validated `/api/signals` during live hours with a structural checker (walks the whole payload for NaN/inf, verifies plan geometry LONG stop<entry<target / SHORT inverse, R:R ≈ 1.5, PCR/max-pain sanity): ALL PASSED locally and on prod. Pill correctly flips to MARKET LIVE; plans went 0 → 1 → 8 through the first 15 minutes as names crossed the 2,000-trade liquidity gate (by design — same as the terminal).
 - Verified 60s auto-refresh in-browser: `as_of` rolled over without a loading-skeleton flash; plan rows grew live; zero console errors.

@@ -407,8 +407,8 @@ tr:hover td {
 /* Screener form layout */
 .screener-form {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px 20px;
 }
 
 .screener-universe-row {

@@ -80,6 +80,8 @@ class ScreenerRequest(BaseModel):
     min_div_yield: float = None
     min_roe: float = None
     min_eps_growth: float = None
+    min_momentum: float = None      # composite (1m+6m+12m)/3 return %; needs price history
+    min_alpha_score: float = None   # Alpha Nova Score 0-100
 
 class MomentumRequest(BaseModel):
     market: str = "us" # 'us' or 'in'
@@ -152,6 +154,52 @@ SCREENER_UNIVERSES = {
 # (with an honest scanned count) rather than hang if a large scan runs long.
 SCREENER_TIME_BUDGET = 45
 
+def _alpha_nova_score_lite(price, eps, pe, div_pct, growth_pct):
+    """Estimated Alpha Nova Score (0-100) — same formula as the DCF tab, but
+    computed from yfinance `info` alone (EPS base, earningsGrowth for the growth
+    stage) so a 200-stock screen needs no extra network calls.
+
+    Score = 50 + (predictability-3)*10 + clamp(MoS*40, ±25) + (PE<25 bonus 15)
+    Fair value = two-stage EPS model: 10y at growth, 10y terminal at 4%, 11% discount.
+    """
+    if not price or price <= 0 or not eps or eps <= 0:
+        return None
+    growth = max(2.0, min(50.0, growth_pct)) if growth_pct and growth_pct > 0 else 10.0
+    g, r, tg = growth / 100, 0.11, 0.04
+    val, fv = eps, 0.0
+    for i in range(1, 11):
+        val *= (1 + g)
+        fv += val / (1 + r) ** i
+    for i in range(11, 21):
+        val *= (1 + tg)
+        fv += val / (1 + r) ** i
+    mos = (fv - price) / fv if fv > 0 else 0.0
+
+    predictability = 3  # eps > 0 guaranteed above
+    if pe is not None and 0 < pe < 30:
+        predictability += 1
+    if div_pct and div_pct > 0:
+        predictability += 1
+    predictability = min(5, predictability)
+
+    score = (50 + (predictability - 3) * 10
+             + max(-25.0, min(25.0, mos * 40))
+             + (15 if pe is not None and 0 < pe < 25 else 0))
+    return int(min(99, max(10, round(score))))
+
+def _composite_momentum(stock):
+    """(1m + 6m + 12m return)/3 in %, mirroring the Momentum Leaders tab."""
+    try:
+        closes = stock.history(period="14mo")['Close'].dropna()
+        if len(closes) < 252:
+            return None
+        last = closes.iloc[-1]
+        mom = (((last / closes.iloc[-21]) - 1) + ((last / closes.iloc[-126]) - 1)
+               + ((last / closes.iloc[-252]) - 1)) / 3 * 100
+        return round(float(mom), 2) if np.isfinite(mom) else None
+    except Exception:
+        return None
+
 @app.post("/api/screener")
 def run_screener(req: ScreenerRequest):
     if req.universe and req.universe in SCREENER_UNIVERSES:
@@ -164,6 +212,9 @@ def run_screener(req: ScreenerRequest):
     tickers = [t for t in tickers if not (t in seen or seen.add(t))]
     requested = len(tickers)
     results = []
+    # Momentum needs a 14-month history per ticker (an extra request each), so
+    # only compute it when the momentum filter is actually in play
+    want_momentum = req.min_momentum is not None
 
     def process_ticker(ticker):
         try:
@@ -202,6 +253,15 @@ def run_screener(req: ScreenerRequest):
             if not (np.isfinite(price) and np.isfinite(market_cap)):
                 return None
 
+            trailing_eps = info.get("trailingEps")
+            alpha_score = _alpha_nova_score_lite(price, trailing_eps, pe, div_pct, eps_pct)
+            if req.min_alpha_score is not None and (alpha_score is None or alpha_score < req.min_alpha_score):
+                return None
+
+            momentum = _composite_momentum(stock) if want_momentum else None
+            if req.min_momentum is not None and (momentum is None or momentum < req.min_momentum):
+                return None
+
             return {
                 "ticker": ticker,
                 "price": price,
@@ -209,7 +269,9 @@ def run_screener(req: ScreenerRequest):
                 "peRatio": pe if (pe is not None and np.isfinite(pe)) else None,
                 "divYield": div_pct,
                 "roe": roe_pct,
-                "epsGrowth": eps_pct
+                "epsGrowth": eps_pct,
+                "momentum": momentum,
+                "alphaScore": alpha_score
             }
         except Exception:
             return None

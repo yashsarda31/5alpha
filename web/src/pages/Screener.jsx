@@ -11,6 +11,8 @@ const COLUMNS = [
   { key: 'roe', label: 'ROE (%)', numeric: true },
   { key: 'epsGrowth', label: 'EPS Grw (%)', numeric: true },
   { key: 'divYield', label: 'Div Yield (%)', numeric: true },
+  { key: 'momentum', label: 'Momentum (%)', numeric: true, optional: true },
+  { key: 'alphaScore', label: 'Alpha Score', numeric: true },
 ];
 
 const currencyFor = (ticker) => {
@@ -39,6 +41,8 @@ const Screener = () => {
   const [minDiv, setMinDiv] = useState("");
   const [minRoe, setMinRoe] = useState("");
   const [minEpsGrowth, setMinEpsGrowth] = useState("");
+  const [minMomentum, setMinMomentum] = useState("");
+  const [minAlphaScore, setMinAlphaScore] = useState("");
   const [preset, setPreset] = useState("Custom");
   const [scanMeta, setScanMeta] = useState(null);
 
@@ -73,6 +77,8 @@ const Screener = () => {
       if (minDiv) payload.min_div_yield = parseFloat(minDiv);
       if (minRoe) payload.min_roe = parseFloat(minRoe);
       if (minEpsGrowth) payload.min_eps_growth = parseFloat(minEpsGrowth);
+      if (minMomentum) payload.min_momentum = parseFloat(minMomentum);
+      if (minAlphaScore) payload.min_alpha_score = parseFloat(minAlphaScore);
       const res = await axios.post('/api/screener', payload);
       setData(res.data.data);
       setScanMeta({
@@ -114,6 +120,10 @@ const Screener = () => {
     if (sortKey !== key) return <span style={{ opacity: 0.3 }}> ↕</span>;
     return <span style={{ color: 'var(--primary-gold)' }}>{sortDir === 'asc' ? ' ▲' : ' ▼'}</span>;
   };
+
+  // Momentum is only computed when its filter is used — hide the column otherwise
+  const hasMomentum = data.some(r => r.momentum !== null && r.momentum !== undefined);
+  const visibleColumns = COLUMNS.filter(c => !c.optional || hasMomentum);
 
   const runAiAnalysis = async () => {
     if (data.length === 0) return;
@@ -239,6 +249,34 @@ const Screener = () => {
               style={{ width: '100%', marginBottom: 0 }}
             />
           </div>
+          <div className="form-group">
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }} title="Composite of 1M, 6M and 12M returns — same as the Momentum Leaders tab. Adds price history per stock, so large scans take a bit longer.">
+              Min Momentum % 🚀
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={minMomentum}
+              onChange={(e) => setMinMomentum(e.target.value)}
+              placeholder="e.g. 15"
+              style={{ width: '100%', marginBottom: 0 }}
+            />
+          </div>
+          <div className="form-group">
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }} title="Alpha Nova Score 0-100 (est.) — same formula as the DCF tab: valuation margin of safety, business predictability and P/E bonus.">
+              Min Alpha Score ✨
+            </label>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              max="99"
+              value={minAlphaScore}
+              onChange={(e) => setMinAlphaScore(e.target.value)}
+              placeholder="e.g. 60"
+              style={{ width: '100%', marginBottom: 0 }}
+            />
+          </div>
           <div className="form-group screener-submit" style={{ display: 'flex', alignItems: 'flex-end' }}>
             <button type="submit" disabled={loading} style={{ width: '100%', padding: '14px', height: 'fit-content' }}>
               {loading ? <><span className="spinner"></span> SCANNING...</> : 'RUN SCREEN'}
@@ -280,7 +318,7 @@ const Screener = () => {
               <table>
                 <thead>
                   <tr>
-                    {COLUMNS.map(col => (
+                    {visibleColumns.map(col => (
                       <th
                         key={col.key}
                         onClick={() => handleSort(col.key)}
@@ -302,6 +340,14 @@ const Screener = () => {
                       <td style={{textAlign: 'right'}}>{row.roe ? row.roe.toFixed(2) + '%' : 'N/A'}</td>
                       <td style={{textAlign: 'right', color: row.epsGrowth > 0 ? 'var(--green-gain)' : (row.epsGrowth < 0 ? 'var(--red-loss)' : 'inherit')}}>{row.epsGrowth ? row.epsGrowth.toFixed(2) + '%' : 'N/A'}</td>
                       <td style={{textAlign: 'right', color: row.divYield > 0 ? 'var(--green-gain)' : 'inherit'}}>{row.divYield.toFixed(2)}%</td>
+                      {hasMomentum && (
+                        <td style={{textAlign: 'right', color: row.momentum > 0 ? 'var(--green-gain)' : (row.momentum < 0 ? 'var(--red-loss)' : 'inherit')}}>
+                          {row.momentum !== null && row.momentum !== undefined ? `${row.momentum > 0 ? '+' : ''}${row.momentum.toFixed(2)}%` : 'N/A'}
+                        </td>
+                      )}
+                      <td style={{textAlign: 'right', fontWeight: 700, color: row.alphaScore >= 60 ? 'var(--primary-gold)' : row.alphaScore ? 'var(--text-secondary)' : 'inherit'}}>
+                        {row.alphaScore ?? 'N/A'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
