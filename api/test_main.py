@@ -125,3 +125,17 @@ def test_druck_minervini_endpoint_mock(monkeypatch):
 
 
 
+
+
+def test_market_signals():
+    response = client.get("/api/signals")
+    assert response.status_code == 200
+    data = response.json()
+    assert "regime" in data and "options" in data and "setups" in data
+    assert data["regime"]["overall"] in ("RISK-ON", "RISK-OFF", "MIXED")
+    assert isinstance(data["options"]["indices"], list)
+    assert isinstance(data["setups"]["plans"], list)
+    for plan in data["setups"]["plans"]:
+        assert plan["side"] in ("LONG", "SHORT")
+        assert 0 <= plan["score"] <= 100
+        assert plan["entry"] > 0 and plan["stop"] > 0 and plan["target"] > 0

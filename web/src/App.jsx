@@ -11,6 +11,7 @@ import Momentum from './pages/Momentum';
 import Fundamentals from './pages/Fundamentals';
 import News from './pages/News';
 import OptionChain from './pages/OptionChain';
+import MarketSignals from './pages/MarketSignals';
 import DruckMinervini from './pages/DruckMinervini';
 import TradingGame from './pages/TradingGame';
 
@@ -59,6 +60,9 @@ const AppLayout = () => {
         <nav onClick={() => setMenuOpen(false)}>
           <NavLink to="/dashboard" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>⌘</span> Dashboard
+          </NavLink>
+          <NavLink to="/signals" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
+            <span style={{marginRight: '12px', opacity: 0.8}}>⚡</span> Market Signals
           </NavLink>
           <NavLink to="/chart" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>📈</span> Chart Analyser
@@ -133,6 +137,7 @@ const AppLayout = () => {
           <Route path="/position-sizing" element={<PositionSizing />} />
           <Route path="/news" element={<News />} />
           <Route path="/option-chain" element={<OptionChain />} />
+          <Route path="/signals" element={<MarketSignals />} />
           <Route path="/trading-game" element={<TradingGame />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

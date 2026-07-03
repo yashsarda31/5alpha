@@ -1899,6 +1899,442 @@ async def get_dashboard():
     return data
 
 
+# --- Market Signals engine (ported from the standalone F&O terminal) ---
+# Three layers: options intelligence (chain summaries + OI buildups),
+# regime context (trend / vol / IV / breadth), actionable setups (scored
+# futures-radar trade plans with entry/stop/target).
+
+SIGNALS_CACHE_TTL = 120  # seconds — near-live without hammering NSE
+
+def _signals_market_open():
+    ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    if ist.weekday() >= 5:
+        return False, "weekend"
+    mins = ist.hour * 60 + ist.minute
+    if mins < 9 * 60 + 15:
+        return False, "pre-open"
+    if mins > 15 * 60 + 30:
+        return False, "after-hours"
+    return True, "live"
+
+def fetch_signal_chain_summary(symbol: str):
+    """Condensed option-chain intelligence for an index: PCR (full + ±5% band),
+    max pain, support/resistance walls, ATM IV and straddle price."""
+    from urllib.parse import quote
+    info = nse_get(f"/api/option-chain-contract-info?symbol={quote(symbol)}")
+    expiries = (info or {}).get("expiryDates") or []
+    if not expiries:
+        return None
+    expiry = expiries[0]
+    j = nse_get(f"/api/option-chain-v3?type=Indices&symbol={quote(symbol)}&expiry={quote(expiry)}")
+    rec = (j or {}).get("records") or {}
+    rows = rec.get("data") or []
+    spot = float(rec.get("underlyingValue") or 0)
+    if not rows or not spot:
+        return None
+
+    strikes, ce_oi, pe_oi = [], {}, {}
+    tot_ce = tot_pe = tot_ce_doi = tot_pe_doi = 0
+    atm_row, atm_dist = None, float("inf")
+    for row in rows:
+        k = float(row.get("strikePrice") or 0)
+        ce = row.get("CE") or {}
+        pe = row.get("PE") or {}
+        strikes.append(k)
+        ce_oi[k] = float(ce.get("openInterest") or 0)
+        pe_oi[k] = float(pe.get("openInterest") or 0)
+        tot_ce += ce_oi[k]
+        tot_pe += pe_oi[k]
+        tot_ce_doi += float(ce.get("changeinOpenInterest") or 0)
+        tot_pe_doi += float(pe.get("changeinOpenInterest") or 0)
+        if abs(k - spot) < atm_dist:
+            atm_dist, atm_row = abs(k - spot), row
+
+    def pain(s):
+        return sum(ce_oi[k] * max(0, s - k) + pe_oi[k] * max(0, k - s) for k in strikes)
+    max_pain = min(strikes, key=pain)
+
+    support = max(strikes, key=lambda k: pe_oi[k])
+    resistance = max(strikes, key=lambda k: ce_oi[k])
+    # Banded PCR: strikes within ±5% of spot — far-OTM noise distorts full-chain PCR
+    band = [k for k in strikes if abs(k - spot) <= spot * 0.05]
+    band_ce = sum(ce_oi[k] for k in band)
+    band_pe = sum(pe_oi[k] for k in band)
+    atm_ce = atm_row.get("CE") or {}
+    atm_pe = atm_row.get("PE") or {}
+    return {
+        "symbol": symbol,
+        "expiry": expiry,
+        "spot": spot,
+        "pcr": round(tot_pe / tot_ce, 3) if tot_ce else 0,
+        "pcr_band": round(band_pe / band_ce, 3) if band_ce else 0,
+        "pcr_doi": round(tot_pe_doi / tot_ce_doi, 3) if tot_ce_doi else 0,
+        "max_pain": max_pain,
+        "support": support,
+        "resistance": resistance,
+        "atm_strike": float(atm_row.get("strikePrice") or 0),
+        "atm_iv_ce": float(atm_ce.get("impliedVolatility") or 0),
+        "atm_iv_pe": float(atm_pe.get("impliedVolatility") or 0),
+        "straddle": float(atm_ce.get("lastPrice") or 0) + float(atm_pe.get("lastPrice") or 0),
+        "ce_doi": tot_ce_doi,
+        "pe_doi": tot_pe_doi,
+    }
+
+def fetch_signal_buildups():
+    """NSE pre-classifies OI spurt contracts into the 4 buildup buckets."""
+    j = nse_get("/api/live-analysis-oi-spurts-contracts")
+    if not j:
+        return {}, ""
+    cats = {}
+    for block in j.get("data", []):
+        for key, contracts in block.items():
+            cats[key] = contracts
+    label_map = {}
+    for key in cats:
+        k = key.lower()
+        if k.startswith("rise") and k.endswith("rise"):
+            label_map["long_buildup"] = key       # OI up, price up
+        elif k.startswith("rise"):
+            label_map["short_buildup"] = key      # OI up, price down
+        elif k.endswith("rise"):
+            label_map["short_covering"] = key     # OI down, price up
+        else:
+            label_map["long_unwinding"] = key     # OI down, price down
+    return {lbl: cats.get(key, []) for lbl, key in label_map.items()}, j.get("timestamp", "")
+
+def _rank_contracts(contracts, n=8):
+    return sorted(contracts, key=lambda c: abs(c.get("pChangeInOI", 0) or 0) *
+                  (c.get("turnover", 0) or 0) ** 0.5, reverse=True)[:n]
+
+def _contract_desc(c):
+    if (c.get("instrumentType") or "").startswith("FUT"):
+        return f"FUT {(c.get('expiryDate') or '')[:6]}"
+    side = "CE" if c.get("optionType") == "Call" else "PE"
+    return f"{(c.get('strikePrice') or 0):,.0f}{side} {(c.get('expiryDate') or '')[:6]}"
+
+def build_futures_radar(spurts, active):
+    """Merge OI-spurt underlyings (OI change) with most-active futures (price
+    change) to classify stock-level buildups across liquid F&O names."""
+    oi = {r.get("symbol"): r for r in spurts}
+    out = []
+    for f in active:
+        sym = f.get("underlying")
+        s = oi.get(sym)
+        ltp = f.get("lastPrice") or 0
+        if not s or not s.get("prevOI") or not ltp:
+            continue
+        oi_pct = (s.get("changeInOI") or 0) / s["prevOI"] * 100
+        px = f.get("pChange") or 0
+        if abs(oi_pct) < 0.5 or abs(px) < 0.15:
+            kind = "neutral"
+        elif oi_pct > 0:
+            kind = "long_buildup" if px > 0 else "short_buildup"
+        else:
+            kind = "short_covering" if px > 0 else "long_unwinding"
+        hi, lo = f.get("highPrice") or 0, f.get("lowPrice") or 0
+        dpos = (ltp - lo) / (hi - lo) if hi > lo else 0.5
+        out.append({"symbol": sym, "ltp": ltp, "px": px,
+                    "oi_pct": oi_pct, "oi": s.get("latestOI") or 0,
+                    "vol": f.get("volume") or 0, "kind": kind, "dpos": dpos})
+    out.sort(key=lambda r: abs(r["oi_pct"]) * abs(r["px"]), reverse=True)
+    return out
+
+def _signal_trend_metrics(closes):
+    """SMA distances, momentum, 52w-range position from daily closes."""
+    if closes is None or len(closes) < 22:
+        return None
+    last = float(closes[-1])
+    m = {
+        "last": last,
+        "mom5": (last / float(closes[-6]) - 1) * 100,
+        "mom21": (last / float(closes[-22]) - 1) * 100,
+        "sma20": float(np.mean(closes[-20:])),
+        "sma50": float(np.mean(closes[-50:])) if len(closes) >= 50 else None,
+        "sma200": float(np.mean(closes[-200:])) if len(closes) >= 200 else None,
+    }
+    lo, hi = float(min(closes)), float(max(closes))
+    m["pos52"] = (last - lo) / (hi - lo) * 100 if hi > lo else 50
+    return m
+
+def _signal_index_trend(closes):
+    m = _signal_trend_metrics(closes)
+    if not m or not m["sma50"]:
+        return {"label": "N/A", "detail": ""}
+    above50 = m["last"] > m["sma50"]
+    above200 = m["sma200"] is None or m["last"] > m["sma200"]
+    if above50 and above200:
+        label = "UPTREND"
+    elif above50:
+        label = "RECOVERY"
+    elif above200:
+        label = "CORRECTION"
+    else:
+        label = "DOWNTREND"
+    d50 = (m["last"] / m["sma50"] - 1) * 100
+    d200 = (m["last"] / m["sma200"] - 1) * 100 if m["sma200"] else None
+    detail = (f"vs 50/200SMA {d50:+.1f}%/" + (f"{d200:+.1f}%" if d200 is not None else "–")
+              + f" · 30d {m['mom21']:+.1f}% · 52w-pos {m['pos52']:.0f}%")
+    return {"label": label, "detail": detail}
+
+def _signal_vol_regime(vix, vix_closes):
+    """VIX percentile over its own 1y history; absolute floors still cut size."""
+    if not vix:
+        return {"label": "N/A", "play": "", "scale": 1.0}
+    if vix_closes is not None and len(vix_closes) >= 60:
+        pct = sum(1 for c in vix_closes if c < vix) / len(vix_closes) * 100
+        if pct < 25:
+            label, play, scale = "LOW-VOL", "premium cheap vs 1y — own gamma / debit spreads", 1.0
+        elif pct < 60:
+            label, play, scale = "NORMAL", "mid-range premium — trade buildups freely", 1.0
+        elif pct < 85:
+            label, play, scale = "ELEVATED", "premium rich vs 1y — prefer credit/defined-risk", 0.75
+        else:
+            label, play, scale = "EXTREME", "top-decile vol — defined-risk only, cut size", 0.5
+        if vix >= 28:
+            scale = min(scale, 0.25)
+        elif vix >= 20:
+            scale = min(scale, 0.5)
+        return {"label": label, "play": f"{play} ({pct:.0f}th pctile 1y)", "scale": scale}
+    bands = ((12, "COMPLACENT", "premium cheap — own gamma, beware vol spikes", 1.0),
+             (15, "CALM", "mild premium — directional debit spreads work", 1.0),
+             (20, "NORMAL", "balanced — trade buildups; hedged selling ok", 1.0),
+             (28, "ELEVATED", "rich premium — credit spreads over naked; HALF size", 0.5),
+             (999, "CRISIS", "extreme vol — defined-risk only; QUARTER size", 0.25))
+    for hi, label, play, scale in bands:
+        if vix < hi:
+            return {"label": label, "play": play, "scale": scale}
+    return {"label": "N/A", "play": "", "scale": 1.0}
+
+def _signal_iv_regime(oc, vix):
+    """ATM IV vs INDIA VIX → are near-expiry options rich or cheap?"""
+    if not oc or not vix:
+        return {"label": "N/A", "detail": ""}
+    iv = (oc["atm_iv_ce"] + oc["atm_iv_pe"]) / 2
+    if iv > vix + 1.5:
+        return {"label": "RICH", "detail": f"ATM {iv:.1f}% vs VIX {vix:.1f} — favour credit spreads / writing"}
+    if iv < vix - 1.5:
+        return {"label": "CHEAP", "detail": f"ATM {iv:.1f}% vs VIX {vix:.1f} — favour debit spreads / long options"}
+    return {"label": "FAIR", "detail": f"ATM {iv:.1f}% vs VIX {vix:.1f} — no IV edge either way"}
+
+def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_pct, min_score=45):
+    """Composite conviction score (0-100) + a concrete trade plan per signal.
+
+    Score = OI intensity (25) + price momentum (20) + liquidity (10)
+          + options-flow agreement (15) + index day-bias (10)
+          + intraday trend alignment (10) + regime direction (5)
+    Plan  = entry at fut LTP, stop at day's adverse extreme (min 0.4% away),
+            target 1.5R, qty sized so a stop-out loses risk_pct% of capital
+            (scaled down in ELEVATED/EXTREME vol regimes).
+    """
+    fut = {c.get("underlying"): c for c in active}
+
+    # Which symbols' option flow agrees with a direction: fresh-OI premium
+    # rise = aggressive buying, fresh-OI premium fall = writing
+    opt_bull, opt_bear = set(), set()
+    for c in buildups.get("long_buildup", []) + buildups.get("short_buildup", []):
+        if c.get("instrumentType") != "OPTSTK":
+            continue
+        px_up = (c.get("pChange") or 0) > 0
+        is_call = c.get("optionType") == "Call"
+        bullish = (is_call and px_up) or (not is_call and not px_up)
+        (opt_bull if bullish else opt_bear).add(c.get("symbol"))
+
+    pcr = oc_nifty["pcr_band"] if oc_nifty else 1.0
+    index_bias = "bull" if pcr > 1.1 else "bear" if pcr < 0.9 else "flat"
+
+    plans = []
+    for r in radar:
+        kind = r["kind"]
+        if kind not in ("long_buildup", "short_buildup", "short_covering"):
+            continue
+        f = fut.get(r["symbol"])
+        if not f or (f.get("noOfTrades") or 0) < 2000:
+            continue
+        side = "SHORT" if kind == "short_buildup" else "LONG"
+
+        s_oi = min(abs(r["oi_pct"]) / 10, 1) * 25
+        if kind == "short_covering":          # covering pops fade fast
+            s_oi *= 0.6
+        s_px = min(abs(r["px"]) / 3, 1) * 20
+        s_liq = min((f.get("noOfTrades") or 0) / 20000, 1) * 10
+        s_opt = 15 if r["symbol"] in (opt_bull if side == "LONG" else opt_bear) else 0
+        s_idx = {"bull": 10 if side == "LONG" else 0,
+                 "bear": 10 if side == "SHORT" else 0,
+                 "flat": 5}[index_bias]
+        # Intraday trend: longs should close near day highs, shorts near lows
+        dpos = r.get("dpos", 0.5)
+        s_intra = round((dpos if side == "LONG" else 1 - dpos) * 10)
+        s_trend = 5 if regime.get("dir") == ("bull" if side == "LONG" else "bear") else 0
+        score = round(s_oi + s_px + s_liq + s_opt + s_idx + s_intra + s_trend)
+
+        entry = f.get("lastPrice") or 0
+        rng = max((f.get("highPrice") or entry) - (f.get("lowPrice") or entry), entry * 0.006)
+        if side == "LONG":
+            stop = min(f.get("lowPrice") or (entry - rng), entry * 0.996)
+            target = entry + 1.5 * (entry - stop)
+        else:
+            stop = max(f.get("highPrice") or (entry + rng), entry * 1.004)
+            target = entry - 1.5 * (stop - entry)
+        risk = abs(entry - stop)
+        vol_scale = regime.get("vol_scale", 1.0)
+        qty = int(capital * risk_pct / 100 / risk * vol_scale) if risk else 0
+
+        why = f"px{r['px']:+.1f} oi{r['oi_pct']:+.1f}"
+        if s_opt:
+            why += " opt✓"
+        if s_idx == 10:
+            why += " idx✓"
+        if s_intra >= 7:
+            why += f" rng{dpos*100:.0f}✓"
+        if s_trend:
+            why += " regime✓"
+        if vol_scale < 1:
+            why += f" ×{vol_scale}"
+        plans.append({"symbol": r["symbol"], "side": side, "kind": kind,
+                      "score": score, "entry": entry, "stop": round(stop, 2),
+                      "target": round(target, 2), "risk": round(risk, 2),
+                      "qty": qty, "why": why})
+    plans.sort(key=lambda p: p["score"], reverse=True)
+    return [p for p in plans if p["score"] >= min_score][:8], index_bias
+
+def build_index_ideas(oc_list, vix):
+    """Actionable option-structure ideas per index from PCR / max-pain / IV."""
+    ideas = []
+    for oc in oc_list:
+        if not oc:
+            continue
+        sym, spot = oc["symbol"], oc["spot"]
+        pcr = oc.get("pcr_band") or oc["pcr"]
+        bias = "BULLISH" if pcr > 1.15 else "BEARISH" if pcr < 0.85 else "NEUTRAL"
+        mp_drift = (oc["max_pain"] - spot) / spot * 100
+        iv = (oc["atm_iv_ce"] + oc["atm_iv_pe"]) / 2
+        if bias == "NEUTRAL" and abs(mp_drift) < 0.6:
+            wings = (f"iron condor inside {oc['support']:,.0f}–{oc['resistance']:,.0f}"
+                     if oc["resistance"] > oc["support"] else
+                     f"note: top CE & PE OI both at {oc['support']:,.0f} — strong pin")
+            ideas.append({"symbol": sym, "bias": "RANGE",
+                          "text": f"PCR {pcr:.2f}, max pain {oc['max_pain']:,.0f} ({mp_drift:+.1f}% away) — "
+                                  f"pinning likely. Sell {oc['expiry']} {oc['atm_strike']:,.0f} straddle "
+                                  f"~₹{oc['straddle']:,.0f} (IV {iv:.1f}%), or {wings}."})
+        elif bias == "BULLISH":
+            ideas.append({"symbol": sym, "bias": "BULLISH",
+                          "text": f"PCR {pcr:.2f} (put writers active). Support {oc['support']:,.0f}, "
+                                  f"resistance {oc['resistance']:,.0f}. Bull put spread below "
+                                  f"{oc['support']:,.0f} or long fut with SL {oc['support']:,.0f}."})
+        elif bias == "BEARISH":
+            ideas.append({"symbol": sym, "bias": "BEARISH",
+                          "text": f"PCR {pcr:.2f} (call writers dominate). Resistance {oc['resistance']:,.0f}. "
+                                  f"Bear call spread above {oc['resistance']:,.0f} or short fut with SL above it."})
+        else:
+            ideas.append({"symbol": sym, "bias": "NEUTRAL",
+                          "text": f"PCR {pcr:.2f} — balanced positioning, max pain {oc['max_pain']:,.0f} "
+                                  f"({mp_drift:+.1f}% away). Range {oc['support']:,.0f}–{oc['resistance']:,.0f}; "
+                                  f"wait for a break or fade the extremes with defined risk."})
+    return ideas
+
+def _yf_daily_closes(symbol, period="1y"):
+    try:
+        hist = yf.Ticker(symbol).history(period=period)
+        closes = hist['Close'].dropna()
+        return closes.tolist() if not closes.empty else None
+    except Exception:
+        return None
+
+@app.get("/api/signals")
+async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0):
+    cache_key = f"signals_{int(capital)}_{risk_pct}"
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < SIGNALS_CACHE_TTL:
+        return API_CACHE[cache_key]['data']
+
+    is_open, why_closed = _signals_market_open()
+
+    (idx_json, oc_nifty, oc_bank, buildup_pair, active, spurts,
+     nifty_closes, bank_closes, vix_closes) = await asyncio.gather(
+        _bounded(asyncio.to_thread(nse_get, "/api/allIndices"), 12),
+        _bounded(asyncio.to_thread(fetch_signal_chain_summary, "NIFTY"), 15),
+        _bounded(asyncio.to_thread(fetch_signal_chain_summary, "BANKNIFTY"), 15),
+        _bounded(asyncio.to_thread(fetch_signal_buildups), 12),
+        _bounded(asyncio.to_thread(lambda: (nse_get("/api/liveEquity-derivatives?index=stock_fut") or {}).get("data", [])), 12),
+        _bounded(asyncio.to_thread(lambda: (nse_get("/api/live-analysis-oi-spurts-underlyings") or {}).get("data", [])), 12),
+        _bounded(asyncio.to_thread(_yf_daily_closes, "^NSEI"), 15),
+        _bounded(asyncio.to_thread(_yf_daily_closes, "^NSEBANK"), 15),
+        _bounded(asyncio.to_thread(_yf_daily_closes, "^INDIAVIX"), 15),
+    )
+    buildups, buildup_ts = buildup_pair if buildup_pair else ({}, "")
+    active = active or []
+    spurts = spurts or []
+
+    # Breadth + VIX from allIndices
+    vix = 0.0
+    breadth = {"adv": 0, "dec": 0}
+    if idx_json:
+        breadth = {"adv": idx_json.get("advances") or 0, "dec": idx_json.get("declines") or 0}
+        for row in idx_json.get("data", []):
+            if row.get("index") == "INDIA VIX":
+                vix = float(row.get("last") or 0)
+    if not vix and vix_closes:
+        vix = float(vix_closes[-1])
+
+    # --- Regime context ---
+    nifty_trend = _signal_index_trend(nifty_closes)
+    bank_trend = _signal_index_trend(bank_closes)
+    vol = _signal_vol_regime(vix, vix_closes)
+    direction = ("bull" if nifty_trend["label"] in ("UPTREND", "RECOVERY")
+                 else "bear" if nifty_trend["label"] in ("DOWNTREND", "CORRECTION") else "flat")
+    if direction == "bull" and vol["label"] in ("LOW-VOL", "NORMAL", "COMPLACENT", "CALM"):
+        overall = "RISK-ON"
+    elif direction == "bear" or vol["label"] in ("EXTREME", "CRISIS"):
+        overall = "RISK-OFF"
+    else:
+        overall = "MIXED"
+    regime = {
+        "overall": overall,
+        "dir": direction,
+        "nifty": nifty_trend,
+        "banknifty": bank_trend,
+        "vol": vol,
+        "vol_scale": vol.get("scale", 1.0),
+        "vix": round(vix, 2),
+        "breadth": breadth,
+        "iv": _signal_iv_regime(oc_nifty, vix),
+    }
+
+    # --- Options intelligence ---
+    buildup_top = {k: [{
+        "symbol": c.get("symbol"),
+        "contract": _contract_desc(c),
+        "ltp": c.get("lastPrice") or c.get("ltp") or 0,
+        "pChange": c.get("pChange") or 0,
+        "oiChangePct": c.get("pChangeInOI") or 0,
+    } for c in _rank_contracts(v)] for k, v in (buildups or {}).items()}
+
+    # --- Actionable setups ---
+    radar = build_futures_radar(spurts, active)
+    plans, index_bias = score_signal_plans(radar, active, oc_nifty, buildups or {}, regime, capital, risk_pct)
+
+    data = {
+        "as_of": datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%dT%H:%M:%S"),
+        "market_open": is_open,
+        "market_note": why_closed,
+        "regime": regime,
+        "options": {
+            "indices": [oc for oc in (oc_nifty, oc_bank) if oc],
+            "buildups": buildup_top,
+            "buildup_timestamp": buildup_ts,
+            "ideas": build_index_ideas([oc_nifty, oc_bank], vix),
+        },
+        "setups": {
+            "index_bias": index_bias,
+            "capital": capital,
+            "risk_pct": risk_pct,
+            "plans": plans,
+            "radar_size": len(radar),
+        },
+    }
+    API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+    return data
+
+
 # --- Authentication (local-first, SQLite) ---
 # Users and sessions live in a SQLite file on this machine — no external services.
 # Passwords are stored as salted PBKDF2-HMAC-SHA256 hashes; session tokens are

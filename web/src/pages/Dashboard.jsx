@@ -4,6 +4,7 @@ import axios from 'axios';
 import './Dashboard.css';
 
 const NAV_MODULES = [
+  { to: '/signals', icon: '⚡', title: 'SIG > Market Signals', desc: 'Options intelligence, regime context & scored setups.' },
   { to: '/option-chain', icon: '⛓️', title: 'OCHN > Option Chain', desc: 'Institutional derivative analytics & structural mapping.' },
   { to: '/chart', icon: '📈', title: 'GP > Chart Analyser', desc: 'Technical analysis with Minervini VCP ratings.' },
   { to: '/screener', icon: '🔍', title: 'EQS > Quant Screener', desc: 'Filter market using institutional constraints.' },

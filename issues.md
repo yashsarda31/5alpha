@@ -69,6 +69,19 @@
 - **Momentum 500**: same NaN class as the dashboard bug — `fetch_momentum` now drops NaN closes and validates all computed values with `np.isfinite` before returning.
 - **Test pass**: all 13 routes verified in-browser (desktop + mobile, zero console errors), theme confirmed via computed styles, 27 backend tests pass, production endpoints healthy after deploy.
 
+## Market Signals tab (2026-07-03)
+- New `/api/signals` endpoint + `⚡ Market Signals` page (`/signals`), porting the fno_terminal3 engine into the app. All NSE fetches run in parallel with `_bounded` timeouts; 120s cache.
+- **Options intelligence**: condensed chain summaries for NIFTY/BANKNIFTY (PCR full + ±5% band, ΔOI PCR, max pain + drift, support/resistance OI walls, ATM IV CE/PE, straddle price); the 4 OI-spurt buildup buckets (long/short buildup, short covering, long unwinding) ranked by |ΔOI%|·√turnover; per-index option-structure ideas (range/bull/bear/neutral).
+- **Regime context**: NIFTY/BANKNIFTY trend labels from 50/200-SMA structure (yfinance 1y closes), VIX percentile vol regime with position-sizing scale, market breadth (advances/declines), ATM-IV-vs-VIX richness, composite RISK-ON/RISK-OFF/MIXED badge.
+- **Actionable setups**: futures radar (OI-spurt underlyings × most-active futures) scored 0–100 (OI intensity 25, momentum 20, liquidity 10, options-flow agreement 15, index bias 10, intraday alignment 10, regime 5); plans include entry at fut LTP, stop at day's adverse extreme (min 0.4%), 1.5R target, vol-scaled qty; threshold 45, top 8.
+- Porting bug caught during browser verification: `build_index_ideas` used a bare `else` where the terminal had `elif bias == "BEARISH"`, mislabeling NEUTRAL readings as BEARISH — fixed with an explicit NEUTRAL idea.
+- Covered by `test_market_signals` in api/test_main.py (28 tests total). Verified live in-browser (desktop + mobile) and on prod (~2.8s response).
+
+## Screener universe expansion + first git commit (2026-07-03)
+- Screener now covers named universes resolved server-side: Nifty 100, Nifty 200, S&P 100, Nasdaq 100 (lists in `SCREENER_UNIVERSES` in api/main.py). Frontend sends a `universe` key (not a 200-ticker string); the preset shows a summary chip instead of dumping tickers into the textbox. Custom tickers still supported.
+- Backend scales workers to universe size (cap 32) and uses a 45s `as_completed` time budget, returning partial results with `{requested, scanned, truncated}` rather than hanging. Unknown/delisted symbols filter out gracefully. Prod Nifty 200 scan = all 200 in ~28s.
+- First real git commit made (d911b83 on main) capturing the whole overhaul. Staged explicitly to exclude secrets (`.env.local`, `data/alphanova.db`) and scratch artifacts; untracked the previously-committed `.pyc` files; `.gitignore` extended for debug dumps.
+
 ## Issue: "Failed to Fetch" in Momentum Leaders Tab
 
 ### Status: Identified
