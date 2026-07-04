@@ -2850,6 +2850,101 @@ def auth_logout(authorization: str = Header(None)):
     return {"ok": True}
 
 
+# --- Admin metrics (owner-only user analytics) ---
+# Read-only aggregate view of the users/sessions tables for the alpha-nova-metrics
+# dashboard. Gated by ADMIN_METRICS_KEY: required on Vercel so signup data is never
+# public; open locally (no VERCEL env) for convenience.
+ADMIN_METRICS_KEY = os.environ.get("ADMIN_METRICS_KEY")
+
+def _require_admin(key):
+    if ADMIN_METRICS_KEY:
+        if not key or not hmac.compare_digest(key, ADMIN_METRICS_KEY):
+            raise HTTPException(status_code=403, detail="Invalid or missing admin key.")
+    elif os.environ.get("VERCEL"):
+        raise HTTPException(status_code=403,
+                            detail="ADMIN_METRICS_KEY is not configured on the server.")
+
+def _parse_ts(value):
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError):
+        return None
+
+def _admin_metrics_data(growth_days=60, recent_limit=25):
+    _blob_pull_db(force=True)  # newest snapshot from the blob before reading
+    conn = _auth_db()
+    try:
+        users = conn.execute(
+            "SELECT email, display_name, created_at, last_login_at FROM users"
+        ).fetchall()
+        active_sessions = conn.execute(
+            "SELECT COUNT(*) FROM sessions WHERE expires_at > ?", (_utc_now(),)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    now = datetime.now(timezone.utc)
+    today = now.date()
+
+    def within(ts, days):
+        dt = _parse_ts(ts)
+        return dt is not None and (now - dt).days < days
+
+    total = len(users)
+    new_7d = sum(1 for u in users if within(u["created_at"], 7))
+    new_30d = sum(1 for u in users if within(u["created_at"], 30))
+    active_7d = sum(1 for u in users if within(u["last_login_at"], 7))
+    active_30d = sum(1 for u in users if within(u["last_login_at"], 30))
+    ever_logged_in = sum(1 for u in users if _parse_ts(u["last_login_at"]))
+
+    # Daily new-signup counts, then a cumulative-total series, for growth_days back
+    per_day = {}
+    for u in users:
+        dt = _parse_ts(u["created_at"])
+        if dt:
+            per_day[dt.date()] = per_day.get(dt.date(), 0) + 1
+    signups_before_window = sum(
+        c for d, c in per_day.items() if d < today - timedelta(days=growth_days - 1))
+    growth, running = [], signups_before_window
+    for i in range(growth_days - 1, -1, -1):
+        d = today - timedelta(days=i)
+        running += per_day.get(d, 0)
+        growth.append({"date": d.isoformat(), "new": per_day.get(d, 0), "total": running})
+
+    def sort_key(u):
+        dt = _parse_ts(u["created_at"])
+        return dt or datetime.min.replace(tzinfo=timezone.utc)
+    recent = [{
+        "email": u["email"],
+        "displayName": u["display_name"],
+        "createdAt": u["created_at"],
+        "lastLoginAt": u["last_login_at"],
+    } for u in sorted(users, key=sort_key, reverse=True)[:recent_limit]]
+
+    return {
+        "generated_at": now.isoformat(),
+        "totals": {
+            "users": total,
+            "new_7d": new_7d,
+            "new_30d": new_30d,
+            "active_7d": active_7d,
+            "active_30d": active_30d,
+            "active_sessions": active_sessions,
+            "ever_logged_in": ever_logged_in,
+        },
+        "growth": growth,
+        "recent": recent,
+    }
+
+@app.get("/api/admin/metrics")
+def admin_metrics(key: str = None):
+    _require_admin(key)
+    return _admin_metrics_data()
+
+
 # --- Delivery % (EOD full bhavcopy with security-wise delivery data) ---
 # Daily CSV from NSE archives feeds a rolling ~30-trading-day history used by the
 # signals conviction score (HIGH CLV + delivery spurt = accumulation) and the
