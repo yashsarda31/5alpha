@@ -1,11 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { PageHeader } from '../components/ui';
+import { PageHeader, Badge } from '../components/ui';
+
+const sentimentTone = (label) =>
+  label === 'Bullish' ? 'gain' : label === 'Bearish' ? 'loss' : 'neutral';
+
+const SentimentBadge = ({ sentiment }) => {
+  if (!sentiment) return null;
+  const arrow = sentiment.label === 'Bullish' ? '▲' : sentiment.label === 'Bearish' ? '▼' : '—';
+  return <Badge tone={sentimentTone(sentiment.label)}>{arrow} {sentiment.score}</Badge>;
+};
 
 const News = () => {
   const [ticker, setTicker] = useState('AAPL');
   const [newsApiKey, setNewsApiKey] = useState(() => localStorage.getItem('news_api_key') || '');
   const [news, setNews] = useState([]);
+  const [sentiment, setSentiment] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -26,10 +36,12 @@ const News = () => {
         
       const response = await axios.get(url);
       setNews(response.data.articles || []);
+      setSentiment(response.data.sentiment_summary || null);
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message;
       setError(errorMsg);
       setNews([]);
+      setSentiment(null);
     } finally {
       setLoading(false);
     }
@@ -74,6 +86,28 @@ const News = () => {
         </div>
       )}
 
+      {!loading && sentiment && (
+        <div className="panel" style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.2em', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              NEWS SENTIMENT · {news.length} ARTICLES
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px' }}>
+              <span className={`tone-${sentimentTone(sentiment.label)}`} style={{ fontSize: '34px', fontWeight: 800 }}>
+                {sentiment.score}
+              </span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>/ 100</span>
+              <Badge tone={sentimentTone(sentiment.label)}>{sentiment.label.toUpperCase()}</Badge>
+            </div>
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '16px', fontSize: '14px', fontFamily: 'var(--font-mono, monospace)' }}>
+            <span className="tone-gain">{sentiment.positive} ▲</span>
+            <span style={{ color: 'var(--text-secondary)' }}>{sentiment.neutral} —</span>
+            <span className="tone-loss">{sentiment.negative} ▼</span>
+          </div>
+        </div>
+      )}
+
       {!loading && news.length === 0 && !error && (
         <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
           No news articles to display. Enter a ticker and search.
@@ -105,10 +139,11 @@ const News = () => {
                 </h3>
               </div>
               
-              <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em', marginBottom: '10px', display: 'flex', gap: '15px' }}>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em', marginBottom: '10px', display: 'flex', gap: '15px', alignItems: 'center' }}>
                 <span><strong style={{color: 'var(--primary-gold)'}}>{article.source?.name}</strong></span>
                 <span>•</span>
                 <span>{new Date(article.publishedAt).toLocaleString()}</span>
+                <SentimentBadge sentiment={article.sentiment} />
               </div>
               
               <p style={{ color: 'var(--text-secondary)', lineHeight: '1.5', margin: 0 }}>

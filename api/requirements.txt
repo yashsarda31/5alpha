@@ -9,3 +9,4 @@ google-genai
 pydantic
 Pillow
 python-multipart
+vaderSentiment

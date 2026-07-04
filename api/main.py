@@ -154,16 +154,8 @@ SCREENER_UNIVERSES = {
 # (with an honest scanned count) rather than hang if a large scan runs long.
 SCREENER_TIME_BUDGET = 45
 
-def _alpha_nova_score_lite(price, eps, pe, div_pct, growth_pct):
-    """Estimated Alpha Nova Score (0-100) — same formula as the DCF tab, but
-    computed from yfinance `info` alone (EPS base, earningsGrowth for the growth
-    stage) so a 200-stock screen needs no extra network calls.
-
-    Score = 50 + (predictability-3)*10 + clamp(MoS*40, ±25) + (PE<25 bonus 15)
-    Fair value = two-stage EPS model: 10y at growth, 10y terminal at 4%, 11% discount.
-    """
-    if not price or price <= 0 or not eps or eps <= 0:
-        return None
+def _two_stage_fair_value(eps, growth_pct):
+    """Two-stage EPS model: 10y at clamp(growth, 2-50%), 10y terminal at 4%, 11% discount."""
     growth = max(2.0, min(50.0, growth_pct)) if growth_pct and growth_pct > 0 else 10.0
     g, r, tg = growth / 100, 0.11, 0.04
     val, fv = eps, 0.0
@@ -173,19 +165,64 @@ def _alpha_nova_score_lite(price, eps, pe, div_pct, growth_pct):
     for i in range(11, 21):
         val *= (1 + tg)
         fv += val / (1 + r) ** i
-    mos = (fv - price) / fv if fv > 0 else 0.0
+    return fv
 
-    predictability = 3  # eps > 0 guaranteed above
-    if pe is not None and 0 < pe < 30:
-        predictability += 1
-    if div_pct and div_pct > 0:
-        predictability += 1
-    predictability = min(5, predictability)
+def _alpha_nova_score(price, eps, pe, growth_pct,
+                      rev_growth_pct=None, roe_pct=None, margin_pct=None,
+                      dte_pct=None, div_pct=None):
+    """Alpha Nova Score v2 (0-100): multi-factor composite from yfinance `info`
+    fields alone (no extra network calls per stock).
 
-    score = (50 + (predictability - 3) * 10
-             + max(-25.0, min(25.0, mos * 40))
-             + (15 if pe is not None and 0 < pe < 25 else 0))
-    return int(min(99, max(10, round(score))))
+    Pillars: Value 30 (margin of safety + PEG) · Quality 30 (ROE, margins, D/E)
+           · Growth 25 (EPS + revenue growth) · Yield 15 (dividends).
+    Missing pillars renormalize (score = 100 × earned / available) instead of
+    silently pretending to be average. Spec:
+    docs/superpowers/specs/2026-07-04-news-sentiment-alpha-score-v2-design.md
+    """
+    def tiers(value, table):
+        for threshold, points in table:
+            if value >= threshold:
+                return points
+        return 0
+
+    earned, available = 0.0, 0.0
+
+    # Value (30): needs a positive EPS base to model fair value
+    if price and price > 0 and eps and eps > 0:
+        fv = _two_stage_fair_value(eps, growth_pct)
+        mos = (fv - price) / fv if fv > 0 else 0.0
+        earned += max(0.0, min(22.0, (mos + 0.5) * 22))  # -50% MoS → 0, +50% → 22
+        if pe and pe > 0 and growth_pct and growth_pct > 0:
+            peg = pe / growth_pct
+            earned += 8 if peg <= 1.0 else 4 if peg <= 1.5 else 0
+        available += 30
+
+    # Quality (30): ROE, profit margin, debt/equity
+    if any(v is not None for v in (roe_pct, margin_pct, dte_pct)):
+        if roe_pct is not None:
+            earned += tiers(roe_pct, [(25, 14), (15, 10), (10, 6), (1e-9, 3)])
+        if margin_pct is not None:
+            earned += tiers(margin_pct, [(20, 8), (10, 5), (1e-9, 2)])
+        if dte_pct is not None:
+            earned += 8 if dte_pct < 50 else 5 if dte_pct < 100 else 2 if dte_pct < 200 else 0
+        available += 30
+
+    # Growth (25): EPS growth + revenue growth
+    if any(v is not None for v in (growth_pct, rev_growth_pct)):
+        if growth_pct is not None:
+            earned += tiers(growth_pct, [(25, 15), (15, 11), (8, 7), (1e-9, 4)])
+        if rev_growth_pct is not None:
+            earned += tiers(rev_growth_pct, [(15, 10), (8, 6), (1e-9, 3)])
+        available += 25
+
+    # Yield (15): non-payers (None) drop the pillar; a true 0 counts as available
+    if div_pct is not None:
+        earned += tiers(div_pct, [(3, 15), (1.5, 10), (0.5, 6), (1e-9, 3)])
+        available += 15
+
+    if not available:
+        return None
+    return int(min(99, max(5, round(100 * earned / available))))
 
 def _composite_momentum(stock):
     """(1m + 6m + 12m return)/3 in %, mirroring the Momentum Leaders tab."""
@@ -224,19 +261,15 @@ def run_screener(req: ScreenerRequest):
             div = info.get("dividendYield")
             roe = info.get("returnOnEquity")
             eps = info.get("earningsGrowth")
+            rev = info.get("revenueGrowth")
+            margin = info.get("profitMargins")
+            dte = info.get("debtToEquity")  # yfinance ships this as a % already
 
-            if div is None:
-                div = 0
-            if roe is None:
-                roe = 0
-            if eps is None:
-                eps = 0
-            
             # yfinance >= 0.2.50 returns dividendYield already as a percentage;
-            # roe/eps growth are still fractions (e.g. 0.15 for 15%)
-            div_pct = div
-            roe_pct = roe * 100
-            eps_pct = eps * 100
+            # roe/eps/revenue growth and margins are still fractions (0.15 = 15%)
+            div_pct = div if div is not None else 0
+            roe_pct = (roe or 0) * 100
+            eps_pct = (eps or 0) * 100
             
             if req.max_pe is not None and pe is not None and pe > req.max_pe:
                 return None
@@ -254,7 +287,13 @@ def run_screener(req: ScreenerRequest):
                 return None
 
             trailing_eps = info.get("trailingEps")
-            alpha_score = _alpha_nova_score_lite(price, trailing_eps, pe, div_pct, eps_pct)
+            alpha_score = _alpha_nova_score(
+                price, trailing_eps, pe, eps_pct if eps is not None else None,
+                rev_growth_pct=rev * 100 if rev is not None else None,
+                roe_pct=roe * 100 if roe is not None else None,
+                margin_pct=margin * 100 if margin is not None else None,
+                dte_pct=dte if dte is not None else None,
+                div_pct=div)
             if req.min_alpha_score is not None and (alpha_score is None or alpha_score < req.min_alpha_score):
                 return None
 
@@ -538,6 +577,19 @@ async def get_dcf_data(ticker: str):
                 except Exception:
                     pass
 
+            _rev = info.get("revenueGrowth")
+            _roe = info.get("returnOnEquity")
+            _margin = info.get("profitMargins")
+            _eg = info.get("earningsGrowth")
+            alpha_score = _alpha_nova_score(
+                current_price, eps, pe if pe else None,
+                _eg * 100 if _eg is not None else None,
+                rev_growth_pct=_rev * 100 if _rev is not None else None,
+                roe_pct=_roe * 100 if _roe is not None else None,
+                margin_pct=_margin * 100 if _margin is not None else None,
+                dte_pct=info.get("debtToEquity"),
+                div_pct=info.get("dividendYield"))
+
             return {
                 "ticker": ticker.upper(),
                 "currentPrice": current_price,
@@ -549,7 +601,8 @@ async def get_dcf_data(ticker: str):
                 "pe": pe,
                 "pb": pb,
                 "predictability": min(5, predictability),
-                "historicalGrowthRate": round(hist_growth, 2)
+                "historicalGrowthRate": round(hist_growth, 2),
+                "alphaScore": alpha_score
             }
         except Exception as e:
             return {"error": str(e)}
@@ -1145,6 +1198,52 @@ async def get_fundamentals(ticker: str):
         raise HTTPException(status_code=404, detail="Ticker not found or data unavailable")
     return data
 
+# --- News sentiment (keyless, finance-tuned VADER lexicon) ---
+# Spec: docs/superpowers/specs/2026-07-04-news-sentiment-alpha-score-v2-design.md
+FINANCE_LEXICON = {
+    # bullish (VADER scale −4..+4)
+    "beats": 2.5, "beat": 2.0, "outperform": 2.0, "outperforms": 2.0, "upgrade": 2.2,
+    "upgraded": 2.2, "upgrades": 2.2, "buy": 1.5, "overweight": 1.8, "bullish": 2.4,
+    "rally": 2.0, "rallies": 2.0, "surge": 2.2, "surges": 2.2, "soars": 2.4, "soar": 2.4,
+    "breakout": 1.8, "record": 1.5, "buyback": 1.5, "dividend": 0.8, "profit": 1.4,
+    "profits": 1.4, "profitable": 1.6, "growth": 1.2, "expansion": 1.2, "raises": 1.6,
+    "raised": 1.4, "guidance": 0.0, "upbeat": 1.8, "momentum": 0.8, "multibagger": 2.5,
+    "acquisition": 0.6, "wins": 1.8, "win": 1.5, "contract": 0.8, "order": 0.6,
+    "approval": 1.4, "approved": 1.4, "launch": 0.8, "launches": 0.8, "jumps": 2.0,
+    "gains": 1.6, "climbs": 1.6, "rebound": 1.4, "rebounds": 1.4, "undervalued": 1.6,
+    # bearish
+    "downgrade": -2.5, "downgraded": -2.5, "downgrades": -2.5, "miss": -2.0, "misses": -2.0,
+    "missed": -1.8, "underperform": -2.0, "bearish": -2.4, "sell": -1.5, "underweight": -1.8,
+    "plunge": -2.4, "plunges": -2.4, "plummets": -2.6, "crash": -2.8, "crashes": -2.8,
+    "slump": -2.0, "slumps": -2.0, "tumbles": -2.2, "tumble": -2.2, "sinks": -2.0,
+    "slides": -1.6, "drops": -1.4, "falls": -1.4, "probe": -2.2, "investigation": -1.8,
+    "fraud": -3.2, "scam": -3.0, "lawsuit": -1.8, "fine": -1.5, "penalty": -1.6,
+    "layoffs": -1.8, "layoff": -1.8, "recall": -1.8, "default": -2.8, "bankruptcy": -3.4,
+    "insolvency": -3.0, "debt": -0.8, "loss": -1.8, "losses": -1.8, "warning": -1.6,
+    "cuts": -1.2, "cut": -1.0, "downturn": -1.8, "recession": -2.2, "selloff": -2.2,
+    "overvalued": -1.6, "resigns": -1.4, "resignation": -1.4, "pledged": -1.2,
+}
+
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    _SENTIMENT = SentimentIntensityAnalyzer()
+    _SENTIMENT.lexicon.update(FINANCE_LEXICON)
+except Exception as e:  # missing package → news works exactly as before
+    print(f"Sentiment analyzer unavailable: {e}")
+    _SENTIMENT = None
+
+def _news_sentiment(text):
+    """{'score': 0-100, 'label': Bullish|Neutral|Bearish} or None."""
+    if not _SENTIMENT or not text:
+        return None
+    try:
+        compound = _SENTIMENT.polarity_scores(text)["compound"]
+    except Exception:
+        return None
+    score = int(round((compound + 1) * 50))
+    label = "Bullish" if score >= 60 else "Bearish" if score <= 40 else "Neutral"
+    return {"score": score, "label": label}
+
 @app.get("/api/news/{ticker}")
 async def get_news(ticker: str, apiKey: str = None):
     api_key_to_use = apiKey or os.environ.get("NEWS_API_KEY")
@@ -1155,12 +1254,28 @@ async def get_news(ticker: str, apiKey: str = None):
         url = f"https://newsapi.org/v2/everything?q={ticker}&sortBy=publishedAt&language=en&apiKey={api_key_to_use}"
         response = requests.get(url)
         data = response.json()
-        
+
         if data.get("status") == "error":
             raise HTTPException(status_code=400, detail=data.get("message", "Error fetching news"))
-            
+
         articles = data.get("articles", [])[:10] # Top 10 latest articles
-        return {"articles": articles}
+        for a in articles:
+            s = _news_sentiment(f"{a.get('title') or ''}. {a.get('description') or ''}")
+            if s:
+                a["sentiment"] = s
+        scored = [a["sentiment"] for a in articles if a.get("sentiment")]
+        summary = None
+        if scored:
+            avg = int(round(sum(s["score"] for s in scored) / len(scored)))
+            summary = {
+                "score": avg,
+                "label": "Bullish" if avg >= 60 else "Bearish" if avg <= 40 else "Neutral",
+                "positive": sum(1 for s in scored if s["label"] == "Bullish"),
+                "neutral": sum(1 for s in scored if s["label"] == "Neutral"),
+                "negative": sum(1 for s in scored if s["label"] == "Bearish"),
+                "n": len(scored),
+            }
+        return {"articles": articles, "sentiment_summary": summary}
     except HTTPException:
         raise
     except Exception as e:

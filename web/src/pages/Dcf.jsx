@@ -227,14 +227,7 @@ const Dcf = () => {
               <h2 style={{ margin: 0, fontSize: '28px' }}>{ticker}</h2>
               {stockData && (
                 <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                  Market Cap {currency} {(stockData.marketCap / 1e9).toFixed(2)} Bil | PE {stockData.pe?.toFixed(2) || 'N/A'} | PB {stockData.pb?.toFixed(2) || 'N/A'} | Alpha Nova Score: <strong>{
-                    Math.min(99, Math.max(10, Math.round(
-                      50 +
-                      ((stockData.predictability - 3) * 10) +
-                      clamp(marginOfSafety * 40, -25, 25) +
-                      (stockData.pe > 0 && stockData.pe < 25 ? 15 : 0)
-                    )))
-                  }</strong> / 100
+                  Market Cap {currency} {(stockData.marketCap / 1e9).toFixed(2)} Bil | PE {stockData.pe?.toFixed(2) || 'N/A'} | PB {stockData.pb?.toFixed(2) || 'N/A'} | Alpha Nova Score: <strong>{stockData.alphaScore ?? 'N/A'}</strong> / 100
                 </div>
               )}
             </div>
