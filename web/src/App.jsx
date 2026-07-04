@@ -21,6 +21,28 @@ import TradingGame from './pages/TradingGame';
 import FiiDii from './pages/FiiDii';
 import Login from './pages/Login';
 import Disclaimer from './components/Disclaimer';
+import SignalAlertProvider, { useSignalAlerts } from './alerts/SignalAlertProvider';
+
+const AlertBell = () => {
+  const { browserEnabled, toggleBrowser, permission } = useSignalAlerts();
+  if (permission === 'unsupported') return null;
+  const state = permission === 'denied' ? 'BLOCKED' : browserEnabled ? 'ON' : 'OFF';
+  const title = permission === 'denied'
+    ? 'Browser notifications are blocked in your browser settings'
+    : 'Toggle background browser notifications for new signals';
+  return (
+    <button
+      className={`alert-bell ${browserEnabled ? 'on' : ''}`}
+      onClick={toggleBrowser}
+      title={title}
+      disabled={permission === 'denied'}
+    >
+      <span className="ab-ico">{browserEnabled ? '🔔' : '🔕'}</span>
+      Signal alerts
+      <span className="ab-state">{state}</span>
+    </button>
+  );
+};
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser, loading } = useAuth();
@@ -45,7 +67,7 @@ const AppLayout = () => {
   };
 
   return (
-    <>
+    <SignalAlertProvider>
       <div className="mobile-topbar">
         <button className="hamburger-btn" onClick={() => setMenuOpen(true)} aria-label="Open navigation menu">☰</button>
         <span className="mobile-title">
@@ -112,6 +134,7 @@ const AppLayout = () => {
         </nav>
         
         <div style={{marginTop: 'auto', paddingTop: '40px'}}>
+          <AlertBell />
           <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Logged in as</div>
             <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--primary-gold)', marginBottom: '12px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentUser?.email}</div>
@@ -152,7 +175,7 @@ const AppLayout = () => {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </div>
-    </>
+    </SignalAlertProvider>
   );
 };
 
