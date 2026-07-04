@@ -399,13 +399,13 @@ const Dcf = () => {
               <span>Stock Price</span>
               <strong>{currency}{stockData?.currentPrice?.toFixed(2) || '0.00'}</strong>
             </div>
-            <div className="summary-row" style={{ backgroundColor: 'rgba(255, 235, 235, 0.9)', color: '#000' }}>
-              <span style={{ fontSize: '18px', fontWeight: 'bold' }}>Fair Value</span>
-              <strong style={{ fontSize: '18px' }}>{currency}{fairValue.toFixed(2)}</strong>
+            <div className="summary-row" style={{ backgroundColor: 'var(--primary-accent-soft)' }}>
+              <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary)' }}>Fair Value</span>
+              <strong className="tnum" style={{ fontSize: '18px', color: 'var(--primary-gold)' }}>{currency}{fairValue.toFixed(2)}</strong>
             </div>
-            <div className="summary-row" style={{ backgroundColor: 'rgba(255, 235, 235, 0.9)', color: '#000' }}>
-              <span style={{ fontSize: '18px', fontWeight: 'bold' }}>Margin of Safety</span>
-              <strong style={{ fontSize: '18px', color: marginOfSafety > 0 ? '#38A169' : '#E53E3E' }}>
+            <div className="summary-row" style={{ backgroundColor: 'var(--primary-accent-soft)' }}>
+              <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary)' }}>Margin of Safety</span>
+              <strong className="tnum" style={{ fontSize: '18px', color: marginOfSafety > 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>
                 {marginOfSafety < 0 && '👎'} {(marginOfSafety * 100).toFixed(2)}%
               </strong>
             </div>

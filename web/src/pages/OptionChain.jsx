@@ -143,12 +143,15 @@ const OptionChain = () => {
       {/* Header */}
       <div className="oc-header-bar">
         <div>
-          <h2>Institutional Option Chain</h2>
-          <p style={{ color: '#86868b', margin: 0, fontSize: '14px' }}>
+          <div className="ui-ph-titlerow">
+            <span className="ui-code-chip">OCHN</span>
+            <span className="ui-ph-title">Option Chain</span>
+          </div>
+          <p className="ui-ph-subtitle" style={{ margin: '4px 0 0' }}>
             Real-time derivative analytics and structural mapping.
           </p>
         </div>
-        
+
         <div className="oc-selector-group">
           {PRESETS.map(preset => (
             <button

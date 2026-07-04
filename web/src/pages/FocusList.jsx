@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { PageHeader } from '../components/ui';
 
 const TAG_COLORS = {
   'LONG setup': 'var(--green-gain)',
@@ -37,17 +38,16 @@ const FocusList = () => {
 
   return (
     <div className="fade-in" style={{ maxWidth: '1100px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '8px' }}>
-        <div>
-          <h2 style={{ marginBottom: '4px' }}>🎯 Today's Focus List</h2>
-          <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '14px' }}>
-            {today} · stocks flagged by setups, momentum, options flow & price action
-          </p>
-        </div>
-        <button onClick={fetchFocus} disabled={loading} className="secondary" style={{ width: 'auto', padding: '8px 18px' }}>
-          {loading ? <span className="spinner"></span> : '↻ Refresh'}
-        </button>
-      </div>
+      <PageHeader
+        code="FCS"
+        title="Today's Focus List"
+        subtitle={`${today} · stocks flagged by setups, momentum, options flow & price action`}
+        right={
+          <button onClick={fetchFocus} disabled={loading} className="secondary" style={{ width: 'auto', padding: '8px 18px' }}>
+            {loading ? <span className="spinner"></span> : '↻ Refresh'}
+          </button>
+        }
+      />
 
       {loading ? (
         <div className="card" style={{ padding: '24px' }}>

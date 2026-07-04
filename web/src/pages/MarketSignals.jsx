@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { PageHeader, StatusPill } from '../components/ui';
 import './MarketSignals.css';
 
 const BUCKET_META = {
@@ -47,7 +48,7 @@ const MarketSignals = () => {
   if (loading) {
     return (
       <div className="signals-container fade-in">
-        <h2>Market Signals</h2>
+        <PageHeader code="SIG" title="Market Signals" subtitle="Live options intelligence, regime context & scored setups" />
         <div className="card" style={{ padding: '24px' }}>
           <div className="skeleton skeleton-header"></div>
           {[1, 2, 3, 4, 5].map(i => <div key={i} className="skeleton skeleton-row" style={{ height: '36px', marginTop: '14px' }}></div>)}
@@ -59,7 +60,7 @@ const MarketSignals = () => {
   if (error) {
     return (
       <div className="signals-container fade-in">
-        <h2>Market Signals</h2>
+        <PageHeader code="SIG" title="Market Signals" subtitle="Live options intelligence, regime context & scored setups" />
         <div style={{ color: 'var(--red-loss)', padding: '24px', background: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.3)', borderRadius: '12px' }}>
           <h3 style={{ margin: '0 0 8px 0' }}>Signal Feed Unavailable</h3>
           <p style={{ margin: '0 0 16px 0' }}>{error}</p>
@@ -78,26 +79,23 @@ const MarketSignals = () => {
 
   return (
     <div className="signals-container fade-in">
-      <div className="signals-header">
-        <div>
-          <h2 style={{ marginBottom: '4px' }}>Market Signals</h2>
-          <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '14px' }}>
-            Live options intelligence, regime context & scored setups · as of {data.as_of?.replace('T', ' ')} IST
-          </p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <span className={`signals-live-pill ${data.market_open ? 'open' : 'closed'}`}>
-            ● {data.market_open ? 'MARKET LIVE' : `CLOSED — ${data.market_note} (last session)`}
-          </span>
-          <div className="refresh-toggle-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-            <span>Auto 60s</span>
-            <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px' }}>
-              <input type="checkbox" checked={autoRefresh} onChange={() => setAutoRefresh(!autoRefresh)} style={{ opacity: 0, width: 0, height: 0 }} />
-              <span style={{ position: 'absolute', cursor: 'pointer', inset: 0, background: autoRefresh ? 'var(--primary-accent)' : 'rgba(255,255,255,0.1)', borderRadius: '22px', transition: '0.3s' }}></span>
-            </label>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        code="SIG"
+        title="Market Signals"
+        subtitle={`Live options intelligence, regime context & scored setups · as of ${data.as_of?.replace('T', ' ')} IST`}
+        right={
+          <>
+            <StatusPill open={data.market_open} note={data.market_open ? undefined : `${data.market_note} (last session)`} />
+            <div className="refresh-toggle-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              <span>Auto 60s</span>
+              <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px' }}>
+                <input type="checkbox" checked={autoRefresh} onChange={() => setAutoRefresh(!autoRefresh)} style={{ opacity: 0, width: 0, height: 0 }} />
+                <span style={{ position: 'absolute', cursor: 'pointer', inset: 0, background: autoRefresh ? 'var(--primary-accent)' : 'rgba(255,255,255,0.1)', borderRadius: '22px', transition: '0.3s' }}></span>
+              </label>
+            </div>
+          </>
+        }
+      />
 
       {/* ---- Regime context ---- */}
       <div className="signals-section-title">🌡 Regime Context</div>

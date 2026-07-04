@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
+import { PageHeader } from '../components/ui';
 
 const Fundamentals = () => {
   const [ticker, setTicker] = useState('AAPL');
@@ -55,28 +56,27 @@ const Fundamentals = () => {
 
   return (
     <div className="page fade-in">
-      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1 style={{ background: 'linear-gradient(90deg, #FFFFFF, #888888)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Company Fundamentals</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Deep-dive into valuation, profitability, and balance sheet metrics.</p>
-        </div>
-        {data && !loading && (
-          <button 
-            onClick={runAiAnalysis} 
+      <PageHeader
+        code="FA"
+        title="Company Fundamentals"
+        subtitle="Deep-dive into valuation, profitability, and balance sheet metrics."
+        right={data && !loading && (
+          <button
+            onClick={runAiAnalysis}
             disabled={aiLoading}
-            style={{ 
-              width: 'auto', 
+            style={{
+              width: 'auto',
               background: 'linear-gradient(90deg, rgba(62, 230, 255, 0.2), rgba(62, 230, 255, 0.1))',
               border: '1px solid rgba(62, 230, 255, 0.4)',
               color: 'var(--primary-accent)',
               padding: '10px 20px',
-              borderRadius: '20px'
+              borderRadius: 'var(--r-pill)'
             }}
           >
             {aiLoading ? <><span className="spinner" style={{borderColor: 'rgba(62, 230, 255, 0.2)', borderTopColor: 'var(--primary-accent)', marginRight: '8px'}}></span> Analyzing...</> : '✨ Gemini AI Analysis'}
           </button>
         )}
-      </div>
+      />
 
       <div className="panel" style={{ marginBottom: '20px' }}>
         <form onSubmit={fetchFundamentals} style={{ display: 'flex', gap: '10px' }}>

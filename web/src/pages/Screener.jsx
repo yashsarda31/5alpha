@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PageHeader } from '../components/ui';
 
 const COLUMNS = [
   { key: 'ticker', label: 'Ticker', numeric: false },
@@ -192,8 +193,7 @@ const Screener = () => {
 
   return (
     <div>
-      <h2>Quantitative Screener</h2>
-      <p style={{color: "var(--text-secondary)"}}>Live trailing institutional metrics across custom ticker universe.</p>
+      <PageHeader code="EQS" title="Quantitative Screener" subtitle="Live trailing institutional metrics across a custom ticker universe." />
 
       <div style={{ display: 'flex', gap: '10px', margin: '16px 0 12px 0', flexWrap: 'wrap', alignItems: 'center' }}>
         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Guru screens:</span>
