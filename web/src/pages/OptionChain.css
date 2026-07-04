@@ -99,7 +99,7 @@
 .oc-metric-label {
   font-size: 12px;
   text-transform: uppercase;
-  color: #86868b;
+  color: var(--text-secondary);
   letter-spacing: 0.5px;
   margin-bottom: 8px;
   font-weight: 600;
@@ -187,7 +187,7 @@
 
 .text-green { color: #32d74b; }
 .text-red { color: #ff453a; }
-.text-neutral { color: #86868b; }
+.text-neutral { color: var(--text-secondary); }
 
 .controls-row {
   display: flex;
@@ -231,7 +231,7 @@
 }
 
 .spot-label {
-  color: #86868b;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -269,7 +269,7 @@
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  color: #86868b;
+  color: var(--text-secondary);
 }
 
 .spinner {
