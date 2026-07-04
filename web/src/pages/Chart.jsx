@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import PlotComponent from 'react-plotly.js';
 import ReactMarkdown from 'react-markdown';
@@ -11,21 +12,22 @@ const currencyFor = (ticker) => {
 };
 
 const Chart = () => {
-  const [ticker, setTicker] = useState('NVDA');
+  const [searchParams] = useSearchParams();
+  const [ticker, setTicker] = useState(searchParams.get('symbol') || 'NVDA');
   const [loading, setLoading] = useState(false);
   const [chartData, setChartData] = useState(null);
   const [fundamentals, setFundamentals] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReport, setAiReport] = useState("");
 
-  const fetchChart = async () => {
+  const fetchChart = async (sym = ticker) => {
     setLoading(true);
     setChartData(null);
     setFundamentals(null);
     try {
       const [resChart, resFund] = await Promise.all([
-        axios.get(`/api/chart/${ticker}`),
-        axios.get(`/api/fundamentals/${ticker}`).catch(() => ({ data: null }))
+        axios.get(`/api/chart/${sym}`),
+        axios.get(`/api/fundamentals/${sym}`).catch(() => ({ data: null }))
       ]);
       setChartData(resChart.data);
       if (resFund.data && !resFund.data.error) {
@@ -37,7 +39,16 @@ const Chart = () => {
     setLoading(false);
   };
 
-  // Removed auto-fetch on mount so it doesn't load by default
+  // No auto-fetch by default — but a ?symbol= link (e.g. from a dashboard
+  // mover) should land with its chart already loading.
+  useEffect(() => {
+    const sym = searchParams.get('symbol');
+    if (sym) {
+      setTicker(sym);
+      fetchChart(sym);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const runAiAnalysis = async () => {
     const apiKey = localStorage.getItem('gemini_api_key');
@@ -134,7 +145,7 @@ const Chart = () => {
               style={{ marginBottom: 0 }}
             />
           </div>
-          <button onClick={fetchChart} disabled={loading} style={{ width: 'auto' }}>
+          <button onClick={() => fetchChart()} disabled={loading} style={{ width: 'auto' }}>
             {loading ? <><span className="spinner"></span> LOAD...</> : "SEARCH"}
           </button>
         </div>

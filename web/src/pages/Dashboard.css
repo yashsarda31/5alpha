@@ -41,6 +41,15 @@
   align-items: flex-start;
   min-height: 62px;
   justify-content: center;
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+a.dash-mover:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary-accent-border, rgba(232, 196, 124, 0.5));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
 .dash-mover.up {

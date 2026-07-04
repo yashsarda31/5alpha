@@ -92,12 +92,17 @@ const Dashboard = () => {
               [1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} height={62} />)
             ) : movers.length > 0 ? (
               movers.map((m) => (
-                <div key={m.ticker} className={`dash-mover ${m.change_pct >= 0 ? 'up' : 'down'}`}>
+                <Link
+                  key={m.ticker}
+                  to={`/chart?symbol=${m.ticker}.NS`}
+                  title={`Open ${m.ticker} in Chart Analyser`}
+                  className={`dash-mover ${m.change_pct >= 0 ? 'up' : 'down'}`}
+                >
                   <span className="dash-mover-sym">{m.ticker}</span>
                   <span className={`tnum ${m.change_pct >= 0 ? 'tone-gain' : 'tone-loss'}`}>
                     {m.change_pct >= 0 ? '+' : ''}{m.change_pct.toFixed(2)}%
                   </span>
-                </div>
+                </Link>
               ))
             ) : (
               <div className="dash-mover"><span className="dash-mover-sym">No data</span></div>

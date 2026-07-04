@@ -2184,12 +2184,13 @@ def _signal_iv_regime(oc, vix):
         return {"label": "CHEAP", "detail": f"ATM {iv:.1f}% vs VIX {vix:.1f} — favour debit spreads / long options"}
     return {"label": "FAIR", "detail": f"ATM {iv:.1f}% vs VIX {vix:.1f} — no IV edge either way"}
 
-def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_pct, min_score=45):
+def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_pct, min_score=45, delivery=None):
     """Composite conviction score (0-100) + a concrete trade plan per signal.
 
-    Score = OI intensity (25) + price momentum (20) + liquidity (10)
+    Score = OI intensity (22) + price momentum (18) + liquidity (10)
           + options-flow agreement (15) + index day-bias (10)
           + intraday trend alignment (10) + regime direction (5)
+          + delivery conviction (10: EOD delivery spurt into a directional close)
     Plan  = entry at fut LTP, stop at day's adverse extreme (min 0.4% away),
             target 1.5R, qty sized so a stop-out loses risk_pct% of capital
             (scaled down in ELEVATED/EXTREME vol regimes).
@@ -2220,10 +2221,10 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
             continue
         side = "SHORT" if kind == "short_buildup" else "LONG"
 
-        s_oi = min(abs(r["oi_pct"]) / 10, 1) * 25
+        s_oi = min(abs(r["oi_pct"]) / 10, 1) * 22
         if kind == "short_covering":          # covering pops fade fast
             s_oi *= 0.6
-        s_px = min(abs(r["px"]) / 3, 1) * 20
+        s_px = min(abs(r["px"]) / 3, 1) * 18
         s_liq = min((f.get("noOfTrades") or 0) / 20000, 1) * 10
         s_opt = 15 if r["symbol"] in (opt_bull if side == "LONG" else opt_bear) else 0
         s_idx = {"bull": 10 if side == "LONG" else 0,
@@ -2233,7 +2234,8 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
         dpos = r.get("dpos", 0.5)
         s_intra = round((dpos if side == "LONG" else 1 - dpos) * 10)
         s_trend = 5 if regime.get("dir") == ("bull" if side == "LONG" else "bear") else 0
-        score = round(s_oi + s_px + s_liq + s_opt + s_idx + s_intra + s_trend)
+        s_dlv = _delivery_score((delivery or {}).get(r["symbol"]), side)
+        score = round(s_oi + s_px + s_liq + s_opt + s_idx + s_intra + s_trend + s_dlv)
 
         entry = f.get("lastPrice") or 0
         rng = max((f.get("highPrice") or entry) - (f.get("lowPrice") or entry), entry * 0.006)
@@ -2256,6 +2258,8 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
             why += f" rng{dpos*100:.0f}✓"
         if s_trend:
             why += " regime✓"
+        if s_dlv >= 7:
+            why += " dlv✓"
         if vol_scale < 1:
             why += f" ×{vol_scale}"
         plans.append({"symbol": r["symbol"], "side": side, "kind": kind,
@@ -2317,7 +2321,7 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0):
     is_open, why_closed = _signals_market_open()
 
     (idx_json, oc_nifty, oc_bank, buildup_pair, active, spurts,
-     nifty_closes, bank_closes, vix_closes) = await asyncio.gather(
+     nifty_closes, bank_closes, vix_closes, _dlv_fresh) = await asyncio.gather(
         _bounded(asyncio.to_thread(nse_get, "/api/allIndices"), 12),
         _bounded(asyncio.to_thread(fetch_signal_chain_summary, "NIFTY"), 15),
         _bounded(asyncio.to_thread(fetch_signal_chain_summary, "BANKNIFTY"), 15),
@@ -2327,6 +2331,7 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0):
         _bounded(asyncio.to_thread(_yf_daily_closes, "^NSEI"), 15),
         _bounded(asyncio.to_thread(_yf_daily_closes, "^NSEBANK"), 15),
         _bounded(asyncio.to_thread(_yf_daily_closes, "^INDIAVIX"), 15),
+        _bounded(asyncio.to_thread(_ensure_delivery_fresh, 2), 8),  # best-effort EOD delivery top-up
     )
     buildups, buildup_ts = buildup_pair if buildup_pair else ({}, "")
     active = active or []
@@ -2378,7 +2383,12 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0):
 
     # --- Actionable setups ---
     radar = build_futures_radar(spurts, active)
-    plans, index_bias = score_signal_plans(radar, active, oc_nifty, buildups or {}, regime, capital, risk_pct)
+    try:
+        delivery = _delivery_signals()
+    except Exception:
+        delivery = {}
+    plans, index_bias = score_signal_plans(radar, active, oc_nifty, buildups or {}, regime, capital, risk_pct,
+                                           delivery=delivery)
 
     data = {
         "as_of": datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%dT%H:%M:%S"),
@@ -2464,6 +2474,21 @@ async def get_focus_list():
         if abs(m.get("change_pct") or 0) >= 1.0:
             add(m["ticker"], "Big mover", f"{m['change_pct']:+.2f}% today · ₹{m['last']:,}", 12,
                 side="LONG" if m["change_pct"] > 0 else "SHORT")
+
+    # 5. Delivery spurts: unusual delivered volume into a directional close
+    try:
+        dsig = _delivery_signals()
+    except Exception:
+        dsig = {}
+    spurted = [(sym, d) for sym, d in dsig.items()
+               if d["spurt"] >= 1.5 and (d["clv01"] >= 0.7 or d["clv01"] <= 0.3)]
+    spurted.sort(key=lambda x: -x[1]["spurt"])
+    for sym, d in spurted[:5]:
+        long_side = d["clv01"] >= 0.7
+        add(sym, "Delivery spurt",
+            f"{d['spurt']:.1f}× avg delivery into a {'strong' if long_side else 'weak'} close "
+            f"({d['deliv_per']:.0f}% delivered)",
+            12, side="LONG" if long_side else "SHORT")
 
     ranked = sorted(focus.values(), key=lambda x: -x["weight"])[:12]
     for entry in ranked:
@@ -2708,6 +2733,198 @@ def auth_logout(authorization: str = Header(None)):
         finally:
             conn.close()
     return {"ok": True}
+
+
+# --- Delivery % (EOD full bhavcopy with security-wise delivery data) ---
+# Daily CSV from NSE archives feeds a rolling ~30-trading-day history used by the
+# signals conviction score (HIGH CLV + delivery spurt = accumulation) and the
+# Focus List. Spec: docs/superpowers/specs/2026-07-04-delivery-percent-integration-design.md
+import threading
+import csv as _csv
+
+DELIVERY_CSV_URL = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_{d}.csv"
+DELIVERY_HISTORY_DAYS = 45          # calendar days kept in the table
+DELIVERY_BACKFILL_TRADING_DAYS = 30
+DELIVERY_PUBLISH_HOUR, DELIVERY_PUBLISH_MINUTE = 19, 15  # IST; file is up ~7pm
+_DELIVERY_LOCK = threading.Lock()
+_DELIVERY_CHECKED_AT = 0.0
+
+def _delivery_db():
+    conn = _auth_db()
+    conn.execute("""CREATE TABLE IF NOT EXISTS delivery_daily (
+        symbol     TEXT NOT NULL,
+        trade_date TEXT NOT NULL,
+        close      REAL,
+        deliv_per  REAL,
+        clv        REAL,
+        PRIMARY KEY (symbol, trade_date)
+    )""")
+    return conn
+
+def _clv(high: float, low: float, close: float) -> float:
+    """Close Location Value in [-1, 1]; 0 when the day had no range."""
+    if high <= low:
+        return 0.0
+    return ((close - low) - (high - close)) / (high - low)
+
+def _delivery_expected_day(now=None):
+    """Last trading day whose delivery file should exist (weekends skipped,
+    today only counts after the ~7:15pm IST publish window)."""
+    now = now or datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    d = now.date()
+    published = (now.hour, now.minute) >= (DELIVERY_PUBLISH_HOUR, DELIVERY_PUBLISH_MINUTE)
+    if now.weekday() >= 5 or not published:
+        d -= timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+def _delivery_universe():
+    syms = {t.replace(".NS", "") for t in SCREENER_UNIVERSES["nifty200"]}
+    try:
+        fut = (nse_get("/api/liveEquity-derivatives?index=stock_fut") or {}).get("data", [])
+        syms |= {c.get("underlying") for c in fut if c.get("underlying")}
+    except Exception:
+        pass
+    return syms
+
+def _fetch_delivery_csv(day):
+    """Raw CSV text for a trading day, or None on 404 (market holiday)."""
+    url = DELIVERY_CSV_URL.format(d=day.strftime("%d%m%Y"))
+    headers = dict(NSE_HEADERS, Referer="https://www.nseindia.com/all-reports")
+    r = requests.get(url, headers=headers, timeout=15)
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    return r.text
+
+def _ingest_delivery_day(conn, day, text, universe):
+    reader = _csv.reader(io.StringIO(text))
+    try:
+        header = [h.strip() for h in next(reader)]
+        col = {name: header.index(name) for name in
+               ("SYMBOL", "SERIES", "HIGH_PRICE", "LOW_PRICE", "CLOSE_PRICE", "DELIV_PER")}
+    except (StopIteration, ValueError):
+        return 0
+    rows = []
+    for raw in reader:
+        try:
+            if raw[col["SERIES"]].strip() != "EQ":
+                continue
+            sym = raw[col["SYMBOL"]].strip()
+            if sym not in universe:
+                continue
+            hi, lo = float(raw[col["HIGH_PRICE"]]), float(raw[col["LOW_PRICE"]])
+            close, dp = float(raw[col["CLOSE_PRICE"]]), float(raw[col["DELIV_PER"]])
+            rows.append((sym, day.isoformat(), close, dp, _clv(hi, lo, close)))
+        except (ValueError, IndexError):
+            continue  # '-' fields, short rows etc.
+    if rows:
+        conn.executemany(
+            "INSERT OR REPLACE INTO delivery_daily (symbol, trade_date, close, deliv_per, clv) VALUES (?, ?, ?, ?, ?)",
+            rows)
+    return len(rows)
+
+def _ensure_delivery_fresh(max_fetch=3, force=False):
+    """Bring delivery_daily up to the last expected trading day. Cheap when
+    already fresh; fetches at most max_fetch missing files otherwise."""
+    global _DELIVERY_CHECKED_AT
+    if not force and time.time() - _DELIVERY_CHECKED_AT < 3600:
+        return {"added": 0, "skipped": "recently checked"}
+    with _DELIVERY_LOCK:
+        if not force and time.time() - _DELIVERY_CHECKED_AT < 3600:
+            return {"added": 0, "skipped": "recently checked"}
+        expected = _delivery_expected_day()
+        conn = _delivery_db()
+        try:
+            latest = conn.execute("SELECT MAX(trade_date) FROM delivery_daily").fetchone()[0]
+            if latest and latest >= expected.isoformat():
+                _DELIVERY_CHECKED_AT = time.time()
+                return {"added": 0, "latest": latest}
+
+            if latest:
+                day, missing = datetime.fromisoformat(latest).date() + timedelta(days=1), []
+                while day <= expected:
+                    if day.weekday() < 5:
+                        missing.append(day)
+                    day += timedelta(days=1)
+            else:  # first run: backfill recent trading days, oldest first
+                missing, day = [], expected
+                while len(missing) < DELIVERY_BACKFILL_TRADING_DAYS:
+                    if day.weekday() < 5:
+                        missing.append(day)
+                    day -= timedelta(days=1)
+                missing.reverse()
+
+            added = 0
+            universe = _delivery_universe()
+            for day in missing[:max_fetch]:  # oldest first so gaps fill forward
+                try:
+                    text = _fetch_delivery_csv(day)
+                except requests.RequestException as e:
+                    print(f"Delivery fetch failed for {day}: {e}")
+                    continue
+                if text:
+                    added += _ingest_delivery_day(conn, day, text, universe)
+            conn.execute("DELETE FROM delivery_daily WHERE trade_date < ?",
+                         ((expected - timedelta(days=DELIVERY_HISTORY_DAYS)).isoformat(),))
+            conn.commit()
+            latest = conn.execute("SELECT MAX(trade_date) FROM delivery_daily").fetchone()[0]
+        finally:
+            conn.close()
+        if added:
+            _blob_push_db()
+            API_CACHE.pop("delivery_signals", None)
+        _DELIVERY_CHECKED_AT = time.time()
+        return {"added": added, "latest": latest}
+
+def _delivery_signals():
+    """{symbol: {spurt, clv01, deliv_per}} for the latest stored day; spurt is
+    today's delivery % over the symbol's prior 20-day average (needs >= 10 days)."""
+    cached = API_CACHE.get("delivery_signals")
+    if cached and time.time() - cached["time"] < 600:
+        return cached["data"]
+    conn = _delivery_db()
+    try:
+        latest = conn.execute("SELECT MAX(trade_date) FROM delivery_daily").fetchone()[0]
+        if not latest:
+            return {}
+        today = {r["symbol"]: r for r in conn.execute(
+            "SELECT symbol, deliv_per, clv FROM delivery_daily WHERE trade_date = ?", (latest,))}
+        base = {r["symbol"]: r for r in conn.execute("""
+            SELECT symbol, AVG(deliv_per) AS avg_dp, COUNT(*) AS n FROM (
+                SELECT symbol, deliv_per,
+                       ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_date DESC) AS rn
+                FROM delivery_daily WHERE trade_date < ?
+            ) WHERE rn <= 20 GROUP BY symbol""", (latest,))}
+    finally:
+        conn.close()
+    out = {}
+    for sym, row in today.items():
+        b = base.get(sym)
+        if not b or b["n"] < 10 or not b["avg_dp"]:
+            continue
+        out[sym] = {"spurt": row["deliv_per"] / b["avg_dp"],
+                    "clv01": (row["clv"] + 1) / 2,
+                    "deliv_per": row["deliv_per"]}
+    API_CACHE["delivery_signals"] = {"time": time.time(), "data": out}
+    return out
+
+def _delivery_score(dlv, side):
+    """0-10 conviction points: delivery spurt into a directional close."""
+    if not dlv:
+        return 0.0
+    c01 = dlv["clv01"] if side == "LONG" else 1 - dlv["clv01"]
+    c01 = max(0.0, min(1.0, c01))
+    return max(0.0, min(10.0, min(dlv["spurt"] / 1.3, 1.0) * c01 * 10))
+
+@app.get("/api/delivery/refresh")
+def delivery_refresh():
+    try:
+        result = _ensure_delivery_fresh(max_fetch=35, force=True)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Delivery refresh failed: {e}")
+    return result
 
 
 # --- Static File Serving (Production) ---
