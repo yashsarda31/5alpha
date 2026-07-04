@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PageHeader } from '../components/ui';
 import PlotComponent from 'react-plotly.js';
 const Plot = PlotComponent.default || PlotComponent;
 
@@ -52,8 +53,7 @@ const Arima = () => {
 
   return (
     <div>
-      <h2>SARIMAX Quantitative Forecaster</h2>
-      <p style={{color: "var(--text-secondary)"}}>Institutional time-series modeling for equity trajectory.</p>
+      <PageHeader code="FORE" title="SARIMAX Forecaster" subtitle="Institutional time-series modeling for equity trajectory." />
       
       <div style={{display: 'flex', flexWrap: 'wrap', gap: '20px', marginBottom: '20px', alignItems: 'flex-start'}}>
         <div>

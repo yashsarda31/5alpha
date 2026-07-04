@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { PageHeader } from '../components/ui';
 
 // Daily Bosses definition
 const BOSSES = [
@@ -750,13 +751,11 @@ const TradingGame = () => {
       )}
 
       {/* Header Area */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-        <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '28px' }}>🎮</span> Discipline Arena
-          </h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Gamify your psychology, risk controls, and trading consistency.</p>
-        </div>
+      <PageHeader
+        code="ARENA"
+        title="🎮 Discipline Arena"
+        subtitle="Gamify your psychology, risk controls, and trading consistency."
+        right={
         <div style={{ display: 'flex', gap: '12px' }}>
           <button className="secondary" style={{ width: 'auto', padding: '10px 16px', fontSize: '13px' }} onClick={exportState}>
             📥 Backup State
@@ -769,7 +768,8 @@ const TradingGame = () => {
             🚨 Reset
           </button>
         </div>
-      </div>
+        }
+      />
 
       <div className="game-grid">
         {/* ================= LEFT COLUMN: HERO PANEL ================= */}

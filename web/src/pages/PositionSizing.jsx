@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PageHeader } from '../components/ui';
 
 const PositionSizing = () => {
   const [capital, setCapital] = useState(10000);
@@ -43,10 +44,11 @@ const PositionSizing = () => {
 
   return (
     <div className="fade-in">
-      <h2>Position Sizing Calculator</h2>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: '30px' }}>
-        Calculate institutional-grade position sizes based on capital risk and stop-loss levels.
-      </p>
+      <PageHeader
+        code="SIZE"
+        title="Position Sizing Calculator"
+        subtitle="Calculate institutional-grade position sizes based on capital risk and stop-loss levels."
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '30px' }}>
         <div className="card">

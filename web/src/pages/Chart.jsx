@@ -110,10 +110,13 @@ const Chart = () => {
     <div className="fade-in">
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px', gap: '20px' }}>
         <div>
-          <h2 style={{ marginBottom: '8px' }}>Institutional Chart Analyser</h2>
-          <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Advanced technical analysis and AI-driven market insights.</p>
+          <div className="ui-ph-titlerow">
+            <span className="ui-code-chip">GP</span>
+            <span className="ui-ph-title">Chart Analyser</span>
+          </div>
+          <p className="ui-ph-subtitle" style={{ margin: '4px 0 0' }}>Advanced technical analysis and AI-driven market insights.</p>
         </div>
-        
+
         <div style={{ display: 'flex', gap: '12px' }}>
           <div style={{ width: '160px' }}>
             <input 

@@ -3,6 +3,7 @@ import axios from 'axios';
 import PlotComponent from 'react-plotly.js';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PageHeader } from '../components/ui';
 
 const Plot = PlotComponent.default || PlotComponent;
 
@@ -157,15 +158,11 @@ const DruckMinervini = () => {
 
   return (
     <div className="page" style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
-      <div className="header" style={{ marginBottom: '32px' }}>
-        <h1 style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '32px' }}>🦅</span> 
-          <span>Druckenmiller + Minervini Trade Analyzer</span>
-        </h1>
-        <p style={{ color: 'var(--text-secondary)', marginTop: '8px', fontSize: '15px' }}>
-          Evaluate technical setups with Mark Minervini's SEPA (Stage 2 Uptrends, VCP, Pivot Breakouts) integrated with Stanley Druckenmiller's macroeconomic liquidity and sizing principles.
-        </p>
-      </div>
+      <PageHeader
+        code="SEPA"
+        title="🦅 Druckenmiller + Minervini Trade Analyzer"
+        subtitle="Evaluate technical setups with Mark Minervini's SEPA (Stage 2 Uptrends, VCP, Pivot Breakouts) integrated with Stanley Druckenmiller's macroeconomic liquidity and sizing principles."
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start', marginBottom: '32px' }}>
         

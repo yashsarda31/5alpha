@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { PageHeader } from '../components/ui';
 
 const News = () => {
   const [ticker, setTicker] = useState('AAPL');
@@ -36,10 +37,7 @@ const News = () => {
 
   return (
     <div className="page">
-      <div className="header">
-        <h1>Latest News</h1>
-        <p>Recent headlines and articles for specific tickers.</p>
-      </div>
+      <PageHeader code="NEWS" title="Latest News" subtitle="Recent headlines and articles for specific tickers." />
 
       <div className="panel" style={{ marginBottom: '20px' }}>
         <form onSubmit={fetchNews} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
