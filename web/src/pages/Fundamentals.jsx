@@ -3,6 +3,11 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { PageHeader } from '../components/ui';
 
+const currencyFor = (ticker) => {
+  const t = (ticker || '').toUpperCase();
+  return t.endsWith('.NS') || t.endsWith('.BO') ? '₹' : '$';
+};
+
 const Fundamentals = () => {
   const [ticker, setTicker] = useState('AAPL');
   const [data, setData] = useState(null);
@@ -138,13 +143,13 @@ const Fundamentals = () => {
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Market Cap</div>
                 <div style={{ fontSize: '1.2em', fontWeight: 'bold' }}>
-                  {data.marketCap ? `$${(data.marketCap / 1e9).toFixed(2)}B` : 'N/A'}
+                  {data.marketCap ? `${currencyFor(data.ticker)}${(data.marketCap / 1e9).toFixed(2)}B` : 'N/A'}
                 </div>
               </div>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Total Cash</div>
                 <div style={{ fontSize: '1.2em', fontWeight: 'bold' }}>
-                  {data.totalCash ? `$${(data.totalCash / 1e9).toFixed(2)}B` : 'N/A'}
+                  {data.totalCash ? `${currencyFor(data.ticker)}${(data.totalCash / 1e9).toFixed(2)}B` : 'N/A'}
                 </div>
               </div>
             </div>

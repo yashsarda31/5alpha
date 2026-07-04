@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { PageHeader, DataTable, Skeleton } from '../components/ui';
+import { PageHeader, DataTable, Skeleton, EmptyState } from '../components/ui';
 
 const ToggleBtn = ({ active, onClick, children }) => (
   <button
@@ -19,19 +19,23 @@ const ToggleBtn = ({ active, onClick, children }) => (
 const FiiDii = () => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [view, setView] = useState('FII');
 
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await axios.get('/api/fiidii');
+      if (res.data && res.data.data) setData(res.data.data);
+    } catch (err) {
+      console.error('FII/DII fetch failed:', err);
+      setError('Could not load institutional flow data — the NSE source may be slow or temporarily down.');
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const res = await axios.get('/api/fiidii');
-        if (res.data && res.data.data) setData(res.data.data);
-      } catch (err) {
-        console.error('FII/DII fetch failed:', err);
-      }
-      setLoading(false);
-    };
     fetchData();
   }, []);
 
@@ -57,11 +61,11 @@ const FiiDii = () => {
         const widthPct = Math.min((Math.abs(val) / (maxAbsValue || 1)) * 100, 100);
         return (
           <div style={{ display: 'flex', width: '100%', height: '12px', alignItems: 'center' }}>
-            <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', paddingRight: '2px' }}>
+            <div style={{ flex: 1, height: '100%', display: 'flex', justifyContent: 'flex-end', paddingRight: '2px' }}>
               {!isPositive && <div style={{ width: `${widthPct}%`, height: '100%', backgroundColor: 'var(--red-loss)', borderRadius: '2px 0 0 2px' }} />}
             </div>
             <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--text-secondary)' }} />
-            <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-start', paddingLeft: '2px' }}>
+            <div style={{ flex: 1, height: '100%', display: 'flex', justifyContent: 'flex-start', paddingLeft: '2px' }}>
               {isPositive && <div style={{ width: `${widthPct}%`, height: '100%', backgroundColor: 'var(--green-gain)', borderRadius: '0 2px 2px 0' }} />}
             </div>
           </div>
@@ -95,6 +99,11 @@ const FiiDii = () => {
 
       {loading ? (
         <div className="ui-table-wrap" style={{ padding: 16 }}><Skeleton rows={6} height={34} /></div>
+      ) : error ? (
+        <EmptyState icon="⚠️" title="Data unavailable">
+          {error}{' '}
+          <button onClick={fetchData} style={{ width: 'auto', padding: '6px 16px', marginLeft: 8 }}>Retry</button>
+        </EmptyState>
       ) : (
         <DataTable columns={columns} rows={data} rowKey={(r, i) => `${r.date}-${i}`} />
       )}

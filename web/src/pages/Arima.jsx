@@ -6,6 +6,11 @@ import { PageHeader } from '../components/ui';
 import PlotComponent from 'react-plotly.js';
 const Plot = PlotComponent.default || PlotComponent;
 
+const currencyFor = (ticker) => {
+  const t = (ticker || '').toUpperCase();
+  return t.endsWith('.NS') || t.endsWith('.BO') ? '₹' : '$';
+};
+
 const Arima = () => {
   const [ticker, setTicker] = useState('RELIANCE.NS');
   const [days, setDays] = useState(10);
@@ -123,7 +128,7 @@ const Arima = () => {
               yaxis: { 
                 gridcolor: 'rgba(255, 255, 255, 0.05)',
                 linecolor: 'rgba(255, 255, 255, 0.1)',
-                tickprefix: '$'
+                tickprefix: currencyFor(ticker)
               },
               height: 450,
               margin: { l: 50, r: 20, b: 40, t: 60 }

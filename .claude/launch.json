@@ -6,6 +6,13 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "uvicorn", "api.main:app", "--port", "8000"],
       "port": 8000
+    },
+    {
+      "name": "web-dist",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "preview", "--outDir", "dist", "--port", "4173", "--strictPort"],
+      "cwd": "web",
+      "port": 4173
     }
   ]
 }

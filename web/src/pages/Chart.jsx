@@ -5,6 +5,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 const Plot = PlotComponent.default || PlotComponent;
 
+const currencyFor = (ticker) => {
+  const t = (ticker || '').toUpperCase();
+  return t.endsWith('.NS') || t.endsWith('.BO') ? '₹' : '$';
+};
+
 const Chart = () => {
   const [ticker, setTicker] = useState('NVDA');
   const [loading, setLoading] = useState(false);
@@ -42,11 +47,12 @@ const Chart = () => {
     }
     
     const lastIdx = chartData.close.length - 1;
+    const cur = currencyFor(ticker);
     const data_summary = `Ticker: ${ticker}
-    Latest Close: $${chartData.close[lastIdx].toFixed(2)}
-    Latest High: $${chartData.high[lastIdx].toFixed(2)}
-    Latest Low: $${chartData.low[lastIdx].toFixed(2)}
-    Current 20 SMA: $${chartData.sma20[lastIdx].toFixed(2)}
+    Latest Close: ${cur}${chartData.close[lastIdx].toFixed(2)}
+    Latest High: ${cur}${chartData.high[lastIdx].toFixed(2)}
+    Latest Low: ${cur}${chartData.low[lastIdx].toFixed(2)}
+    Current 20 SMA: ${cur}${chartData.sma20[lastIdx].toFixed(2)}
     Distance from 20 SMA: ${((chartData.close[lastIdx] / chartData.sma20[lastIdx] - 1) * 100).toFixed(2)}%
     Latest 14-period RSI: ${chartData.rsi[lastIdx].toFixed(2)}
     Minervini VCP Rating (0-5 stars): ${chartData.vcp_rating}
@@ -105,6 +111,7 @@ const Chart = () => {
   };
 
   const techSignal = getTechnicalSignal();
+  const cur = currencyFor(ticker);
 
   return (
     <div className="fade-in">
@@ -139,7 +146,7 @@ const Chart = () => {
             <div className="stat-box">
               <div className="stat-label">{ticker} PRICE</div>
               <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                ${lastPrice.toFixed(2)}
+                {cur}{lastPrice.toFixed(2)}
                 <span style={{ fontSize: '14px', color: change >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>
                   {change >= 0 ? '+' : ''}{change.toFixed(2)} ({changePercent.toFixed(2)}%)
                 </span>
@@ -147,11 +154,11 @@ const Chart = () => {
             </div>
             <div className="stat-box">
               <div className="stat-label">DAY HIGH</div>
-              <div className="stat-value">${chartData.high[chartData.high.length-1].toFixed(2)}</div>
+              <div className="stat-value">{cur}{chartData.high[chartData.high.length-1].toFixed(2)}</div>
             </div>
             <div className="stat-box">
               <div className="stat-label">DAY LOW</div>
-              <div className="stat-value">${chartData.low[chartData.low.length-1].toFixed(2)}</div>
+              <div className="stat-value">{cur}{chartData.low[chartData.low.length-1].toFixed(2)}</div>
             </div>
             <div className="stat-box">
               <div className="stat-label">VOLUME</div>
@@ -217,7 +224,7 @@ const Chart = () => {
                     gridcolor: 'rgba(255, 255, 255, 0.1)',
                     linecolor: 'rgba(255, 255, 255, 0.1)',
                     side: 'right',
-                    tickprefix: '$',
+                    tickprefix: cur,
                     tickfont: { color: 'var(--text-secondary)' }
                   },
                   yaxis2: {

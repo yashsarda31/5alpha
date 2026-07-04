@@ -12,5 +12,13 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    proxy: {
+      '/api': {
+        target: 'https://5alphav2.vercel.app',
+        changeOrigin: true,
+      },
+    },
+  },
 })
 
