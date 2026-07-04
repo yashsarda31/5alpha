@@ -77,6 +77,15 @@
 - Porting bug caught during browser verification: `build_index_ideas` used a bare `else` where the terminal had `elif bias == "BEARISH"`, mislabeling NEUTRAL readings as BEARISH — fixed with an explicit NEUTRAL idea.
 - Covered by `test_market_signals` in api/test_main.py (28 tests total). Verified live in-browser (desktop + mobile) and on prod (~2.8s response).
 
+## Glass Terminal design-system unification (2026-07-04)
+Spec + plan in `docs/superpowers/specs|plans/2026-07-04-glass-terminal-*`. Unified all 16 pages onto one design language (premium glass chrome + terminal data discipline) via a shared component kit, enforced structurally.
+- **Foundations** (`web/src/index.css`): contrast-safe text tokens (`--text-secondary` #A1A1AA, `--text-tertiary`), `--font-mono` + `.tnum` (tabular numerals), radius/surface tokens. Hard rule: WCAG-AA, no dark-on-dark.
+- **Kit** (`web/src/components/ui/`): PageHeader, SectionTitle, StatTile/StatGrid, Panel, DataTable (controlled sort/loading/empty), Badge, StatusPill, EmptyState, Skeleton + barrel.
+- **Dashboard** rebuilt off the Bloomberg-terminal skin (all `bbg-*` styles deleted) onto the kit.
+- **All 16 pages** now use PageHeader (mono command chip + title); tables → DataTable or token-restyled in place (Option Chain matrix); Option Chain got mono/tabular numerals; DCF's light-pink summary rows → dark glass with gold values.
+- Fixed a latent bug: Momentum returns used non-existent `--accent-green/red` (uncolored) → now green/red.
+- Global audit: all 16 routes verified at 375px (no overflow) and contrast (#A1A1AA everywhere; removed leftover #86868b). Committed in phases (f75f93e → e76da14); deployed + pushed. Note: `api/test_live.py::test_chart_endpoint` can flake on transient yfinance empties — endpoint verified working (frontend-only change set).
+
 ## Learn tab, Focus List, guru screens (2026-07-03)
 - **🎓 Learn** (`/learn`): curated static library, 3 tracks (Investing/Trading/Options) × ~7 canonical resources each, with type/level badges and a suggested path per track. Free resources link to official sources (Buffett letters, Damodaran YouTube, Marks memos, Poor Charlie's Almanack on Stripe Press, Zerodha Varsity, Adam Grimes course, OIC, Cboe, tastylive); books link to Goodreads.
 - **🎯 Focus List** (`/focus` + `/api/focus`): aggregates the engines already running — signal setups (weight = conviction score), top-5 momentum leaders, stock-option buildups, heavyweight movers — deduped per symbol with merged reason chips and a summed focus weight (verified: SBIN merged Momentum leader + Big mover). Context strip shows regime, NIFTY S/R + max pain, VIX, options bias, LIVE/CLOSED pill. Cached 5 min; reuses signals/momentum caches.
