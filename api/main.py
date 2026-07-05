@@ -3091,6 +3091,9 @@ def watchlist_quotes(authorization: str = Header(None)):
 # day OR call it wrong resets to 0. Two leaderboards: current streak & accuracy.
 _IST = timezone(timedelta(hours=5, minutes=30))
 LEADERBOARD_MIN_CALLS = 20
+# Keep QA/throwaway accounts off the public leaderboard. Real clients never use
+# the @test.local domain (it's reserved for the test suite + manual verification).
+_NOT_TEST_USER = "user_id NOT IN (SELECT id FROM users WHERE email LIKE '%@test.local')"
 
 def _ist_now():
     return datetime.now(_IST)
@@ -3274,7 +3277,7 @@ def leaderboard(board: str = "streak", authorization: str = Header(None)):
         rows = conn.execute(f"""SELECT s.user_id, u.display_name AS name,
                 s.current_streak, s.longest_streak, s.total_calls, s.correct_calls
             FROM streak_stats s JOIN users u ON u.id = s.user_id
-            WHERE {where} ORDER BY {order} LIMIT 50""").fetchall()
+            WHERE {where} AND {_NOT_TEST_USER} ORDER BY {order} LIMIT 50""").fetchall()
 
         def fmt(r, rank):
             return {"rank": rank, "name": r["name"], "current_streak": r["current_streak"],
@@ -3291,12 +3294,12 @@ def leaderboard(board: str = "streak", authorization: str = Header(None)):
             if eligible and (board != "streak" or my["current_streak"] > 0 or my["longest_streak"] > 0):
                 if board == "accuracy":
                     ahead = conn.execute(f"""SELECT COUNT(*) c FROM streak_stats
-                        WHERE total_calls >= {LEADERBOARD_MIN_CALLS} AND hide_from_board=0
+                        WHERE total_calls >= {LEADERBOARD_MIN_CALLS} AND hide_from_board=0 AND {_NOT_TEST_USER}
                           AND CAST(correct_calls AS REAL)/total_calls > CAST(? AS REAL)/?""",
                         (my["correct_calls"], my["total_calls"])).fetchone()["c"]
                 else:
-                    ahead = conn.execute("""SELECT COUNT(*) c FROM streak_stats
-                        WHERE hide_from_board=0 AND (current_streak>0 OR longest_streak>0)
+                    ahead = conn.execute(f"""SELECT COUNT(*) c FROM streak_stats
+                        WHERE hide_from_board=0 AND (current_streak>0 OR longest_streak>0) AND {_NOT_TEST_USER}
                           AND current_streak > ?""", (my["current_streak"],)).fetchone()["c"]
                 you = {"rank": ahead + 1, "name": row["display_name"], "current_streak": my["current_streak"],
                        "longest_streak": my["longest_streak"], "total_calls": my["total_calls"],

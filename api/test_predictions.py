@@ -11,8 +11,10 @@ from fastapi.testclient import TestClient
 client = TestClient(main.app)
 
 
-def _new_user():
-    email = f"user_{uuid.uuid4().hex[:10]}@test.local"
+def _new_user(domain="test.local"):
+    # Leaderboard tests must use a non-"test.local" domain: production filters
+    # @test.local accounts off the public board (see _NOT_TEST_USER in main.py).
+    email = f"user_{uuid.uuid4().hex[:10]}@{domain}"
     r = client.post("/api/auth/signup", json={"email": email, "password": "secret123", "displayName": f"U{email[:6]}"})
     assert r.status_code == 200
     return {"Authorization": f"Bearer {r.json()['token']}"}, r.json()["user"]["uid"]
@@ -136,7 +138,7 @@ def test_resolve_idempotent(monkeypatch):
 
 def test_leaderboard_streak_and_hide(monkeypatch):
     d1 = "2026-06-29"
-    h, uid = _new_user()
+    h, uid = _new_user(domain="example.com")  # non-test domain so it isn't board-filtered
     _unlock(monkeypatch, d1)
     client.post("/api/predict", json={"choice": "UP"}, headers=h)
     monkeypatch.setattr(main, "_nifty_outcome_for_date", lambda qd: ("UP", 0.5))
@@ -148,6 +150,18 @@ def test_leaderboard_streak_and_hide(monkeypatch):
     board2 = client.get("/api/leaderboard?board=streak", headers=h).json()
     assert not any(e["is_you"] for e in board2["top"])
     assert board2["you"] is None
+
+
+def test_test_accounts_excluded_from_board(monkeypatch):
+    d1 = "2026-05-11"
+    h, _ = _new_user(domain="test.local")  # a QA/throwaway account
+    _unlock(monkeypatch, d1)
+    client.post("/api/predict", json={"choice": "UP"}, headers=h)
+    monkeypatch.setattr(main, "_nifty_outcome_for_date", lambda qd: ("UP", 0.5))
+    conn = main._auth_db(); main._resolve_day(conn, d1); conn.commit(); conn.close()
+    board = client.get("/api/leaderboard?board=streak", headers=h).json()
+    # Even with a live streak, a @test.local account never appears publicly.
+    assert not any(e["is_you"] for e in board["top"])
 
 
 def test_accuracy_min_sample(monkeypatch):
