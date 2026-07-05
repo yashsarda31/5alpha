@@ -85,7 +85,7 @@ const Arima = () => {
                 y: forecastData.historical.prices,
                 type: 'scatter',
                 mode: 'lines',
-                line: {color: 'rgba(0, 0, 0, 0.4)', width: 2},
+                line: {color: 'rgba(255, 255, 255, 0.55)', width: 2},
                 name: 'Historical'
               },
               {
@@ -112,15 +112,15 @@ const Arima = () => {
                 y: forecastData.forecast.prices,
                 type: 'scatter',
                 mode: 'lines',
-                line: {color: 'var(--primary-gold)', width: 3, dash: 'dot'},
+                line: {color: '#F5DC8C', width: 3, dash: 'dot'},
                 name: 'Forecast'
               }
             ]}
             layout={{
-              title: { text: `${ticker} SARIMAX Projection`, font: { color: 'var(--text-primary)' } },
+              title: { text: `${ticker} SARIMAX Projection`, font: { color: '#F5F5F7' } },
               plot_bgcolor: "transparent",
               paper_bgcolor: "transparent",
-              font: { color: 'var(--text-secondary)', family: 'Inter' },
+              font: { color: '#A1A1AA', family: 'Inter' },
               xaxis: { 
                 gridcolor: 'rgba(255, 255, 255, 0.05)',
                 linecolor: 'rgba(255, 255, 255, 0.1)'

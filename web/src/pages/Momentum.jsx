@@ -26,20 +26,22 @@ const Momentum = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await axios.get(`/api/momentum?market=${market}`);
+      setData(response.data.data || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await axios.get(`/api/momentum?market=${market}`);
-        setData(response.data.data || []);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [market]);
 
   const cur = market === 'in' ? '₹' : '$';
@@ -72,7 +74,7 @@ const Momentum = () => {
             <h3 style={{ marginBottom: '8px', fontSize: '16px', color: 'var(--red-loss)' }}>Failed to Load Data</h3>
             <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{error}</p>
           </div>
-          <button onClick={() => setMarket(market)} style={{ width: 'auto', padding: '8px 16px', background: 'rgba(255, 69, 58, 0.15)', border: '1px solid var(--red-loss)', color: 'var(--red-loss)' }}>Retry</button>
+          <button onClick={fetchData} style={{ width: 'auto', padding: '8px 16px', background: 'rgba(255, 69, 58, 0.15)', border: '1px solid var(--red-loss)', color: 'var(--red-loss)' }}>Retry</button>
         </div>
       ) : (
         <DataTable columns={columns} rows={data} loading={loading} rowKey={(r) => r.ticker} />

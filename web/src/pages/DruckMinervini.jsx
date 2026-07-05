@@ -488,8 +488,8 @@ const DruckMinervini = () => {
                           close: results.chart_data.close,
                           type: 'candlestick',
                           name: ticker.toUpperCase(),
-                          decreasing: { line: { color: 'var(--red-loss)' } },
-                          increasing: { line: { color: 'var(--green-gain)' } },
+                          decreasing: { line: { color: '#FF453A' } },
+                          increasing: { line: { color: '#32D74B' } },
                         },
                         {
                           x: results.chart_data.dates,
@@ -513,7 +513,7 @@ const DruckMinervini = () => {
                           type: 'scatter',
                           mode: 'lines',
                           name: '200 SMA',
-                          line: { color: 'var(--primary-gold)', width: 2 }
+                          line: { color: '#F5DC8C', width: 2 }
                         }
                       ]}
                       layout={{
@@ -521,7 +521,7 @@ const DruckMinervini = () => {
                         showlegend: true,
                         plot_bgcolor: 'rgba(0,0,0,0)',
                         paper_bgcolor: 'rgba(0,0,0,0)',
-                        font: { color: 'var(--text-primary)', size: 10 },
+                        font: { color: '#F5F5F7', size: 10 },
                         margin: { t: 20, r: 10, l: 40, b: 20 },
                         xaxis: {
                           gridcolor: 'rgba(255,255,255,0.05)',
