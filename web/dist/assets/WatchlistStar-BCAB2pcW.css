@@ -1,0 +1,1 @@
+.wl-star{cursor:pointer;color:var(--text-secondary);opacity:.55;background:0 0;border:none;width:auto;margin:0;padding:2px 4px;line-height:1;transition:opacity .15s,color .15s,transform .1s}.wl-star:hover{opacity:1;color:var(--primary-gold);transform:scale(1.12)}.wl-star.on{color:var(--primary-gold);opacity:1}.wl-star:active{transform:scale(.9)}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { PageHeader } from '../components/ui';
+import WatchlistStar from '../components/WatchlistStar';
 
 const TAG_COLORS = {
   'LONG setup': 'var(--green-gain)',
@@ -102,7 +103,9 @@ const FocusList = () => {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '18px', fontWeight: 800 }}>{s.symbol}</span>
+                    <span style={{ fontSize: '18px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <WatchlistStar symbol={s.symbol} size={16} />{s.symbol}
+                    </span>
                     <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>focus weight {s.weight}</span>
                   </div>
                   <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '5px' }}>

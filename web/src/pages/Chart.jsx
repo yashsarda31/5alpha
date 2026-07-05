@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import PlotComponent from 'react-plotly.js';
+import Plot from '../components/Plot';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-const Plot = PlotComponent.default || PlotComponent;
+
+import WatchlistStar from '../components/WatchlistStar';
 
 const currencyFor = (ticker) => {
   const t = (ticker || '').toUpperCase();
@@ -161,6 +162,7 @@ const Chart = () => {
                 <span style={{ fontSize: '14px', color: change >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>
                   {change >= 0 ? '+' : ''}{change.toFixed(2)} ({changePercent.toFixed(2)}%)
                 </span>
+                <WatchlistStar symbol={ticker} size={22} />
               </div>
             </div>
             <div className="stat-box">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { PageHeader, DataTable } from '../components/ui';
+import WatchlistStar from '../components/WatchlistStar';
 
 const ToggleBtn = ({ active, onClick, children }) => (
   <button
@@ -46,7 +47,12 @@ const Momentum = () => {
 
   const cur = market === 'in' ? '₹' : '$';
   const columns = [
-    { key: 'ticker', label: 'Ticker', render: (r) => <strong>{r.ticker}</strong> },
+    { key: 'ticker', label: 'Ticker', render: (r) => (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+        {market === 'in' && <WatchlistStar symbol={r.ticker} size={15} />}
+        <strong>{r.ticker}</strong>
+      </span>
+    ) },
     { key: 'price', label: 'Price', align: 'right', render: (r) => `${cur}${r.price}` },
     { key: 'mom_1m', label: '1M', align: 'right', render: (r) => pct(r.mom_1m) },
     { key: 'mom_6m', label: '6M', align: 'right', render: (r) => pct(r.mom_6m) },

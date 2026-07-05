@@ -1,8 +1,84 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, SectionTitle, DataTable, StatusPill, Badge, Skeleton } from '../components/ui';
+import { useWatchlist } from '../WatchlistContext';
+import WatchlistStar from '../components/WatchlistStar';
 import './Dashboard.css';
+
+const TOKEN_KEY = 'alphanova_auth_token';
+const authHeader = () => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+// Personalized top section: the user's tracked stocks with live prices, or a
+// teaching nudge when the list is empty (the key first-run conversion moment).
+const MyWatchlist = () => {
+  const { symbols, loading } = useWatchlist();
+  const [quotes, setQuotes] = useState({});
+  const symbolsKey = symbols.join(',');
+
+  const fetchQuotes = useCallback(async () => {
+    if (!symbolsKey) { setQuotes({}); return; }
+    try {
+      const res = await axios.get('/api/watchlist/quotes', { headers: authHeader() });
+      const map = {};
+      (res.data.quotes || []).forEach((q) => { map[q.symbol] = q; });
+      setQuotes(map);
+    } catch {
+      // degrade to symbols-only
+    }
+  }, [symbolsKey]);
+
+  useEffect(() => {
+    fetchQuotes();
+    const id = setInterval(fetchQuotes, 120000);
+    return () => clearInterval(id);
+  }, [fetchQuotes]);
+
+  return (
+    <div>
+      <div className="dash-section-head">
+        <SectionTitle icon="⭐">My Watchlist</SectionTitle>
+        {symbols.length > 0 && <Link to="/watchlist" className="dash-manage-link">Manage ⭐</Link>}
+      </div>
+      {loading ? (
+        <div className="dash-mover-grid">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={62} />)}
+        </div>
+      ) : symbols.length === 0 ? (
+        <div className="dash-wl-empty">
+          <strong>Track your stocks.</strong> Tap the ☆ on any Chart, Screener result,
+          Momentum leader, or a mover below — your picks show up here with live prices,
+          so you can see what moved on <em>your</em> names in one glance.
+        </div>
+      ) : (
+        <div className="dash-mover-grid">
+          {symbols.map((sym) => {
+            const q = quotes[sym];
+            const chg = q?.change_pct;
+            const dir = chg === null || chg === undefined ? '' : chg >= 0 ? 'up' : 'down';
+            return (
+              <Link
+                key={sym}
+                to={`/chart?symbol=${sym}.NS`}
+                title={`Open ${sym} in Chart Analyser`}
+                className={`dash-mover ${dir}`}
+              >
+                <WatchlistStar symbol={sym} size={15} className="dash-mover-star" />
+                <span className="dash-mover-sym">{sym}</span>
+                <span className={`tnum ${dir === 'down' ? 'tone-loss' : dir === 'up' ? 'tone-gain' : ''}`}>
+                  {chg === null || chg === undefined ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const NAV_MODULES = [
   { to: '/signals', icon: '⚡', title: 'SIG > Market Signals', desc: 'Options intelligence, regime context & scored setups.' },
@@ -84,6 +160,10 @@ const Dashboard = () => {
         <div className="dash-error">Live market feed unavailable: {error}</div>
       )}
 
+      <div style={{ marginBottom: 8 }}>
+        <MyWatchlist />
+      </div>
+
       <div className="dash-grid">
         <div>
           <SectionTitle icon="📊">Top Movers</SectionTitle>
@@ -98,6 +178,7 @@ const Dashboard = () => {
                   title={`Open ${m.ticker} in Chart Analyser`}
                   className={`dash-mover ${m.change_pct >= 0 ? 'up' : 'down'}`}
                 >
+                  <WatchlistStar symbol={m.ticker} size={15} className="dash-mover-star" />
                   <span className="dash-mover-sym">{m.ticker}</span>
                   <span className={`tnum ${m.change_pct >= 0 ? 'tone-gain' : 'tone-loss'}`}>
                     {m.change_pct >= 0 ? '+' : ''}{m.change_pct.toFixed(2)}%

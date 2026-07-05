@@ -1,27 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
-import Dashboard from './pages/Dashboard';
-import Dcf from './pages/Dcf';
-import Chart from './pages/Chart';
-import Screener from './pages/Screener';
-import Arima from './pages/Arima';
-import PositionSizing from './pages/PositionSizing';
-import Momentum from './pages/Momentum';
-import Fundamentals from './pages/Fundamentals';
-import News from './pages/News';
-import OptionChain from './pages/OptionChain';
-import MarketSignals from './pages/MarketSignals';
-import FocusList from './pages/FocusList';
-import Learn from './pages/Learn';
-import DruckMinervini from './pages/DruckMinervini';
-import TradingGame from './pages/TradingGame';
-
-
-import FiiDii from './pages/FiiDii';
+import { WatchlistProvider } from './WatchlistContext';
 import Login from './pages/Login';
 import Disclaimer from './components/Disclaimer';
+import InstallApp from './components/InstallApp';
 import SignalAlertProvider, { useSignalAlerts } from './alerts/SignalAlertProvider';
+
+// Every page is lazy-loaded so the initial bundle carries only the shell;
+// heavy dependencies (Plotly ~1.4 MB) download only when a chart page opens.
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Watchlist = lazy(() => import('./pages/Watchlist'));
+const Dcf = lazy(() => import('./pages/Dcf'));
+const Chart = lazy(() => import('./pages/Chart'));
+const Screener = lazy(() => import('./pages/Screener'));
+const Arima = lazy(() => import('./pages/Arima'));
+const PositionSizing = lazy(() => import('./pages/PositionSizing'));
+const Momentum = lazy(() => import('./pages/Momentum'));
+const Fundamentals = lazy(() => import('./pages/Fundamentals'));
+const News = lazy(() => import('./pages/News'));
+const OptionChain = lazy(() => import('./pages/OptionChain'));
+const MarketSignals = lazy(() => import('./pages/MarketSignals'));
+const FocusList = lazy(() => import('./pages/FocusList'));
+const Learn = lazy(() => import('./pages/Learn'));
+const DruckMinervini = lazy(() => import('./pages/DruckMinervini'));
+const TradingGame = lazy(() => import('./pages/TradingGame'));
+const FiiDii = lazy(() => import('./pages/FiiDii'));
+
+const PageLoader = () => (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '40vh', color: 'var(--text-secondary)', fontSize: '14px', letterSpacing: '0.05em' }}>
+    Loading…
+  </div>
+);
 
 const AlertBell = () => {
   const { browserEnabled, toggleBrowser, permission } = useSignalAlerts();
@@ -67,6 +77,7 @@ const AppLayout = () => {
   };
 
   return (
+    <WatchlistProvider>
     <SignalAlertProvider>
       <div className="mobile-topbar">
         <button className="hamburger-btn" onClick={() => setMenuOpen(true)} aria-label="Open navigation menu">☰</button>
@@ -84,6 +95,9 @@ const AppLayout = () => {
         <nav onClick={() => setMenuOpen(false)}>
           <NavLink to="/dashboard" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>⌘</span> Dashboard
+          </NavLink>
+          <NavLink to="/watchlist" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
+            <span style={{marginRight: '12px', opacity: 0.8}}>⭐</span> Watchlist
           </NavLink>
           <NavLink to="/signals" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>⚡</span> Market Signals
@@ -134,6 +148,7 @@ const AppLayout = () => {
         </nav>
         
         <div style={{marginTop: 'auto', paddingTop: '40px'}}>
+          <InstallApp />
           <AlertBell />
           <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Logged in as</div>
@@ -154,8 +169,10 @@ const AppLayout = () => {
 
       <div className="content">
         <Disclaimer />
+        <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/watchlist" element={<Watchlist />} />
           <Route path="/dcf" element={<Dcf />} />
           <Route path="/fundamentals" element={<Fundamentals />} />
           <Route path="/momentum" element={<Momentum />} />
@@ -174,8 +191,10 @@ const AppLayout = () => {
           <Route path="/trading-game" element={<TradingGame />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </Suspense>
       </div>
     </SignalAlertProvider>
+    </WatchlistProvider>
   );
 };
 

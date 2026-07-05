@@ -97,6 +97,40 @@ a.dash-mover:hover {
 .dash-nav-title { color: var(--primary-gold); font-weight: 700; font-size: 14px; }
 .dash-nav-desc { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 
+/* My Watchlist (personalized top section) */
+.dash-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dash-manage-link {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.dash-manage-link:hover { color: var(--primary-gold); }
+
+/* let a star sit in the tile's top-right without disturbing the flex column */
+.dash-mover { position: relative; }
+.dash-mover-star {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.dash-wl-empty {
+  background: var(--surface-tile);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--r-tile);
+  padding: 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.dash-wl-empty strong { color: var(--primary-gold); }
+
 @media (max-width: 850px) {
   .dash-grid { grid-template-columns: 1fr; }
 }

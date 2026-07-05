@@ -3,6 +3,7 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PageHeader } from '../components/ui';
+import WatchlistStar from '../components/WatchlistStar';
 
 const COLUMNS = [
   { key: 'ticker', label: 'Ticker', numeric: false },
@@ -404,7 +405,12 @@ const Screener = () => {
                 <tbody>
                   {sortedData.map((row) => (
                     <tr key={row.ticker}>
-                      <td style={{fontWeight: '600'}}>{row.ticker}</td>
+                      <td style={{fontWeight: '600'}}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          {row.ticker.toUpperCase().endsWith('.NS') && <WatchlistStar symbol={row.ticker} size={15} />}
+                          {row.ticker}
+                        </span>
+                      </td>
                       <td style={{textAlign: 'right'}}>{currencyFor(row.ticker)}{row.price.toFixed(2)}</td>
                       <td style={{textAlign: 'right'}}>{currencyFor(row.ticker)}{row.marketCap.toFixed(2)}</td>
                       <td style={{textAlign: 'right'}}>{row.peRatio ? row.peRatio.toFixed(2) : 'N/A'}</td>

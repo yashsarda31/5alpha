@@ -6,16 +6,21 @@ from pydantic import BaseModel
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from statsmodels.tsa.statespace.sarimax import SARIMAX
-from google import genai
 import os
 import requests
 from datetime import datetime, timedelta, timezone
 import asyncio
 import concurrent.futures
 import time
-from PIL import Image
 import io
+import re
+
+# statsmodels (scipy chain), google.genai and PIL are imported lazily inside the
+# endpoints that need them — importing them at module level adds seconds to every
+# serverless cold start, including the auth check that gates app startup.
+def _genai_client(api_key):
+    from google import genai
+    return genai.Client(api_key=api_key)
 
 API_CACHE = {}
 CACHE_TTL = 900 # 15 minutes
@@ -690,6 +695,7 @@ def forecast_sarimax(req: ARIMARequest):
     future_exog = np.nan_to_num(future_exog)
 
     import warnings
+    from statsmodels.tsa.statespace.sarimax import SARIMAX
     from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
     # SARIMAX Implementation with fallbacks
@@ -751,7 +757,7 @@ def ai_chart_summary(req: AIChartRequest):
     if not req.apiKey:
         return {"report": "API Key Required."}
         
-    client = genai.Client(api_key=req.apiKey)
+    client = _genai_client(req.apiKey)
     prompt = f"""
     You are an automated analytical system emulating the trading style and technical analysis approach of Mark Minervini. Ensure your output is highly objective and analytical.
     Do NOT provide any predictive financial advice or investment recommendations.
@@ -781,7 +787,7 @@ async def analyze_druck_minervini(
     if not apiKey:
         raise HTTPException(status_code=400, detail="Gemini API Key is required")
         
-    client = genai.Client(api_key=apiKey)
+    client = _genai_client(apiKey)
     
     sepa_checks = {}
     chart_data = None
@@ -923,6 +929,7 @@ async def analyze_druck_minervini(
     if file:
         try:
             image_bytes = await file.read()
+            from PIL import Image
             image = Image.open(io.BytesIO(image_bytes))
             contents.append(image)
         except Exception as e:
@@ -950,7 +957,7 @@ def ai_dcf_summary(req: AIDCFRequest):
     if not req.apiKey:
         return {"report": "API Key Required."}
         
-    client = genai.Client(api_key=req.apiKey)
+    client = _genai_client(req.apiKey)
     prompt = f"""
     You are an automated analytical system. Ensure your output is purely factual and objective.
     Do NOT provide predictive financial advice or investment recommendations.
@@ -975,7 +982,7 @@ def ai_fundamentals_summary(req: AIFundamentalsRequest):
     if not req.apiKey:
         return {"report": "API Key Required."}
         
-    client = genai.Client(api_key=req.apiKey)
+    client = _genai_client(req.apiKey)
     prompt = f"""
     You are an expert fundamental analyst. Review the following financial metrics for '{req.ticker}'.
     Format using markdown bullet points. Highlight any major red flags or strong competitive advantages shown by the data (e.g. high debt, stellar margins). Objectively summarize the company's financial health.
@@ -998,7 +1005,7 @@ def ai_arima_summary(req: AIARIMARequest):
     if not req.apiKey:
         return {"report": "API Key Required."}
         
-    client = genai.Client(api_key=req.apiKey)
+    client = _genai_client(req.apiKey)
     prompt = f"""
     You are an automated analytical system. Ensure your output is purely factual and objective.
     Review the following SARIMAX statistical projection for '{req.ticker}'. 
@@ -1023,7 +1030,7 @@ def ai_position_sizing_summary(req: AIPositionSizingRequest):
     if not req.apiKey:
         return {"report": "API Key Required."}
         
-    client = genai.Client(api_key=req.apiKey)
+    client = _genai_client(req.apiKey)
     prompt = f"""
     You are an automated quantitative risk management system. 
     Analyze the following trade setup from an institutional capital preservation perspective.
@@ -1050,7 +1057,7 @@ def ai_screener_summary(req: AIScreenerRequest):
     if not req.apiKey:
         return {"report": "API Key Required."}
         
-    client = genai.Client(api_key=req.apiKey)
+    client = _genai_client(req.apiKey)
     prompt = f"""
     You are an institutional quantitative system.
     Evaluate the following cross-section of equities derived from a quantitative screen.
@@ -2676,25 +2683,39 @@ SESSION_TTL_DAYS = 30
 # uploaded after every auth write. The BLOB_READ_WRITE_TOKEN env var is injected
 # automatically because the store is linked to the project.
 BLOB_API = "https://vercel.com/api/blob"
-BLOB_DB_PATHNAME = "auth/alphanova.db"
+# Each snapshot is written to a UNIQUE timestamp-named pathname instead of
+# overwriting one file: Vercel Blob download URLs are CDN-cached, so re-reading
+# an overwritten URL can return stale bytes for up to a minute. That window let
+# a second signup miss a just-created account and clobber it (account takeover).
+# A brand-new pathname gets a brand-new URL that can never be cache-stale; pull
+# takes the newest snapshot by name (lexical order == chronological order).
+BLOB_DB_PREFIX = "auth/alphanova-db-v/"
+BLOB_DB_LEGACY_PATHNAME = "auth/alphanova.db"  # pre-versioning single file, read once as fallback
+BLOB_KEEP_SNAPSHOTS = 5
 _blob_synced = False
 
 def _blob_token():
     return os.environ.get("BLOB_READ_WRITE_TOKEN")
 
+def _blob_list(prefix):
+    token = _blob_token()
+    r = requests.get(
+        f"{BLOB_API}?prefix={prefix}&limit=1000",
+        headers={"Authorization": f"Bearer {token}", "x-api-version": "12"},
+        timeout=10
+    )
+    return r.json().get("blobs", []) if r.status_code == 200 else []
+
 def _blob_pull_db(force=False):
-    """Fetch the latest auth DB from the blob store into the local path."""
+    """Fetch the latest auth DB snapshot from the blob store into the local path."""
     global _blob_synced
     token = _blob_token()
     if not token or (_blob_synced and not force):
         return
     try:
-        r = requests.get(
-            f"{BLOB_API}?prefix={BLOB_DB_PATHNAME}",
-            headers={"Authorization": f"Bearer {token}", "x-api-version": "12"},
-            timeout=10
-        )
-        blobs = r.json().get("blobs", []) if r.status_code == 200 else []
+        blobs = sorted(_blob_list(BLOB_DB_PREFIX), key=lambda b: b.get("pathname", ""), reverse=True)
+        if not blobs:
+            blobs = _blob_list(BLOB_DB_LEGACY_PATHNAME)
         if blobs:
             r2 = requests.get(blobs[0]["url"], headers={"Authorization": f"Bearer {token}"}, timeout=10)
             # Only accept a real SQLite file so a corrupt blob can't brick auth
@@ -2706,28 +2727,47 @@ def _blob_pull_db(force=False):
     _blob_synced = True
 
 def _blob_push_db():
-    """Mirror the auth DB to the blob store after a write."""
+    """Mirror the auth DB to the blob store as a new timestamped snapshot."""
     token = _blob_token()
     if not token:
         return
     try:
         with open(AUTH_DB_PATH, "rb") as f:
             data = f.read()
-        requests.put(
-            f"{BLOB_API}/?pathname={BLOB_DB_PATHNAME}",
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        pathname = f"{BLOB_DB_PREFIX}{stamp}-{secrets.token_hex(4)}.db"
+        r = requests.put(
+            f"{BLOB_API}/?pathname={pathname}",
             data=data,
             headers={
                 "Authorization": f"Bearer {token}",
                 "x-api-version": "12",
                 "x-vercel-blob-access": "private",
                 "x-add-random-suffix": "0",
-                "x-allow-overwrite": "1",
                 "x-content-type": "application/octet-stream",
             },
             timeout=15
         )
+        if r.status_code == 200:
+            _blob_prune_snapshots()
     except Exception as e:
         print(f"Blob DB push failed: {e}")
+
+def _blob_prune_snapshots():
+    """Best-effort delete of all but the newest snapshots (failure is harmless)."""
+    token = _blob_token()
+    try:
+        blobs = sorted(_blob_list(BLOB_DB_PREFIX), key=lambda b: b.get("pathname", ""), reverse=True)
+        stale = [b["url"] for b in blobs[BLOB_KEEP_SNAPSHOTS:] if b.get("url")]
+        if stale:
+            requests.post(
+                f"{BLOB_API}/delete",
+                json={"urls": stale},
+                headers={"Authorization": f"Bearer {token}", "x-api-version": "12"},
+                timeout=10
+            )
+    except Exception as e:
+        print(f"Blob snapshot prune failed: {e}")
 
 def _auth_db():
     _blob_pull_db()
@@ -2747,6 +2787,13 @@ def _auth_db():
         user_id INTEGER NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS watchlist (
+        user_id INTEGER NOT NULL,
+        symbol TEXT NOT NULL,
+        added_at TEXT NOT NULL,
+        sort_order INTEGER,
+        PRIMARY KEY (user_id, symbol)
     )""")
     return conn
 
@@ -2785,6 +2832,26 @@ def _session_user(conn, authorization: str):
         return None
     return row
 
+def _require_user(conn, authorization: str):
+    """Resolve the Bearer token to a user row, or raise 401.
+
+    Mirrors the retry in /api/auth/me: a warm serverless instance may hold a
+    stale DB copy from before a login on another instance, so on a miss we
+    re-pull the shared blob DB once and retry. Callers pass the open conn;
+    on the retry path we swap it for a fresh one and return (row, conn) so the
+    caller keeps using the connection that actually saw the session.
+    """
+    row = _session_user(conn, authorization)
+    if not row and _blob_token():
+        conn.close()
+        _blob_pull_db(force=True)
+        conn = _auth_db()
+        row = _session_user(conn, authorization)
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=401, detail="Not signed in.")
+    return row, conn
+
 class AuthCredentials(BaseModel):
     email: str
     password: str
@@ -2795,18 +2862,29 @@ def auth_signup(req: AuthCredentials):
     email = req.email.strip().lower()
     if "@" not in email or "." not in email.split("@")[-1]:
         raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    if len(email) > 254:
+        raise HTTPException(status_code=400, detail="Email address is too long.")
     if len(req.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+    if len(req.password) > 128:
+        raise HTTPException(status_code=400, detail="Password must be at most 128 characters.")
+    # Another serverless instance may have created this account after our local
+    # snapshot was pulled — without a fresh pull the duplicate check below passes
+    # and the blob push at the end would overwrite the existing account.
+    _blob_pull_db(force=True)
     conn = _auth_db()
     try:
         if conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone():
             raise HTTPException(status_code=400, detail="An account with that email already exists. Try logging in.")
         salt = secrets.token_hex(16)
-        display_name = (req.displayName or "").strip() or email.split("@")[0]
-        cur = conn.execute(
-            "INSERT INTO users (email, password_hash, salt, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (email, _hash_password(req.password, salt), salt, display_name, _utc_now(), _utc_now())
-        )
+        display_name = ((req.displayName or "").strip() or email.split("@")[0])[:80]
+        try:
+            cur = conn.execute(
+                "INSERT INTO users (email, password_hash, salt, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (email, _hash_password(req.password, salt), salt, display_name, _utc_now(), _utc_now())
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=400, detail="An account with that email already exists. Try logging in.")
         token = _create_session(conn, cur.lastrowid)
         conn.commit()
         _blob_push_db()
@@ -2818,6 +2896,9 @@ def auth_signup(req: AuthCredentials):
 @app.post("/api/auth/login")
 def auth_login(req: AuthCredentials):
     email = req.email.strip().lower()
+    # Fresh pull so recent signups/password changes on other instances are seen,
+    # and so the blob push below can't overwrite them with a stale snapshot.
+    _blob_pull_db(force=True)
     conn = _auth_db()
     try:
         row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
@@ -2841,16 +2922,7 @@ def auth_login(req: AuthCredentials):
 def auth_me(authorization: str = Header(None)):
     conn = _auth_db()
     try:
-        row = _session_user(conn, authorization)
-        if not row and _blob_token():
-            # A warm instance may hold a stale copy from before a login on
-            # another instance — re-pull the shared DB once and retry.
-            conn.close()
-            _blob_pull_db(force=True)
-            conn = _auth_db()
-            row = _session_user(conn, authorization)
-        if not row:
-            raise HTTPException(status_code=401, detail="Not signed in.")
+        row, conn = _require_user(conn, authorization)
         return {"user": _public_user(row)}
     finally:
         conn.close()
@@ -2859,6 +2931,7 @@ def auth_me(authorization: str = Header(None)):
 def auth_logout(authorization: str = Header(None)):
     if authorization and authorization.startswith("Bearer "):
         token_hash = hashlib.sha256(authorization[7:].encode()).hexdigest()
+        _blob_pull_db(force=True)  # avoid pushing a stale snapshot over newer writes
         conn = _auth_db()
         try:
             conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
@@ -2867,6 +2940,125 @@ def auth_logout(authorization: str = Header(None)):
         finally:
             conn.close()
     return {"ok": True}
+
+
+# --- Watchlist (per-user, blob-mirrored like auth) ---
+# One list per user. Symbols stored canonical: UPPERCASE, no ".NS" (re-appended
+# only for the yfinance quote call). Writes follow the auth durability posture:
+# force-pull the shared blob DB before mutating, push after.
+WATCHLIST_MAX = 50
+_SYMBOL_RE = re.compile(r'^[A-Z0-9&-]{1,20}$')
+
+def _normalize_symbol(raw):
+    s = (raw or "").strip().upper()
+    if s.endswith(".NS"):
+        s = s[:-3]
+    return s if _SYMBOL_RE.match(s) else None
+
+def _watchlist_rows(conn, user_id):
+    return conn.execute(
+        "SELECT symbol, added_at, sort_order FROM watchlist WHERE user_id = ? "
+        "ORDER BY CASE WHEN sort_order IS NULL THEN 1 ELSE 0 END, sort_order, added_at",
+        (user_id,)
+    ).fetchall()
+
+def _watchlist_json(rows):
+    return [{"symbol": r["symbol"], "added_at": r["added_at"], "sort_order": r["sort_order"]} for r in rows]
+
+class WatchlistAdd(BaseModel):
+    symbol: str
+
+class WatchlistOrder(BaseModel):
+    symbols: list
+
+@app.get("/api/watchlist")
+def watchlist_list(authorization: str = Header(None)):
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        return {"symbols": _watchlist_json(_watchlist_rows(conn, row["id"]))}
+    finally:
+        conn.close()
+
+@app.post("/api/watchlist")
+def watchlist_add(req: WatchlistAdd, authorization: str = Header(None)):
+    symbol = _normalize_symbol(req.symbol)
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Enter a valid NSE symbol (e.g. RELIANCE).")
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        uid = row["id"]
+        if not conn.execute("SELECT 1 FROM watchlist WHERE user_id = ? AND symbol = ?", (uid, symbol)).fetchone():
+            count = conn.execute("SELECT COUNT(*) AS c FROM watchlist WHERE user_id = ?", (uid,)).fetchone()["c"]
+            if count >= WATCHLIST_MAX:
+                raise HTTPException(status_code=400, detail=f"Watchlist is full ({WATCHLIST_MAX} max). Remove a stock to add another.")
+            conn.execute("INSERT OR IGNORE INTO watchlist (user_id, symbol, added_at, sort_order) VALUES (?, ?, ?, ?)",
+                         (uid, symbol, _utc_now(), None))
+            conn.commit()
+            _blob_push_db()
+        r = conn.execute("SELECT symbol, added_at, sort_order FROM watchlist WHERE user_id = ? AND symbol = ?", (uid, symbol)).fetchone()
+        return {"symbol": r["symbol"], "added_at": r["added_at"], "sort_order": r["sort_order"]}
+    finally:
+        conn.close()
+
+@app.delete("/api/watchlist/{symbol}")
+def watchlist_remove(symbol: str, authorization: str = Header(None)):
+    sym = _normalize_symbol(symbol)
+    if not sym:
+        raise HTTPException(status_code=400, detail="Invalid symbol.")
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        conn.execute("DELETE FROM watchlist WHERE user_id = ? AND symbol = ?", (row["id"], sym))
+        conn.commit()
+        _blob_push_db()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+@app.put("/api/watchlist/order")
+def watchlist_reorder(req: WatchlistOrder, authorization: str = Header(None)):
+    ordered = [s for s in (_normalize_symbol(x) for x in (req.symbols or [])) if s]
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        uid = row["id"]
+        for idx, sym in enumerate(ordered):
+            conn.execute("UPDATE watchlist SET sort_order = ? WHERE user_id = ? AND symbol = ?", (idx, uid, sym))
+        conn.commit()
+        _blob_push_db()
+        return {"symbols": _watchlist_json(_watchlist_rows(conn, uid))}
+    finally:
+        conn.close()
+
+@app.get("/api/watchlist/quotes")
+def watchlist_quotes(authorization: str = Header(None)):
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        symbols = [r["symbol"] for r in _watchlist_rows(conn, row["id"])]
+    finally:
+        conn.close()
+    if not symbols:
+        return {"quotes": [], "market_open": _is_indian_market_open()}
+    # Key on the exact symbol set so add/remove naturally busts the cache.
+    cache_key = "wl_quotes_" + ",".join(symbols)
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < 300:
+        return {"quotes": API_CACHE[cache_key]['data'], "market_open": _is_indian_market_open()}
+    quotes = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+        futs = {ex.submit(_yf_quote_change, s + ".NS"): s for s in symbols}
+        for fut in concurrent.futures.as_completed(futs):
+            quotes[futs[fut]] = fut.result()
+    result = [{"symbol": s,
+               "last": (quotes.get(s) or {}).get("last"),
+               "change_pct": (quotes.get(s) or {}).get("change_pct")} for s in symbols]
+    API_CACHE[cache_key] = {'time': time.time(), 'data': result}
+    return {"quotes": result, "market_open": _is_indian_market_open()}
 
 
 # --- Admin metrics (owner-only user analytics) ---

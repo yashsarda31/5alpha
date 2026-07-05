@@ -1,0 +1,61 @@
+.wl-addbox {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  max-width: 520px;
+}
+
+.wl-addbox input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.wl-add-error {
+  flex-basis: 100%;
+  color: var(--red-loss, #FF453A);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.wl-sym-link {
+  color: var(--text-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.wl-sym-link:hover {
+  color: var(--primary-gold);
+}
+
+.wl-actions {
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.wl-actions a {
+  text-decoration: none;
+  opacity: 0.7;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+.wl-actions a:hover {
+  opacity: 1;
+  transform: scale(1.12);
+}
+
+.wl-remove {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  width: auto;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.wl-remove:hover {
+  opacity: 1;
+  color: var(--red-loss, #FF453A);
+}

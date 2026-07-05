@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { PageHeader } from '../components/ui';
@@ -9,24 +10,26 @@ const currencyFor = (ticker) => {
 };
 
 const Fundamentals = () => {
-  const [ticker, setTicker] = useState('AAPL');
+  const [searchParams] = useSearchParams();
+  const [ticker, setTicker] = useState(searchParams.get('symbol') || 'AAPL');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  
+
   // AI State
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReport, setAiReport] = useState(null);
 
-  const fetchFundamentals = async (e) => {
+  const fetchFundamentals = async (e, overrideTicker) => {
     if (e) e.preventDefault();
-    if (!ticker) return;
-    
+    const sym = (overrideTicker || ticker || '').toUpperCase();
+    if (!sym) return;
+
     setLoading(true);
     setError(null);
     setAiReport(null);
     try {
-      const response = await axios.get(`/api/fundamentals/${ticker.toUpperCase()}`);
+      const response = await axios.get(`/api/fundamentals/${sym}`);
       setData(response.data);
     } catch (err) {
       setError(err.message);
@@ -35,6 +38,17 @@ const Fundamentals = () => {
       setLoading(false);
     }
   };
+
+  // Auto-load when arriving via a ?symbol= link (e.g. a watchlist row).
+  const lastParamSym = useRef(null);
+  useEffect(() => {
+    const sym = searchParams.get('symbol');
+    if (sym && sym !== lastParamSym.current) {
+      lastParamSym.current = sym;
+      setTicker(sym);
+      fetchFundamentals(null, sym);
+    }
+  }, [searchParams]);
 
   const runAiAnalysis = async () => {
     if (!data) return;
