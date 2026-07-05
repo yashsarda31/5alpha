@@ -131,6 +131,55 @@ a.dash-mover:hover {
 }
 .dash-wl-empty strong { color: var(--primary-gold); }
 
+/* Today's Call card (daily NIFTY prediction) */
+.tc-card {
+  background: var(--surface-tile);
+  border: 1px solid var(--primary-accent-border, rgba(232, 196, 124, 0.35));
+  border-radius: var(--r-tile);
+  padding: 18px 20px;
+  margin: 24px 0;
+}
+.tc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.tc-title { font-weight: 700; color: var(--primary-gold); font-size: 15px; }
+.tc-prompt { color: var(--text-secondary); font-size: 13px; margin-top: 2px; }
+.tc-right { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.tc-streak { font-weight: 700; color: var(--primary-gold); font-size: 15px; }
+
+.tc-buttons { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tc-btn {
+  width: auto;
+  padding: 10px 22px;
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.tc-btn:hover:not(:disabled) { transform: translateY(-1px); }
+.tc-btn.up.active { background: rgba(50, 215, 75, 0.18); border-color: var(--green-gain); color: var(--green-gain); }
+.tc-btn.down.active { background: rgba(255, 69, 58, 0.16); border-color: var(--red-loss); color: var(--red-loss); }
+.tc-locknote { color: var(--text-secondary); font-size: 12px; }
+
+.tc-result { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.tc-badge {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 13px;
+  border: 1px solid currentColor;
+}
+.tc-badge.up { color: var(--green-gain); }
+.tc-badge.down { color: var(--red-loss); }
+.tc-badge.locked { color: var(--primary-gold); }
+
 @media (max-width: 850px) {
   .dash-grid { grid-template-columns: 1fr; }
 }

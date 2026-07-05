@@ -2,15 +2,18 @@ import React, { useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import { WatchlistProvider } from './WatchlistContext';
+import { PredictionProvider } from './PredictionContext';
 import Login from './pages/Login';
 import Disclaimer from './components/Disclaimer';
 import InstallApp from './components/InstallApp';
 import SignalAlertProvider, { useSignalAlerts } from './alerts/SignalAlertProvider';
+import { usePrediction } from './PredictionContext';
 
 // Every page is lazy-loaded so the initial bundle carries only the shell;
 // heavy dependencies (Plotly ~1.4 MB) download only when a chart page opens.
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Watchlist = lazy(() => import('./pages/Watchlist'));
+const Leaderboard = lazy(() => import('./pages/Leaderboard'));
 const Dcf = lazy(() => import('./pages/Dcf'));
 const Chart = lazy(() => import('./pages/Chart'));
 const Screener = lazy(() => import('./pages/Screener'));
@@ -54,6 +57,23 @@ const AlertBell = () => {
   );
 };
 
+const LeaderboardOptOut = () => {
+  const { stats, setHidden } = usePrediction();
+  if (!stats) return null;
+  const hidden = !!stats.hidden;
+  return (
+    <button
+      className={`alert-bell ${hidden ? '' : 'on'}`}
+      onClick={() => setHidden(!hidden)}
+      title="Show or hide your name on the Nifty Leaderboard"
+    >
+      <span className="ab-ico">{hidden ? '🙈' : '🏆'}</span>
+      Leaderboard
+      <span className="ab-state">{hidden ? 'HIDDEN' : 'VISIBLE'}</span>
+    </button>
+  );
+};
+
 const ProtectedRoute = ({ children }) => {
   const { currentUser, loading } = useAuth();
   const location = useLocation();
@@ -78,6 +98,7 @@ const AppLayout = () => {
 
   return (
     <WatchlistProvider>
+    <PredictionProvider>
     <SignalAlertProvider>
       <div className="mobile-topbar">
         <button className="hamburger-btn" onClick={() => setMenuOpen(true)} aria-label="Open navigation menu">☰</button>
@@ -98,6 +119,9 @@ const AppLayout = () => {
           </NavLink>
           <NavLink to="/watchlist" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>⭐</span> Watchlist
+          </NavLink>
+          <NavLink to="/leaderboard" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
+            <span style={{marginRight: '12px', opacity: 0.8}}>🏆</span> Nifty Leaderboard
           </NavLink>
           <NavLink to="/signals" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>⚡</span> Market Signals
@@ -150,6 +174,7 @@ const AppLayout = () => {
         <div style={{marginTop: 'auto', paddingTop: '40px'}}>
           <InstallApp />
           <AlertBell />
+          <LeaderboardOptOut />
           <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Logged in as</div>
             <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--primary-gold)', marginBottom: '12px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentUser?.email}</div>
@@ -173,6 +198,7 @@ const AppLayout = () => {
         <Routes>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/watchlist" element={<Watchlist />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/dcf" element={<Dcf />} />
           <Route path="/fundamentals" element={<Fundamentals />} />
           <Route path="/momentum" element={<Momentum />} />
@@ -194,6 +220,7 @@ const AppLayout = () => {
         </Suspense>
       </div>
     </SignalAlertProvider>
+    </PredictionProvider>
     </WatchlistProvider>
   );
 };

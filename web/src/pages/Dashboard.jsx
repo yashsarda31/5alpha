@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, SectionTitle, DataTable, StatusPill, Badge, Skeleton } from '../components/ui';
 import { useWatchlist } from '../WatchlistContext';
+import { usePrediction } from '../PredictionContext';
 import WatchlistStar from '../components/WatchlistStar';
 import './Dashboard.css';
 
@@ -90,6 +91,84 @@ const NAV_MODULES = [
   { to: '/fiidii', icon: '🏦', title: 'FLOW > Inst. Activity', desc: 'Track FII/DII cash market activity and flow.' },
   { to: '/arima', icon: '🔮', title: 'FORE > SARIMAX', desc: 'Time-series modeling for equity trajectory.' },
 ];
+
+// Daily NIFTY call — the retention hook. Pre-lock: two buttons. Locked: your
+// pick + streak. Resolved: ✓/✗ result. Placed below movers, above modules.
+const TodaysCall = () => {
+  const { today, stats, submit, loading } = usePrediction();
+  const [busy, setBusy] = useState(false);
+  if (loading && !today) return null;
+  if (!today) return null;
+
+  const streak = stats?.current_streak || 0;
+  const yourChoice = today.your_choice;         // 'UP' | 'DOWN' | null
+  const outcome = today.outcome;                 // 'UP' | 'DOWN' | 'VOID' | null
+  const resolved = outcome === 'UP' || outcome === 'DOWN';
+  const locked = today.locked;
+
+  const pick = async (choice) => {
+    if (busy || locked) return;
+    setBusy(true);
+    try { await submit(choice); } catch { /* context surfaces error */ } finally { setBusy(false); }
+  };
+
+  const flame = <span className="tc-streak" title="Current streak">🔥 {streak}</span>;
+  const label = (c) => (c === 'UP' ? 'GREEN' : c === 'DOWN' ? 'RED' : '—');
+
+  let body;
+  if (resolved) {
+    const correct = yourChoice && yourChoice === outcome;
+    body = (
+      <div className="tc-result">
+        <span className={`tc-badge ${outcome === 'UP' ? 'up' : 'down'}`}>
+          NIFTY closed {label(outcome)} {today.change_pct != null ? `(${today.change_pct >= 0 ? '+' : ''}${today.change_pct}%)` : ''}
+        </span>
+        {yourChoice
+          ? <span className={correct ? 'tone-gain' : 'tone-loss'}>You called {label(yourChoice)} {correct ? '✓' : '✗'}</span>
+          : <span style={{ color: 'var(--text-secondary)' }}>No call today</span>}
+      </div>
+    );
+  } else if (locked) {
+    body = (
+      <div className="tc-result">
+        {yourChoice
+          ? <span className="tc-badge locked">Locked in: {label(yourChoice)}</span>
+          : <span style={{ color: 'var(--text-secondary)' }}>Market's open — you didn't call today</span>}
+        <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Result after close (15:30 IST)</span>
+      </div>
+    );
+  } else {
+    body = (
+      <div className="tc-buttons">
+        <button
+          className={`tc-btn up ${yourChoice === 'UP' ? 'active' : ''}`}
+          onClick={() => pick('UP')} disabled={busy}
+        >🟢 Green</button>
+        <button
+          className={`tc-btn down ${yourChoice === 'DOWN' ? 'active' : ''}`}
+          onClick={() => pick('DOWN')} disabled={busy}
+        >🔴 Red</button>
+        {yourChoice && <span className="tc-locknote">Locks at market open · tap to change</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="tc-card">
+      <div className="tc-head">
+        <div>
+          <div className="tc-title">🎯 Today's Call</div>
+          <div className="tc-prompt">{today.prompt}</div>
+        </div>
+        <div className="tc-right">
+          {flame}
+          <Link to="/leaderboard" className="dash-manage-link">Leaderboard →</Link>
+        </div>
+      </div>
+      {body}
+    </div>
+  );
+};
 
 const formatIndexValue = (value) => {
   if (value === null || value === undefined) return 'N/A';
@@ -202,6 +281,8 @@ const Dashboard = () => {
           />
         </div>
       </div>
+
+      <TodaysCall />
 
       <SectionTitle icon="🧩">Analytics Modules</SectionTitle>
       <div className="dash-nav-grid">

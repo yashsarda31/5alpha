@@ -3,6 +3,10 @@
     {
       "path": "/api/delivery/refresh",
       "schedule": "0 14 * * 1-5"
+    },
+    {
+      "path": "/api/predict/resolve",
+      "schedule": "30 10 * * 1-5"
     }
   ],
   "builds": [
@@ -25,11 +29,35 @@
     },
     {
       "src": "/assets/(.*)",
+      "headers": { "cache-control": "public, max-age=31536000, immutable" },
       "dest": "/web/assets/$1"
     },
     {
       "src": "/favicon.svg",
       "dest": "/web/favicon.svg"
+    },
+    {
+      "src": "/robots.txt",
+      "dest": "/web/robots.txt"
+    },
+    {
+      "src": "/manifest.webmanifest",
+      "headers": { "content-type": "application/manifest+json" },
+      "dest": "/web/manifest.webmanifest"
+    },
+    {
+      "src": "/sw.js",
+      "headers": { "cache-control": "no-cache" },
+      "dest": "/web/sw.js"
+    },
+    {
+      "src": "/apple-touch-icon\\.png",
+      "dest": "/web/apple-touch-icon.png"
+    },
+    {
+      "src": "/icons/(.*)",
+      "headers": { "cache-control": "public, max-age=86400" },
+      "dest": "/web/icons/$1"
     },
     {
       "handle": "filesystem"

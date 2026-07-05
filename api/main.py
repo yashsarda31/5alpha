@@ -2795,6 +2795,30 @@ def _auth_db():
         sort_order INTEGER,
         PRIMARY KEY (user_id, symbol)
     )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS daily_questions (
+        qdate TEXT PRIMARY KEY,
+        symbol TEXT NOT NULL DEFAULT 'NIFTY 50',
+        outcome TEXT,
+        change_pct REAL,
+        resolved_at TEXT
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS predictions (
+        user_id INTEGER NOT NULL,
+        qdate TEXT NOT NULL,
+        choice TEXT NOT NULL,
+        correct INTEGER,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, qdate)
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS streak_stats (
+        user_id INTEGER PRIMARY KEY,
+        current_streak INTEGER NOT NULL DEFAULT 0,
+        longest_streak INTEGER NOT NULL DEFAULT 0,
+        total_calls INTEGER NOT NULL DEFAULT 0,
+        correct_calls INTEGER NOT NULL DEFAULT 0,
+        last_resolved_date TEXT,
+        hide_from_board INTEGER NOT NULL DEFAULT 0
+    )""")
     return conn
 
 def _utc_now():
@@ -3059,6 +3083,273 @@ def watchlist_quotes(authorization: str = Header(None)):
                "change_pct": (quotes.get(s) or {}).get("change_pct")} for s in symbols]
     API_CACHE[cache_key] = {'time': time.time(), 'data': result}
     return {"quotes": result, "market_open": _is_indian_market_open()}
+
+
+# --- Daily Nifty call: streak + leaderboard (Phase 2A) ---
+# One universal question per trading day ("NIFTY 50 green or red at close?"),
+# locked at 9:15 IST, resolved after close by a cron. Streak rule: miss a trading
+# day OR call it wrong resets to 0. Two leaderboards: current streak & accuracy.
+_IST = timezone(timedelta(hours=5, minutes=30))
+LEADERBOARD_MIN_CALLS = 20
+
+def _ist_now():
+    return datetime.now(_IST)
+
+def _next_weekday(d):
+    d += timedelta(days=1)
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+def _active_question_date(now=None):
+    """(qdate_iso, locked) for the currently predictable trading day.
+
+    Today if it's a weekday before close (locked once past 9:15 IST); otherwise
+    the next weekday (unlocked). Holidays aren't modelled here — a holiday weekday
+    simply never resolves (no NIFTY data) and is voided later, harming no streak.
+    """
+    now = now or _ist_now()
+    d = now.date()
+    mins = now.hour * 60 + now.minute
+    if d.weekday() < 5 and mins < 15 * 60 + 30:
+        return d.isoformat(), mins >= 9 * 60 + 15
+    return _next_weekday(d).isoformat(), False
+
+def _nifty_outcome_for_date(qdate):
+    """('UP'|'DOWN', change_pct) for NIFTY 50 on qdate vs the prior close, or None
+    when there's no data for that date (weekend/holiday/outage)."""
+    try:
+        hist = yf.Ticker("^NSEI").history(period="1mo")
+        if hist.empty:
+            return None
+        by_date, order = {}, []
+        for ts, val in hist['Close'].dropna().items():
+            key = ts.date().isoformat()
+            by_date[key] = float(val)
+            order.append(key)
+        order = sorted(set(order))
+        if qdate not in by_date:
+            return None
+        idx = order.index(qdate)
+        if idx == 0:
+            return None
+        prev, cur = by_date[order[idx - 1]], by_date[qdate]
+        if prev <= 0:
+            return None
+        chg = (cur - prev) / prev * 100
+        if not np.isfinite(chg):
+            return None
+        return ("UP" if chg >= 0 else "DOWN", round(chg, 2))
+    except Exception:
+        return None
+
+def _resolve_day(conn, qdate):
+    """Resolve one trading day: set outcome, score predictions, update streaks,
+    reset live-streak non-participants. Idempotent (claims via outcome IS NULL)."""
+    q = conn.execute("SELECT outcome FROM daily_questions WHERE qdate=?", (qdate,)).fetchone()
+    if not q:
+        return "no-question"
+    if q["outcome"] is not None:
+        return "already"
+    res = _nifty_outcome_for_date(qdate)
+    if not res:
+        return "no-data"
+    outcome, chg = res
+    claimed = conn.execute(
+        "UPDATE daily_questions SET outcome=?, change_pct=?, resolved_at=? WHERE qdate=? AND outcome IS NULL",
+        (outcome, chg, _utc_now(), qdate)).rowcount
+    if not claimed:
+        return "claimed-elsewhere"
+    for p in conn.execute("SELECT user_id, choice FROM predictions WHERE qdate=?", (qdate,)).fetchall():
+        correct = 1 if p["choice"] == outcome else 0
+        conn.execute("UPDATE predictions SET correct=? WHERE user_id=? AND qdate=?", (correct, p["user_id"], qdate))
+        conn.execute("INSERT OR IGNORE INTO streak_stats (user_id) VALUES (?)", (p["user_id"],))
+        conn.execute("""UPDATE streak_stats SET
+            total_calls = total_calls + 1,
+            correct_calls = correct_calls + ?,
+            current_streak = CASE WHEN ?=1 THEN current_streak + 1 ELSE 0 END,
+            last_resolved_date = ?
+            WHERE user_id=? AND (last_resolved_date IS NULL OR last_resolved_date < ?)""",
+            (correct, correct, qdate, p["user_id"], qdate))
+        conn.execute("UPDATE streak_stats SET longest_streak = current_streak WHERE user_id=? AND current_streak > longest_streak", (p["user_id"],))
+    # Miss reset: anyone with a live streak who didn't predict this trading day.
+    conn.execute("""UPDATE streak_stats SET current_streak = 0, last_resolved_date = ?
+        WHERE current_streak > 0
+          AND (last_resolved_date IS NULL OR last_resolved_date < ?)
+          AND user_id NOT IN (SELECT user_id FROM predictions WHERE qdate=?)""",
+        (qdate, qdate, qdate))
+    return "resolved"
+
+class PredictChoice(BaseModel):
+    choice: str
+
+class HideFlag(BaseModel):
+    hidden: bool
+
+@app.get("/api/predict/today")
+def predict_today(authorization: str = Header(None)):
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        qdate, locked = _active_question_date()
+        conn.execute("INSERT OR IGNORE INTO daily_questions (qdate, symbol) VALUES (?, 'NIFTY 50')", (qdate,))
+        conn.commit()
+        pred = conn.execute("SELECT choice FROM predictions WHERE user_id=? AND qdate=?", (row["id"], qdate)).fetchone()
+        q = conn.execute("SELECT outcome, change_pct FROM daily_questions WHERE qdate=?", (qdate,)).fetchone()
+        return {
+            "qdate": qdate,
+            "symbol": "NIFTY 50",
+            "prompt": "Will NIFTY 50 close green or red today?",
+            "locked": locked,
+            "your_choice": pred["choice"] if pred else None,
+            "outcome": q["outcome"] if q else None,
+            "change_pct": q["change_pct"] if q else None,
+            "market_open": _is_indian_market_open(),
+        }
+    finally:
+        conn.close()
+
+@app.post("/api/predict")
+def predict_submit(req: PredictChoice, authorization: str = Header(None)):
+    choice = (req.choice or "").strip().upper()
+    if choice not in ("UP", "DOWN"):
+        raise HTTPException(status_code=400, detail="Choice must be 'UP' or 'DOWN'.")
+    qdate, locked = _active_question_date()
+    if locked:
+        raise HTTPException(status_code=423, detail="Today's call is locked — the market has opened.")
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        conn.execute("INSERT OR IGNORE INTO daily_questions (qdate, symbol) VALUES (?, 'NIFTY 50')", (qdate,))
+        conn.execute("""INSERT INTO predictions (user_id, qdate, choice, created_at) VALUES (?,?,?,?)
+                        ON CONFLICT(user_id, qdate) DO UPDATE SET choice=excluded.choice, created_at=excluded.created_at""",
+                     (row["id"], qdate, choice, _utc_now()))
+        conn.commit()
+        _blob_push_db()
+        return {"qdate": qdate, "choice": choice, "locked": False}
+    finally:
+        conn.close()
+
+def _accuracy(correct, total):
+    return round(correct / total * 100, 1) if total else None
+
+@app.get("/api/predict/me")
+def predict_me(authorization: str = Header(None)):
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        uid = row["id"]
+        s = conn.execute("SELECT * FROM streak_stats WHERE user_id=?", (uid,)).fetchone()
+        recent = conn.execute("""SELECT p.qdate, p.choice, p.correct, q.outcome
+            FROM predictions p LEFT JOIN daily_questions q ON q.qdate = p.qdate
+            WHERE p.user_id=? ORDER BY p.qdate DESC LIMIT 10""", (uid,)).fetchall()
+        cur = s["current_streak"] if s else 0
+        lon = s["longest_streak"] if s else 0
+        tot = s["total_calls"] if s else 0
+        cor = s["correct_calls"] if s else 0
+        return {
+            "current_streak": cur, "longest_streak": lon,
+            "total_calls": tot, "correct_calls": cor,
+            "accuracy": _accuracy(cor, tot),
+            "hidden": bool(s["hide_from_board"]) if s else False,
+            "recent": [dict(r) for r in recent],
+        }
+    finally:
+        conn.close()
+
+@app.get("/api/leaderboard")
+def leaderboard(board: str = "streak", authorization: str = Header(None)):
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        uid = row["id"]
+        if board == "accuracy":
+            where = f"total_calls >= {LEADERBOARD_MIN_CALLS} AND hide_from_board=0"
+            order = "CAST(correct_calls AS REAL)/total_calls DESC, total_calls DESC"
+        else:
+            board = "streak"
+            where = "hide_from_board=0 AND (current_streak>0 OR longest_streak>0)"
+            order = "current_streak DESC, longest_streak DESC, correct_calls DESC"
+        rows = conn.execute(f"""SELECT s.user_id, u.display_name AS name,
+                s.current_streak, s.longest_streak, s.total_calls, s.correct_calls
+            FROM streak_stats s JOIN users u ON u.id = s.user_id
+            WHERE {where} ORDER BY {order} LIMIT 50""").fetchall()
+
+        def fmt(r, rank):
+            return {"rank": rank, "name": r["name"], "current_streak": r["current_streak"],
+                    "longest_streak": r["longest_streak"], "total_calls": r["total_calls"],
+                    "accuracy": _accuracy(r["correct_calls"], r["total_calls"]),
+                    "is_you": r["user_id"] == uid}
+
+        top = [fmt(r, i + 1) for i, r in enumerate(rows)]
+        you = next((t for t in top if t["is_you"]), None)
+        if not you:
+            my = conn.execute("SELECT * FROM streak_stats WHERE user_id=?", (uid,)).fetchone()
+            eligible = my and not my["hide_from_board"] and (
+                board != "accuracy" or my["total_calls"] >= LEADERBOARD_MIN_CALLS)
+            if eligible and (board != "streak" or my["current_streak"] > 0 or my["longest_streak"] > 0):
+                if board == "accuracy":
+                    ahead = conn.execute(f"""SELECT COUNT(*) c FROM streak_stats
+                        WHERE total_calls >= {LEADERBOARD_MIN_CALLS} AND hide_from_board=0
+                          AND CAST(correct_calls AS REAL)/total_calls > CAST(? AS REAL)/?""",
+                        (my["correct_calls"], my["total_calls"])).fetchone()["c"]
+                else:
+                    ahead = conn.execute("""SELECT COUNT(*) c FROM streak_stats
+                        WHERE hide_from_board=0 AND (current_streak>0 OR longest_streak>0)
+                          AND current_streak > ?""", (my["current_streak"],)).fetchone()["c"]
+                you = {"rank": ahead + 1, "name": row["display_name"], "current_streak": my["current_streak"],
+                       "longest_streak": my["longest_streak"], "total_calls": my["total_calls"],
+                       "accuracy": _accuracy(my["correct_calls"], my["total_calls"]), "is_you": True}
+        return {"board": board, "top": top, "you": you, "min_calls": LEADERBOARD_MIN_CALLS}
+    finally:
+        conn.close()
+
+@app.post("/api/predict/hide")
+def predict_hide(req: HideFlag, authorization: str = Header(None)):
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        conn.execute("INSERT OR IGNORE INTO streak_stats (user_id) VALUES (?)", (row["id"],))
+        conn.execute("UPDATE streak_stats SET hide_from_board=? WHERE user_id=?", (1 if req.hidden else 0, row["id"]))
+        conn.commit()
+        _blob_push_db()
+        return {"hidden": bool(req.hidden)}
+    finally:
+        conn.close()
+
+@app.get("/api/predict/resolve")
+def predict_resolve():
+    """Cron resolver (vercel.json: 30 10 * * 1-5). Ensures recent weekday question
+    rows exist, resolves pending past days, voids stale holiday days. Idempotent."""
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        today = _ist_now().date()
+        d, ensured = today - timedelta(days=1), 0
+        while ensured < 5:
+            if d.weekday() < 5:
+                conn.execute("INSERT OR IGNORE INTO daily_questions (qdate, symbol) VALUES (?, 'NIFTY 50')", (d.isoformat(),))
+                ensured += 1
+            d -= timedelta(days=1)
+        pending = conn.execute("SELECT qdate FROM daily_questions WHERE outcome IS NULL AND qdate < ? ORDER BY qdate",
+                               (today.isoformat(),)).fetchall()
+        results = {}
+        stale = (today - timedelta(days=4)).isoformat()
+        for r in pending:
+            qd = r["qdate"]
+            res = _resolve_day(conn, qd)
+            if res == "no-data" and qd < stale:
+                conn.execute("UPDATE daily_questions SET outcome='VOID', resolved_at=? WHERE qdate=? AND outcome IS NULL",
+                             (_utc_now(), qd))
+                res = "voided"
+            results[qd] = res
+        conn.commit()
+        _blob_push_db()
+        return {"today": today.isoformat(), "results": results}
+    finally:
+        conn.close()
 
 
 # --- Admin metrics (owner-only user analytics) ---
