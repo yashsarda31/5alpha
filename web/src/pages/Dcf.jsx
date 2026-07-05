@@ -43,8 +43,8 @@ const GaugeChart = ({ marginOfSafety, fairValue, currency = '$' }) => {
           <path d="M 170 33 A 100 100 0 0 1 220 120 L 170 120 A 50 50 0 0 0 145 76 Z" fill="#E53E3E" />
           
           {/* Needle */}
-          <circle cx={cx} cy={cy} r="12" fill="#2D3748" />
-          <polygon points={`${cx-5},${cy} ${cx+5},${cy} ${needleX},${needleY}`} fill="#2D3748" />
+          <circle cx={cx} cy={cy} r="12" fill="#F5F5F7" />
+          <polygon points={`${cx-5},${cy} ${cx+5},${cy} ${needleX},${needleY}`} fill="#F5F5F7" />
           
           {/* Label indicating Fair Value at Top */}
           <text x="120" y="10" fontSize="14" fontWeight="bold" textAnchor="middle" fill="var(--text-primary)">
@@ -191,7 +191,7 @@ const Dcf = () => {
     if (!stockData) return;
     const apiKey = localStorage.getItem('gemini_api_key');
     if (!apiKey) {
-      alert("Please configure your Gemini API Key in the Settings tab first.");
+      alert("Please enter your Gemini API Key in the sidebar first.");
       return;
     }
 

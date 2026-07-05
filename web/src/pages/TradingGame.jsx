@@ -773,7 +773,7 @@ const TradingGame = () => {
 
       <div className="game-grid">
         {/* ================= LEFT COLUMN: HERO PANEL ================= */}
-        <div style={{ display: 'flex', flexDirection: 'col', gap: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           {/* Avatar Profile Card */}
           <div className="card" style={{ marginBottom: 0 }}>
             <div style={{ textAlign: 'center', marginBottom: '20px' }}>
@@ -785,8 +785,8 @@ const TradingGame = () => {
                   background: 'rgba(255,255,255,0.05)', 
                   border: '2px solid var(--primary-gold)', 
                   display: 'flex', 
-                  alignItems: 'center', 
-                  justify: 'center', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   fontSize: '44px',
                   boxShadow: '0 0 15px rgba(212, 175, 55, 0.2)'
                 }}>
