@@ -1163,8 +1163,27 @@ async def get_fundamentals(ticker: str):
             stock = yf.Ticker(ticker)
             info = stock.info
             
+            _eps = info.get("trailingEps")
+            _pe = info.get("trailingPE")
+            _rev = info.get("revenueGrowth")
+            _roe = info.get("returnOnEquity")
+            _margin = info.get("profitMargins")
+            _eg = info.get("earningsGrowth")
+            _price = info.get("currentPrice", info.get("regularMarketPrice", info.get("previousClose", 0)))
+            
+            alpha_score = _alpha_nova_score(
+                _price, _eps, _pe if _pe else None,
+                _eg * 100 if _eg is not None else None,
+                rev_growth_pct=_rev * 100 if _rev is not None else None,
+                roe_pct=_roe * 100 if _roe is not None else None,
+                margin_pct=_margin * 100 if _margin is not None else None,
+                dte_pct=info.get("debtToEquity"),
+                div_pct=info.get("dividendYield")
+            )
+            
             # Extract relevant metrics
             metrics = {
+                "alphaScore": alpha_score,
                 "ticker": ticker,
                 "name": info.get("shortName", ticker),
                 "sector": info.get("sector", "N/A"),

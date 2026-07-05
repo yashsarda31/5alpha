@@ -181,6 +181,12 @@ const Chart = () => {
                 {'★'.repeat(chartData.vcp_rating || 0)}{'☆'.repeat(5 - (chartData.vcp_rating || 0))}
               </div>
             </div>
+            <div className="stat-box">
+              <div className="stat-label">ALPHA SCORE</div>
+              <div className="stat-value" style={{ color: 'var(--primary-gold)' }}>
+                {fundamentals && fundamentals.alphaScore !== undefined && fundamentals.alphaScore !== null ? fundamentals.alphaScore : 'N/A'}
+              </div>
+            </div>
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap' }}>
@@ -228,7 +234,7 @@ const Chart = () => {
                     rangeslider: { visible: false },
                     gridcolor: 'rgba(255, 255, 255, 0.1)',
                     linecolor: 'rgba(255, 255, 255, 0.1)',
-                    tickfont: { color: 'var(--text-secondary)' }
+                    tickfont: { color: '#A1A1AA' }
                   },
                   yaxis: { 
                     domain: [0.25, 1],
@@ -236,14 +242,14 @@ const Chart = () => {
                     linecolor: 'rgba(255, 255, 255, 0.1)',
                     side: 'right',
                     tickprefix: cur,
-                    tickfont: { color: 'var(--text-secondary)' }
+                    tickfont: { color: '#A1A1AA' }
                   },
                   yaxis2: {
                     domain: [0, 0.15],
                     gridcolor: 'rgba(255, 255, 255, 0.1)',
                     linecolor: 'rgba(255, 255, 255, 0.1)',
                     side: 'right',
-                    tickfont: { color: 'var(--text-secondary)' },
+                    tickfont: { color: '#A1A1AA' },
                     range: [0, 100],
                     tickvals: [30, 70]
                   },

@@ -40,7 +40,7 @@ const Fundamentals = () => {
     if (!data) return;
     const apiKey = localStorage.getItem('gemini_api_key');
     if (!apiKey) {
-      alert("Please configure your Gemini API Key in the Settings tab first.");
+      alert("Please enter your Gemini API Key in the sidebar first.");
       return;
     }
 
@@ -139,7 +139,7 @@ const Fundamentals = () => {
             <h3 style={{ color: 'var(--primary-gold)', marginBottom: '5px' }}>{data.name} ({data.ticker})</h3>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '20px' }}>{data.sector} • {data.industry}</p>
             
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px' }}>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Market Cap</div>
                 <div style={{ fontSize: '1.2em', fontWeight: 'bold' }}>
@@ -150,6 +150,12 @@ const Fundamentals = () => {
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Total Cash</div>
                 <div style={{ fontSize: '1.2em', fontWeight: 'bold' }}>
                   {data.totalCash ? `${currencyFor(data.ticker)}${(data.totalCash / 1e9).toFixed(2)}B` : 'N/A'}
+                </div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Alpha Nova Score</div>
+                <div style={{ fontSize: '1.2em', fontWeight: 'bold', color: 'var(--primary-gold)' }}>
+                  {data.alphaScore !== undefined && data.alphaScore !== null ? data.alphaScore : 'N/A'}
                 </div>
               </div>
             </div>
