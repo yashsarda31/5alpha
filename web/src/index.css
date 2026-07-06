@@ -156,8 +156,8 @@ h2 {
   width: 100%;
 }
 
-/* Navigation */
-nav {
+/* Navigation (scoped to the sidebar — .mobile-tabbar is also a <nav>) */
+.sidebar nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -763,6 +763,7 @@ tr:hover td {
 
   .mobile-tabbar {
     display: flex;
+    flex-direction: row;
     position: fixed;
     left: 0;
     right: 0;
