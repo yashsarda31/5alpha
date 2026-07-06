@@ -16,8 +16,8 @@
   pointer-events: auto;
   position: relative;
   background: rgba(20, 20, 24, 0.86);
-  backdrop-filter: blur(22px) saturate(160%);
   -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
   border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
   border-left: 3px solid var(--text-secondary);
   border-radius: 14px;

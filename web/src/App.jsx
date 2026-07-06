@@ -1,78 +1,128 @@
 import React, { useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
+import {
+  LayoutGrid, Star, Zap, Rocket, Newspaper, Target,
+  LineChart, Bird, Search, Landmark, Calculator, BarChart3, Sparkles, Scale, Link2,
+  Trophy, Gamepad2, GraduationCap, Settings, Menu,
+} from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
 import { WatchlistProvider } from './WatchlistContext';
 import { PredictionProvider } from './PredictionContext';
 import Login from './pages/Login';
 import Disclaimer from './components/Disclaimer';
-import InstallApp from './components/InstallApp';
-import SignalAlertProvider, { useSignalAlerts } from './alerts/SignalAlertProvider';
-import { usePrediction } from './PredictionContext';
+import SettingsSheet from './components/SettingsSheet';
+import SignalAlertProvider from './alerts/SignalAlertProvider';
+
+// One importer map feeds both lazy() and hover-prefetch: pointing at a nav
+// link starts downloading that page's chunk, so the click lands on warm code.
+const routeImporters = {
+  '/dashboard': () => import('./pages/Dashboard'),
+  '/watchlist': () => import('./pages/Watchlist'),
+  '/leaderboard': () => import('./pages/Leaderboard'),
+  '/dcf': () => import('./pages/Dcf'),
+  '/chart': () => import('./pages/Chart'),
+  '/screener': () => import('./pages/Screener'),
+  '/arima': () => import('./pages/Arima'),
+  '/position-sizing': () => import('./pages/PositionSizing'),
+  '/momentum': () => import('./pages/Momentum'),
+  '/fundamentals': () => import('./pages/Fundamentals'),
+  '/news': () => import('./pages/News'),
+  '/option-chain': () => import('./pages/OptionChain'),
+  '/signals': () => import('./pages/MarketSignals'),
+  '/focus': () => import('./pages/FocusList'),
+  '/learn': () => import('./pages/Learn'),
+  '/druck-minervini': () => import('./pages/DruckMinervini'),
+  '/trading-game': () => import('./pages/TradingGame'),
+  '/fiidii': () => import('./pages/FiiDii'),
+};
+
+const prefetched = new Set();
+const prefetchRoute = (path) => {
+  if (prefetched.has(path) || !routeImporters[path]) return;
+  prefetched.add(path);
+  routeImporters[path]().catch(() => prefetched.delete(path));
+};
 
 // Every page is lazy-loaded so the initial bundle carries only the shell;
 // heavy dependencies (Plotly ~1.4 MB) download only when a chart page opens.
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const Watchlist = lazy(() => import('./pages/Watchlist'));
-const Leaderboard = lazy(() => import('./pages/Leaderboard'));
-const Dcf = lazy(() => import('./pages/Dcf'));
-const Chart = lazy(() => import('./pages/Chart'));
-const Screener = lazy(() => import('./pages/Screener'));
-const Arima = lazy(() => import('./pages/Arima'));
-const PositionSizing = lazy(() => import('./pages/PositionSizing'));
-const Momentum = lazy(() => import('./pages/Momentum'));
-const Fundamentals = lazy(() => import('./pages/Fundamentals'));
-const News = lazy(() => import('./pages/News'));
-const OptionChain = lazy(() => import('./pages/OptionChain'));
-const MarketSignals = lazy(() => import('./pages/MarketSignals'));
-const FocusList = lazy(() => import('./pages/FocusList'));
-const Learn = lazy(() => import('./pages/Learn'));
-const DruckMinervini = lazy(() => import('./pages/DruckMinervini'));
-const TradingGame = lazy(() => import('./pages/TradingGame'));
-const FiiDii = lazy(() => import('./pages/FiiDii'));
+const Dashboard = lazy(routeImporters['/dashboard']);
+const Watchlist = lazy(routeImporters['/watchlist']);
+const Leaderboard = lazy(routeImporters['/leaderboard']);
+const Dcf = lazy(routeImporters['/dcf']);
+const Chart = lazy(routeImporters['/chart']);
+const Screener = lazy(routeImporters['/screener']);
+const Arima = lazy(routeImporters['/arima']);
+const PositionSizing = lazy(routeImporters['/position-sizing']);
+const Momentum = lazy(routeImporters['/momentum']);
+const Fundamentals = lazy(routeImporters['/fundamentals']);
+const News = lazy(routeImporters['/news']);
+const OptionChain = lazy(routeImporters['/option-chain']);
+const MarketSignals = lazy(routeImporters['/signals']);
+const FocusList = lazy(routeImporters['/focus']);
+const Learn = lazy(routeImporters['/learn']);
+const DruckMinervini = lazy(routeImporters['/druck-minervini']);
+const TradingGame = lazy(routeImporters['/trading-game']);
+const FiiDii = lazy(routeImporters['/fiidii']);
 
+// Progressive disclosure: what matters right now up top, deep research in the
+// middle, gamified extras at the bottom (order per user preference).
+const NAV_SECTIONS = [
+  {
+    title: 'Today',
+    items: [
+      { to: '/dashboard', label: 'Dashboard', Icon: LayoutGrid },
+      { to: '/watchlist', label: 'Watchlist', Icon: Star },
+      { to: '/signals', label: 'Market Signals', Icon: Zap },
+      { to: '/momentum', label: 'Momentum Leaders', Icon: Rocket },
+      { to: '/news', label: 'News', Icon: Newspaper },
+      { to: '/focus', label: 'Focus List', Icon: Target },
+    ],
+  },
+  {
+    title: 'Research',
+    items: [
+      { to: '/chart', label: 'Chart Analyser', Icon: LineChart },
+      { to: '/druck-minervini', label: 'Druck & Minervini', Icon: Bird },
+      { to: '/screener', label: 'Quant Screener', Icon: Search },
+      { to: '/fiidii', label: 'FII / DII Activity', Icon: Landmark },
+      { to: '/dcf', label: 'DCF Calculator', Icon: Calculator },
+      { to: '/fundamentals', label: 'Fundamentals', Icon: BarChart3 },
+      { to: '/arima', label: 'SARIMAX Forecaster', Icon: Sparkles },
+      { to: '/position-sizing', label: 'Position Sizing', Icon: Scale },
+      { to: '/option-chain', label: 'Option Chain', Icon: Link2 },
+    ],
+  },
+  {
+    title: 'Play & Learn',
+    items: [
+      { to: '/leaderboard', label: 'Nifty Leaderboard', Icon: Trophy },
+      { to: '/trading-game', label: 'Discipline Arena', Icon: Gamepad2 },
+      { to: '/learn', label: 'Learn', Icon: GraduationCap },
+    ],
+  },
+];
+
+// Thumb-reach destinations for the installed/mobile experience
+const TAB_ITEMS = [
+  { to: '/dashboard', label: 'Dashboard', Icon: LayoutGrid },
+  { to: '/signals', label: 'Signals', Icon: Zap },
+  { to: '/watchlist', label: 'Watchlist', Icon: Star },
+  { to: '/momentum', label: 'Momentum', Icon: Rocket },
+];
+
+// Layout-shaped skeleton instead of a bare "Loading…" word — the page keeps
+// its silhouette while the chunk and data arrive.
 const PageLoader = () => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '40vh', color: 'var(--text-secondary)', fontSize: '14px', letterSpacing: '0.05em' }}>
-    Loading…
+  <div className="page-skeleton" aria-busy="true" aria-label="Loading page">
+    <div className="skeleton skeleton-header" />
+    <div className="skeleton page-skeleton-block" style={{ height: 84 }} />
+    <div className="page-skeleton-grid">
+      <div className="skeleton page-skeleton-block" style={{ height: 160 }} />
+      <div className="skeleton page-skeleton-block" style={{ height: 160 }} />
+    </div>
+    <div className="skeleton page-skeleton-block" style={{ height: 220 }} />
   </div>
 );
-
-const AlertBell = () => {
-  const { browserEnabled, toggleBrowser, permission } = useSignalAlerts();
-  if (permission === 'unsupported') return null;
-  const state = permission === 'denied' ? 'BLOCKED' : browserEnabled ? 'ON' : 'OFF';
-  const title = permission === 'denied'
-    ? 'Browser notifications are blocked in your browser settings'
-    : 'Toggle background browser notifications for new signals';
-  return (
-    <button
-      className={`alert-bell ${browserEnabled ? 'on' : ''}`}
-      onClick={toggleBrowser}
-      title={title}
-      disabled={permission === 'denied'}
-    >
-      <span className="ab-ico">{browserEnabled ? '🔔' : '🔕'}</span>
-      Signal alerts
-      <span className="ab-state">{state}</span>
-    </button>
-  );
-};
-
-const LeaderboardOptOut = () => {
-  const { stats, setHidden } = usePrediction();
-  if (!stats) return null;
-  const hidden = !!stats.hidden;
-  return (
-    <button
-      className={`alert-bell ${hidden ? '' : 'on'}`}
-      onClick={() => setHidden(!hidden)}
-      title="Show or hide your name on the Nifty Leaderboard"
-    >
-      <span className="ab-ico">{hidden ? '🙈' : '🏆'}</span>
-      Leaderboard
-      <span className="ab-state">{hidden ? 'HIDDEN' : 'VISIBLE'}</span>
-    </button>
-  );
-};
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser, loading } = useAuth();
@@ -86,15 +136,50 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-const AppLayout = () => {
-  const { currentUser, logout } = useAuth();
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
-  const [menuOpen, setMenuOpen] = useState(false);
+const NavItem = ({ to, label, onNavigate, ...rest }) => {
+  const Icon = rest.Icon; // capitalized var (not param) so the JSX-blind no-unused-vars config ignores it
+  return (
+  <NavLink
+    to={to}
+    className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+    onMouseEnter={() => prefetchRoute(to)}
+    onTouchStart={() => prefetchRoute(to)}
+    onFocus={() => prefetchRoute(to)}
+    onClick={onNavigate}
+  >
+    <Icon size={16} className="nav-ico" aria-hidden="true" />
+    {label}
+  </NavLink>
+  );
+};
 
-  const handleKeyChange = (e) => {
-    setApiKey(e.target.value);
-    localStorage.setItem('gemini_api_key', e.target.value);
-  };
+const MobileTabBar = ({ onMore }) => (
+  <nav className="mobile-tabbar" aria-label="Primary">
+    {TAB_ITEMS.map((item) => {
+      const Icon = item.Icon;
+      return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        className={({ isActive }) => (isActive ? 'tab-item active' : 'tab-item')}
+        onTouchStart={() => prefetchRoute(item.to)}
+      >
+        <Icon size={20} aria-hidden="true" />
+        <span>{item.label}</span>
+      </NavLink>
+      );
+    })}
+    <button className="tab-item" onClick={onMore} aria-label="More pages">
+      <Menu size={20} aria-hidden="true" />
+      <span>More</span>
+    </button>
+  </nav>
+);
+
+const AppLayout = () => {
+  const { currentUser } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <WatchlistProvider>
@@ -111,84 +196,27 @@ const AppLayout = () => {
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
           <span style={{ color: 'var(--primary-gold)' }}>Alpha</span> Nova
         </h2>
-        <div style={{color: "var(--text-secondary)", fontSize: "11px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "32px"}}>Pro Edition V3</div>
-        
-        <nav onClick={() => setMenuOpen(false)}>
-          <NavLink to="/dashboard" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>⌘</span> Dashboard
-          </NavLink>
-          <NavLink to="/watchlist" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>⭐</span> Watchlist
-          </NavLink>
-          <NavLink to="/signals" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>⚡</span> Market Signals
-          </NavLink>
-          <NavLink to="/momentum" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🚀</span> Momentum Leaders
-          </NavLink>
-          <NavLink to="/news" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>📰</span> News
-          </NavLink>
-          <NavLink to="/focus" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🎯</span> Focus List
-          </NavLink>
-          <NavLink to="/chart" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>📈</span> Chart Analyser
-          </NavLink>
-          <NavLink to="/druck-minervini" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🦅</span> Druck & Minervini
-          </NavLink>
-          <NavLink to="/screener" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🔍</span> Quant Screener
-          </NavLink>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '20px' }}>Pro Edition V3</div>
 
-          <NavLink to="/fiidii" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🏦</span> FII / DII Activity
-          </NavLink>
-          <NavLink to="/dcf" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>💵</span> DCF Calculator
-          </NavLink>
-          <NavLink to="/fundamentals" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>📊</span> Fundamentals
-          </NavLink>
-          <NavLink to="/arima" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🔮</span> SARIMAX Forecaster
-          </NavLink>
-          <NavLink to="/position-sizing" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>⚖️</span> Position Sizing
-          </NavLink>
-          <NavLink to="/option-chain" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>⛓️</span> Option Chain
-          </NavLink>
-          <NavLink to="/leaderboard" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🏆</span> Nifty Leaderboard
-          </NavLink>
-          <NavLink to="/trading-game" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🎮</span> Discipline Arena
-          </NavLink>
-          <NavLink to="/learn" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🎓</span> Learn
-          </NavLink>
+        <nav>
+          {NAV_SECTIONS.map((section) => (
+            <div className="nav-section" key={section.title}>
+              <div className="nav-section-title">{section.title}</div>
+              {section.items.map((item) => (
+                <NavItem key={item.to} {...item} onNavigate={() => setMenuOpen(false)} />
+              ))}
+            </div>
+          ))}
         </nav>
-        
-        <div style={{marginTop: 'auto', paddingTop: '40px'}}>
-          <InstallApp />
-          <AlertBell />
-          <LeaderboardOptOut />
-          <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}>
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Logged in as</div>
-            <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--primary-gold)', marginBottom: '12px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentUser?.email}</div>
-            <button onClick={logout} className="secondary" style={{ padding: '8px', fontSize: '12px' }}>Sign Out</button>
-          </div>
-          
-          <label>Gemini API Key</label>
-          <input 
-            type="password" 
-            value={apiKey} 
-            onChange={handleKeyChange} 
-            placeholder="Enter AI Key..." 
-            style={{marginBottom: '0'}}
-          />
+
+        <div className="sidebar-footer">
+          <button className="settings-btn" onClick={() => setSettingsOpen(true)}>
+            <Settings size={16} aria-hidden="true" />
+            <span className="settings-btn-label">
+              <span>Settings</span>
+              <span className="settings-btn-email">{currentUser?.email}</span>
+            </span>
+          </button>
         </div>
       </div>
 
@@ -219,6 +247,9 @@ const AppLayout = () => {
         </Routes>
         </Suspense>
       </div>
+
+      <MobileTabBar onMore={() => setMenuOpen(true)} />
+      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </SignalAlertProvider>
     </PredictionProvider>
     </WatchlistProvider>
@@ -231,13 +262,13 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route 
-            path="*" 
+          <Route
+            path="*"
             element={
               <ProtectedRoute>
                 <AppLayout />
               </ProtectedRoute>
-            } 
+            }
           />
         </Routes>
       </BrowserRouter>

@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, StatusPill } from '../components/ui';
+import { useSWR } from '../lib/swrCache';
 import './MarketSignals.css';
 
 const BUCKET_META = {
@@ -28,37 +29,20 @@ const MarketSignals = () => {
   // server clock (US engine 8pm–2am IST, NSE otherwise).
   const marketOverride = (searchParams.get('market') || '').toUpperCase();
   const marketQS = ['IN', 'US'].includes(marketOverride) ? `?market=${marketOverride}` : '';
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const intervalRef = useRef(null);
-
-  const fetchSignals = async (showLoading = true) => {
-    if (showLoading) setLoading(true);
-    try {
-      const res = await axios.get(`/api/signals${marketQS}`);
-      setData(res.data);
-      setError(null);
-    } catch (err) {
-      if (showLoading) setError(err.response?.data?.detail || 'Failed to load market signals.');
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSignals(true);
-  }, []);
-
-  useEffect(() => {
-    if (autoRefresh) {
-      intervalRef.current = setInterval(() => fetchSignals(false), 60000);
-    } else if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [autoRefresh]);
+  // Stale-while-revalidate: the last payload renders instantly (shared with
+  // SignalAlertProvider's 2-min background poll when no market override);
+  // a fresh fetch always runs behind it.
+  const swrKey = marketQS ? `signals:${marketOverride}` : 'signals';
+  const { data, refreshing, error: swrError, revalidate } = useSWR(
+    swrKey,
+    () => axios.get(`/api/signals${marketQS}`).then((r) => r.data),
+    autoRefresh ? 60000 : 0,
+  );
+  const loading = !data && !swrError;
+  const error = !data && swrError
+    ? (swrError.response?.data?.detail || 'Failed to load market signals.')
+    : null;
 
   if (loading) {
     return (
@@ -79,7 +63,7 @@ const MarketSignals = () => {
         <div style={{ color: 'var(--red-loss)', padding: '24px', background: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.3)', borderRadius: '12px' }}>
           <h3 style={{ margin: '0 0 8px 0' }}>Signal Feed Unavailable</h3>
           <p style={{ margin: '0 0 16px 0' }}>{error}</p>
-          <button onClick={() => fetchSignals(true)} style={{ width: 'auto', padding: '8px 20px' }}>Retry</button>
+          <button onClick={revalidate} style={{ width: 'auto', padding: '8px 20px' }}>Retry</button>
         </div>
       </div>
     );
@@ -102,7 +86,7 @@ const MarketSignals = () => {
       <PageHeader
         code="SIG"
         title={isUS ? 'Market Signals · US' : 'Market Signals'}
-        subtitle={`${isUS ? '🇺🇸 US session (8pm–2am IST) · ' : ''}Live options intelligence, regime context & scored setups · as of ${data.as_of?.replace('T', ' ')} IST`}
+        subtitle={`${isUS ? '🇺🇸 US session (8pm–2am IST) · ' : ''}Live options intelligence, regime context & scored setups · as of ${data.as_of?.replace('T', ' ')} IST${refreshing ? ' · refreshing…' : ''}`}
         right={
           <>
             <StatusPill open={data.market_open} note={data.market_open ? undefined : `${data.market_note} (last session)`} />

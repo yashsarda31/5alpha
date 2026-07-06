@@ -5,6 +5,7 @@ import { PageHeader, SectionTitle, DataTable, StatusPill, Badge, Skeleton } from
 import { useWatchlist } from '../WatchlistContext';
 import { usePrediction } from '../PredictionContext';
 import WatchlistStar from '../components/WatchlistStar';
+import { useSWR } from '../lib/swrCache';
 import './Dashboard.css';
 
 const TOKEN_KEY = 'alphanova_auth_token';
@@ -191,32 +192,16 @@ const MACRO_COLUMNS = [
 
 const Dashboard = () => {
   const [apiKey] = useState(localStorage.getItem('gemini_api_key') || '');
-  const [dashData, setDashData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const fetchDashboard = async () => {
-      try {
-        const res = await axios.get('/api/dashboard');
-        if (!cancelled) {
-          setDashData(res.data);
-          setError(null);
-        }
-      } catch (err) {
-        if (!cancelled) setError(err.response?.data?.detail || err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    fetchDashboard();
-    const interval = setInterval(fetchDashboard, 120000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
+  // Stale-while-revalidate: last snapshot renders instantly, refresh runs behind it
+  const { data: dashData, error: swrError } = useSWR(
+    'dashboard',
+    () => axios.get('/api/dashboard').then((r) => r.data),
+    120000,
+  );
+  const loading = !dashData && !swrError;
+  const error = !dashData && swrError
+    ? (swrError.response?.data?.detail || swrError.message)
+    : null;
 
   const movers = dashData?.movers || [];
   const moversMarket = dashData?.movers_market || 'IN'; // US megacaps 8pm–2am IST

@@ -61,11 +61,20 @@ body {
   min-height: 100vh;
   display: flex;
   overflow-x: hidden;
-  /* Subtle mesh gradient background for depth */
+}
+
+/* Subtle mesh gradient for depth. Painted on a fixed pseudo-element instead of
+   background-attachment:fixed, which forces a repaint every scroll frame on
+   mobile. This layer never repaints. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-image:
     radial-gradient(circle at 15% 50%, rgba(245, 220, 140, 0.06) 0%, transparent 50%),
     radial-gradient(circle at 85% 30%, rgba(62, 230, 255, 0.06) 0%, transparent 50%);
-  background-attachment: fixed;
 }
 
 /* Themed text selection */
@@ -126,8 +135,8 @@ h2 {
 .sidebar {
   width: 280px;
   background: var(--bg-panel);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
   border-right: 1px solid var(--border-color);
   padding: 32px 24px;
   display: flex;
@@ -151,7 +160,200 @@ h2 {
 nav {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -8px;
+  padding: 0 8px;
+}
+
+.nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 14px;
+}
+
+.nav-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-tertiary);
+  padding: 6px 16px 4px;
+  user-select: none;
+}
+
+.nav-ico {
+  margin-right: 12px;
+  opacity: 0.75;
+  flex: 0 0 auto;
+}
+
+.nav-link.active .nav-ico {
+  opacity: 1;
+  color: var(--primary-accent);
+}
+
+.sidebar-footer {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.settings-btn {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.settings-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  transform: none;
+}
+
+.settings-btn-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.settings-btn-email {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Settings sheet — modal card on desktop, bottom sheet on mobile */
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease forwards;
+}
+
+.settings-sheet {
+  width: min(440px, 94vw);
+  max-height: min(80vh, 640px);
+  overflow-y: auto;
+  background: rgba(24, 24, 26, 0.97);
+  border: 1px solid var(--border-highlight);
+  border-radius: var(--r-card);
+  padding: 24px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7);
+  animation: sheetIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes sheetIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.settings-head h3 {
+  font-size: 18px;
+}
+
+.settings-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-radius: 50%;
+}
+
+.settings-close:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: none;
+  box-shadow: none;
+}
+
+.settings-section {
+  margin-bottom: 20px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+}
+
+.settings-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.settings-account-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.settings-account-email {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary-gold);
+  overflow-wrap: anywhere;
+}
+
+.settings-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+/* Layout-shaped page skeleton (Suspense fallback) */
+.page-skeleton {
+  padding-top: 8px;
+}
+
+.page-skeleton-block {
+  border-radius: var(--r-card);
+  margin-bottom: 20px;
+}
+
+.page-skeleton-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 850px) {
+  .page-skeleton-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .nav-link {
@@ -186,8 +388,8 @@ nav {
   padding: 24px;
   border-radius: 16px;
   margin-bottom: 24px;
-  backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
@@ -364,6 +566,35 @@ button.secondary:hover {
   gap: 8px;
 }
 
+.disclaimer-dismiss {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  border-radius: 50%;
+}
+
+.disclaimer-dismiss:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text-primary);
+  transform: none;
+  box-shadow: none;
+}
+
+/* One-line reminder shown after the full notice is dismissed */
+.disclaimer-mini {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  text-align: center;
+  margin-bottom: 16px;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
 /* Spinner */
 @keyframes spin {
   0% { transform: rotate(0deg); }
@@ -445,6 +676,11 @@ tr:hover td {
   display: none;
 }
 
+/* Bottom tab bar — primary destinations under the thumb on mobile */
+.mobile-tabbar {
+  display: none;
+}
+
 @media (max-width: 850px) {
   #root {
     flex-direction: column;
@@ -460,9 +696,11 @@ tr:hover td {
     top: 0;
     z-index: 900;
     padding: 10px 16px;
+    /* keep clear of the notch/status bar when installed as a PWA */
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
     background: rgba(10, 10, 12, 0.85);
-    backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
     border-bottom: 1px solid var(--border-color);
   }
 
@@ -519,6 +757,57 @@ tr:hover td {
   .content {
     width: 100%;
     padding: 16px;
+    /* room for the fixed bottom tab bar + home indicator */
+    padding-bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobile-tabbar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 950;
+    background: rgba(10, 10, 12, 0.88);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    border-top: 1px solid var(--border-color);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .tab-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 8px 0 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary);
+    text-decoration: none;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    width: auto;
+  }
+
+  .tab-item:hover {
+    background: transparent;
+    transform: none;
+    box-shadow: none;
+    color: var(--text-primary);
+  }
+
+  .tab-item.active {
+    color: var(--primary-accent);
+  }
+
+  /* the drawer already lists everything the tab bar can't fit */
+  .sidebar-footer {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   h2 {
@@ -715,4 +1004,17 @@ tr:hover td {
 }
 .bento-hero:hover {
   transform: scale(1.01);
+}
+
+/* Respect the OS-level motion preference: collapse every animation and
+   transition to a single frame. Content still appears — it just doesn't move. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

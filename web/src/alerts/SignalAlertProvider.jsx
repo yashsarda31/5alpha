@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ToastStack from './ToastStack';
+import { setCached } from '../lib/swrCache';
 import './alerts.css';
 
 const SEEN_KEY = 'alphanova_seen_signals';
@@ -99,7 +100,13 @@ const SignalAlertProvider = ({ children }) => {
     const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
     try {
       const res = await fetch('/api/signals', { signal: ac.signal });
-      if (res.ok) detect(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        // share the payload with the Signals page — opening it right after a
+        // background poll renders instantly with zero network round-trips
+        setCached('signals', data);
+        detect(data);
+      }
     } catch {
       // network error / abort / cold-start timeout — retry next cycle
     } finally {
