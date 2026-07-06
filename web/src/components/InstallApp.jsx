@@ -12,32 +12,40 @@ const isIOS = () =>
   /iphone|ipad|ipod/i.test(navigator.userAgent) ||
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+const isAndroid = () => /android/i.test(navigator.userAgent);
+
 const InstallApp = ({ compact = false }) => {
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const [showIosHelp, setShowIosHelp] = useState(false);
+  // main.jsx stashes the (once-only, pre-mount) beforeinstallprompt event on
+  // window — read it instead of racing to catch the event ourselves.
+  const [deferredPrompt, setDeferredPrompt] = useState(() => window.__anInstallPrompt || null);
+  const [showHelp, setShowHelp] = useState(false);
   const [installed, setInstalled] = useState(isStandalone);
 
   useEffect(() => {
-    const onPrompt = (e) => { e.preventDefault(); setDeferredPrompt(e); };
-    const onInstalled = () => { setInstalled(true); setDeferredPrompt(null); };
-    window.addEventListener('beforeinstallprompt', onPrompt);
+    const onReady = () => setDeferredPrompt(window.__anInstallPrompt || null);
+    const onInstalled = () => { setInstalled(true); setDeferredPrompt(null); window.__anInstallPrompt = null; };
+    window.addEventListener('an-install-ready', onReady);
     window.addEventListener('appinstalled', onInstalled);
     return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('an-install-ready', onReady);
       window.removeEventListener('appinstalled', onInstalled);
     };
   }, []);
 
   if (installed) return null;
-  if (!deferredPrompt && !isIOS()) return null;
+  // Mobile users always get a path: native prompt when Chrome offers it,
+  // menu instructions otherwise (Chrome withholds the prompt for ~90 days
+  // after a dismissal). Desktop without a prompt stays clean.
+  if (!deferredPrompt && !isIOS() && !isAndroid()) return null;
 
   const handleClick = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       await deferredPrompt.userChoice.catch(() => {});
       setDeferredPrompt(null);
+      window.__anInstallPrompt = null;
     } else {
-      setShowIosHelp((v) => !v);
+      setShowHelp((v) => !v);
     }
   };
 
@@ -56,15 +64,25 @@ const InstallApp = ({ compact = false }) => {
       >
         <span>📲</span> Install App
       </button>
-      {showIosHelp && (
+      {showHelp && (
         <div style={{
           marginTop: '10px', padding: '12px', borderRadius: '10px', fontSize: '12px',
           lineHeight: 1.6, background: 'rgba(255,255,255,0.06)',
           color: 'var(--text-secondary, #A1A1AA)'
         }}>
-          On iPhone/iPad: tap the <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>Share</strong> button
-          <span style={{ margin: '0 4px' }}>(the square with an arrow)</span>
-          in Safari, then choose <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>Add to Home Screen</strong>.
+          {isIOS() ? (
+            <>
+              On iPhone/iPad: tap the <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>Share</strong> button
+              <span style={{ margin: '0 4px' }}>(the square with an arrow)</span>
+              in Safari, then choose <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>Add to Home Screen</strong>.
+            </>
+          ) : (
+            <>
+              In Chrome: tap the <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>⋮ menu</strong> (top right),
+              then choose <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>Add to Home screen</strong> →{' '}
+              <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>Install</strong>.
+            </>
+          )}
         </div>
       )}
     </div>
