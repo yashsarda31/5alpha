@@ -2186,18 +2186,21 @@ def _signals_market_open():
         return False, "after-hours"
     return True, "live"
 
-def _straddle_implied_iv(strike, ce_ltp, pe_ltp, expiry_str):
+def _straddle_implied_iv(strike, ce_ltp, pe_ltp, expiry_str, expiry_dt=None):
     """ATM IV backed out of the straddle price (Black-76 against the
     put-call-parity forward). NSE's per-leg impliedVolatility prices puts off
     spot instead of the forward, inflating PE IV 3-5 pts — averaging CE/PE
     read ~14-16% when the true ATM IV was ~12.6%. Returns IV %, or None when
-    it can't be solved sanely (caller falls back to the CE/PE average)."""
+    it can't be solved sanely (caller falls back to the CE/PE average).
+    expiry_dt (aware datetime) overrides expiry_str parsing — used for US
+    chains where expiry is 16:00 ET, not 15:30 IST."""
     try:
         if not (strike > 0 and ce_ltp > 0 and pe_ltp > 0):
             return None
         ist = timezone(timedelta(hours=5, minutes=30))
-        expiry_dt = datetime.strptime(expiry_str, "%d-%b-%Y").replace(
-            hour=15, minute=30, tzinfo=ist)
+        if expiry_dt is None:
+            expiry_dt = datetime.strptime(expiry_str, "%d-%b-%Y").replace(
+                hour=15, minute=30, tzinfo=ist)
         t = (expiry_dt - datetime.now(ist)).total_seconds() / (365.0 * 86400)
         if t <= 1e-4:  # inside the last hour the estimate blows up
             return None
@@ -2520,7 +2523,7 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
     plans.sort(key=lambda p: p["score"], reverse=True)
     return [p for p in plans if p["score"] >= min_score][:8], index_bias
 
-def build_index_ideas(oc_list, vix):
+def build_index_ideas(oc_list, vix, cur="₹"):
     """Actionable option-structure ideas per index from PCR / max-pain / IV."""
     ideas = []
     for oc in oc_list:
@@ -2538,7 +2541,7 @@ def build_index_ideas(oc_list, vix):
             ideas.append({"symbol": sym, "bias": "RANGE",
                           "text": f"PCR {pcr:.2f}, max pain {oc['max_pain']:,.0f} ({mp_drift:+.1f}% away) — "
                                   f"pinning likely. Sell {oc['expiry']} {oc['atm_strike']:,.0f} straddle "
-                                  f"~₹{oc['straddle']:,.0f} (IV {iv:.1f}%), or {wings}."})
+                                  f"~{cur}{oc['straddle']:,.0f} (IV {iv:.1f}%), or {wings}."})
         elif bias == "BULLISH":
             ideas.append({"symbol": sym, "bias": "BULLISH",
                           "text": f"PCR {pcr:.2f} (put writers active). Support {oc['support']:,.0f}, "
@@ -2563,11 +2566,313 @@ def _yf_daily_closes(symbol, period="1y"):
     except Exception:
         return None
 
+
+# --- US Market Signals (served 20:00–02:00 IST, mirrors the India engine) ---
+# Data is all yfinance (works from Vercel): SPY/QQQ option chains stand in for
+# NIFTY/BANKNIFTY summaries, ^VIX for INDIA VIX, ^GSPC/^NDX for index trend,
+# and a liquid-megacap universe scanned via one batch download replaces the
+# NSE futures radar. Volume spurts stand in for OI change (no free OI-change
+# feed exists for US equities).
+US_SIGNALS_UNIVERSE = [
+    "NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "AMD", "NFLX", "JPM",
+    "AVGO", "INTC", "MU", "PLTR", "COIN", "BA", "XOM", "CVX", "GS", "BAC",
+    "CRM", "ORCL", "UBER", "DIS", "V", "MA", "WMT", "COST", "LLY", "UNH",
+]
+
+def _ny_now():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/New_York"))
+    except Exception:  # no tzdata (e.g. bare Windows) — EST approximation
+        return datetime.now(timezone(timedelta(hours=-5)))
+
+def _us_signals_market_open():
+    now = _ny_now()
+    if now.weekday() >= 5:
+        return False, "US weekend"
+    mins = now.hour * 60 + now.minute
+    if mins < 9 * 60 + 30:
+        return False, "US pre-market"
+    if mins > 16 * 60:
+        return False, "US after-hours"
+    return True, "live"
+
+def fetch_us_chain_summary(symbol):
+    """SPY/QQQ option-chain summary with the same shape as the NSE one.
+    ce_doi/pe_doi carry total call/put VOLUME (day flow) — yfinance has no
+    OI-change field; the frontend labels these 'Call Vol / Put Vol' for US."""
+    try:
+        tk = yf.Ticker(symbol)
+        expiries = tk.options
+        if not expiries:
+            return None
+        # SPY/QQQ list DAILY expiries. 0-1 DTE IV is structurally elevated and
+        # would false-flag the IV regime as RICH vs the 30-day VIX, so take the
+        # first expiry ≥36h out (lands 2-4 DTE — the same zone as NSE weeklies).
+        expiry, exp_dt = None, None
+        for e in expiries[:10]:
+            dt_ = datetime.strptime(e, "%Y-%m-%d").replace(
+                hour=16, minute=0, tzinfo=_ny_now().tzinfo)
+            if (dt_ - _ny_now()).total_seconds() >= 36 * 3600:
+                expiry, exp_dt = e, dt_
+                break
+        if expiry is None:
+            expiry = expiries[-1]
+            exp_dt = datetime.strptime(expiry, "%Y-%m-%d").replace(
+                hour=16, minute=0, tzinfo=_ny_now().tzinfo)
+        ch = tk.option_chain(expiry)
+        calls, puts = ch.calls, ch.puts
+        if calls.empty or puts.empty:
+            return None
+        try:
+            spot = float(tk.fast_info["lastPrice"])
+        except Exception:
+            h = tk.history(period="1d")
+            spot = float(h["Close"].iloc[-1]) if not h.empty else 0
+        if not spot:
+            return None
+
+        ce_oi = {float(r.strike): float(r.openInterest or 0) for r in calls.itertuples()}
+        pe_oi = {float(r.strike): float(r.openInterest or 0) for r in puts.itertuples()}
+        strikes = sorted(set(ce_oi) | set(pe_oi))
+        tot_ce = sum(ce_oi.values()) or 1
+        tot_pe = sum(pe_oi.values())
+        ce_vol = float(calls["volume"].fillna(0).sum())
+        pe_vol = float(puts["volume"].fillna(0).sum())
+
+        def pain(s):
+            return sum(ce_oi.get(k, 0) * max(0, s - k) + pe_oi.get(k, 0) * max(0, k - s) for k in strikes)
+        max_pain = min(strikes, key=pain)
+        # S/R walls only within ±7% of spot: SPY put OI is dominated by
+        # far-OTM tail hedges that would put "support" 20% below the market.
+        near = [k for k in strikes if abs(k - spot) <= spot * 0.07] or strikes
+        support = max(near, key=lambda k: pe_oi.get(k, 0))
+        resistance = max(near, key=lambda k: ce_oi.get(k, 0))
+        band = [k for k in strikes if abs(k - spot) <= spot * 0.05]
+        band_ce = sum(ce_oi.get(k, 0) for k in band) or 1
+        band_pe = sum(pe_oi.get(k, 0) for k in band)
+
+        atm_strike = min(strikes, key=lambda k: abs(k - spot))
+        atm_ce = calls[calls["strike"] == atm_strike]
+        atm_pe = puts[puts["strike"] == atm_strike]
+        ce_ltp = float(atm_ce["lastPrice"].iloc[0]) if not atm_ce.empty else 0
+        pe_ltp = float(atm_pe["lastPrice"].iloc[0]) if not atm_pe.empty else 0
+        iv_ce = float(atm_ce["impliedVolatility"].iloc[0]) * 100 if not atm_ce.empty else 0
+        iv_pe = float(atm_pe["impliedVolatility"].iloc[0]) * 100 if not atm_pe.empty else 0
+        atm_iv = _straddle_implied_iv(atm_strike, ce_ltp, pe_ltp, expiry, expiry_dt=exp_dt)
+        if atm_iv is None:
+            atm_iv = round((iv_ce + iv_pe) / 2, 2)
+        return {
+            "symbol": symbol,
+            "expiry": expiry,
+            "spot": spot,
+            "pcr": round(tot_pe / tot_ce, 3),
+            "pcr_band": round(band_pe / band_ce, 3),
+            "pcr_doi": round(pe_vol / ce_vol, 3) if ce_vol else 0,  # volume PCR = day flow
+            "max_pain": max_pain,
+            "support": support,
+            "resistance": resistance,
+            "atm_strike": atm_strike,
+            "atm_iv": atm_iv,
+            "atm_iv_ce": round(iv_ce, 2),
+            "atm_iv_pe": round(iv_pe, 2),
+            "straddle": round(ce_ltp + pe_ltp, 2),
+            "ce_doi": ce_vol,
+            "pe_doi": pe_vol,
+        }
+    except Exception:
+        return None
+
+def fetch_us_radar(universe=None):
+    """One batch download over the megacap universe → per-name day snapshot.
+    vol_ratio (today vs prior-20-session average volume) stands in for the
+    OI-change intensity the NSE radar uses."""
+    universe = universe or US_SIGNALS_UNIVERSE
+    try:
+        df = yf.download(" ".join(universe), period="1mo", group_by="ticker",
+                         threads=True, progress=False, auto_adjust=True)
+    except Exception:
+        return []
+    out = []
+    for sym in universe:
+        try:
+            h = df[sym].dropna(how="all")
+            if len(h) < 10:
+                continue
+            bar = h.iloc[-1]
+            last = float(bar["Close"])
+            prev = float(h["Close"].iloc[-2])
+            px = (last / prev - 1) * 100 if prev else 0
+            hi, lo = float(bar["High"]), float(bar["Low"])
+            dpos = (last - lo) / (hi - lo) if hi > lo else 0.5
+            vol = float(bar["Volume"] or 0)
+            avg_vol = float(h["Volume"].iloc[-21:-1].mean() or 0)
+            vol_ratio = vol / avg_vol * 100 if avg_vol else 0
+            sma20 = float(h["Close"].tail(20).mean())
+            if abs(px) < 0.15:
+                kind = "neutral"
+            elif vol_ratio >= 110:
+                kind = "long_buildup" if px > 0 else "short_buildup"
+            else:
+                kind = "short_covering" if px > 0 else "long_unwinding"
+            out.append({"symbol": sym, "ltp": last, "px": px, "dpos": dpos,
+                        "vol": vol, "vol_ratio": vol_ratio, "dollar_vol": vol * last,
+                        "sma20": sma20, "hi": hi, "lo": lo, "kind": kind})
+        except Exception:
+            continue
+    out.sort(key=lambda r: abs(r["px"]) * max(r["vol_ratio"], 1), reverse=True)
+    return out
+
+def _us_buildup_buckets(radar):
+    """The 4 India buildup boxes, volume-flavoured: heavy-volume pushes vs
+    quiet drifts. Row shape matches the NSE one (oiChangePct = Δvol vs avg)."""
+    buckets = {"long_buildup": [], "short_buildup": [], "short_covering": [], "long_unwinding": []}
+    for r in radar:
+        if r["kind"] in buckets and abs(r["px"]) >= 0.5:
+            buckets[r["kind"]].append({
+                "symbol": r["symbol"], "contract": "EQ",
+                "ltp": round(r["ltp"], 2), "pChange": round(r["px"], 2),
+                "oiChangePct": round(r["vol_ratio"] - 100, 0),
+            })
+    return {k: v[:8] for k, v in buckets.items()}
+
+def score_us_signal_plans(radar, oc_spy, oc_qqq, regime, capital, risk_pct, min_score=45):
+    """US cousin of score_signal_plans: volume intensity replaces OI intensity,
+    options day-flow comes from the SPY/QQQ volume-PCR, positioning bias from
+    the OI PCR band. Same 0-100 scale, same 45 threshold, same plan math."""
+    ocs = [oc for oc in (oc_spy, oc_qqq) if oc]
+    oi_pcr = sum(oc["pcr_band"] for oc in ocs) / len(ocs) if ocs else 1.0
+    vol_pcr = sum(oc["pcr_doi"] for oc in ocs) / len(ocs) if ocs else 1.0
+    index_bias = "bull" if oi_pcr > 1.05 else "bear" if oi_pcr < 0.9 else "flat"
+    flow_bias = "bear" if vol_pcr > 1.1 else "bull" if vol_pcr < 0.9 else "flat"
+    vol_scale = regime.get("vol_scale", 1.0)
+    ranked_liq = sorted(radar, key=lambda r: r["dollar_vol"], reverse=True)
+    liq_rank = {r["symbol"]: i for i, r in enumerate(ranked_liq)}
+
+    plans = []
+    for r in radar:
+        px, dpos = r["px"], r["dpos"]
+        if abs(px) < 0.75 or r["kind"] == "neutral":
+            continue
+        side = "LONG" if px > 0 else "SHORT"
+        want = "bull" if side == "LONG" else "bear"
+
+        s_move = min(22, abs(px) / 3.0 * 22)                        # 3% day move = full
+        s_vol = max(0.0, min(18, (r["vol_ratio"] - 100) / 150 * 18))  # 250% avg vol = full
+        third = max(1, len(radar) // 3)
+        s_liq = 10 if liq_rank[r["symbol"]] < third else 6 if liq_rank[r["symbol"]] < 2 * third else 3
+        s_flow = 15 if flow_bias == want else 7 if flow_bias == "flat" else 0
+        s_bias = 10 if index_bias == want else 5 if index_bias == "flat" else 0
+        s_intra = 10 * (dpos if side == "LONG" else 1 - dpos)
+        s_trend = 5 if regime.get("dir") == want else 0
+        above20 = r["ltp"] > r["sma20"]
+        s_sma = 10 if (side == "LONG") == above20 else 0
+        score = round(s_move + s_vol + s_liq + s_flow + s_bias + s_intra + s_trend + s_sma)
+
+        entry = round(r["ltp"], 2)
+        raw_stop = r["lo"] if side == "LONG" else r["hi"]
+        min_gap = entry * 0.004
+        stop = min(raw_stop, entry - min_gap) if side == "LONG" else max(raw_stop, entry + min_gap)
+        risk = abs(entry - stop)
+        target = entry + 1.5 * risk if side == "LONG" else entry - 1.5 * risk
+        qty = int((capital * risk_pct / 100 * vol_scale) / risk) if risk > 0 else 0
+
+        why = f"px{px:+.1f}%"
+        if s_vol >= 9:
+            why += f" vol×{r['vol_ratio'] / 100:.1f}✓"
+        if s_flow >= 15:
+            why += " flow✓"
+        if s_bias >= 10:
+            why += " pcr✓"
+        if s_intra >= 7:
+            why += f" rng{dpos * 100:.0f}✓"
+        if s_trend:
+            why += " regime✓"
+        if vol_scale < 1:
+            why += f" ×{vol_scale}"
+        plans.append({"symbol": r["symbol"], "side": side, "kind": r["kind"],
+                      "score": score, "entry": entry, "stop": round(stop, 2),
+                      "target": round(target, 2), "risk": round(risk, 2),
+                      "qty": qty, "why": why, "currency": "$"})
+    plans.sort(key=lambda p: p["score"], reverse=True)
+    return [p for p in plans if p["score"] >= min_score][:8], index_bias
+
+async def _us_market_signals(capital, risk_pct):
+    """Assemble the US response with the exact shape of the India one."""
+    is_open, why_closed = _us_signals_market_open()
+    (oc_spy, oc_qqq, radar, spx_closes, ndx_closes, vix_closes) = await asyncio.gather(
+        _bounded(asyncio.to_thread(fetch_us_chain_summary, "SPY"), 20),
+        _bounded(asyncio.to_thread(fetch_us_chain_summary, "QQQ"), 20),
+        _bounded(asyncio.to_thread(fetch_us_radar), 25),
+        _bounded(asyncio.to_thread(_yf_daily_closes, "^GSPC"), 15),
+        _bounded(asyncio.to_thread(_yf_daily_closes, "^NDX"), 15),
+        _bounded(asyncio.to_thread(_yf_daily_closes, "^VIX"), 15),
+    )
+    radar = radar or []
+    vix = float(vix_closes[-1]) if vix_closes else 0.0
+
+    spx_trend = _signal_index_trend(spx_closes)
+    ndx_trend = _signal_index_trend(ndx_closes)
+    vol = _signal_vol_regime(vix, vix_closes)
+    direction = ("bull" if spx_trend["label"] in ("UPTREND", "RECOVERY")
+                 else "bear" if spx_trend["label"] in ("DOWNTREND", "CORRECTION") else "flat")
+    if direction == "bull" and vol["label"] in ("LOW-VOL", "NORMAL", "COMPLACENT", "CALM"):
+        overall = "RISK-ON"
+    elif direction == "bear" or vol["label"] in ("EXTREME", "CRISIS"):
+        overall = "RISK-OFF"
+    else:
+        overall = "MIXED"
+    adv = sum(1 for r in radar if r["px"] > 0)
+    dec = sum(1 for r in radar if r["px"] < 0)
+    regime = {
+        "overall": overall,
+        "dir": direction,
+        "nifty": spx_trend,       # slot names kept for response-shape parity;
+        "banknifty": ndx_trend,   # index_names below carries the display labels
+        "vol": vol,
+        "vol_scale": vol.get("scale", 1.0),
+        "vix": round(vix, 2),
+        "breadth": {"adv": adv, "dec": dec},
+        "iv": _signal_iv_regime(oc_spy, vix),
+    }
+
+    plans, index_bias = score_us_signal_plans(radar, oc_spy, oc_qqq, regime, capital, risk_pct)
+    return {
+        "as_of": datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%dT%H:%M:%S"),
+        "market_open": is_open,
+        "market_note": why_closed,
+        "regime": regime,
+        "options": {
+            "indices": [oc for oc in (oc_spy, oc_qqq) if oc],
+            "buildups": _us_buildup_buckets(radar),
+            "buildup_timestamp": "",
+            "ideas": build_index_ideas([oc_spy, oc_qqq], vix, cur="$"),
+        },
+        "setups": {
+            "index_bias": index_bias,
+            "capital": capital,
+            "risk_pct": risk_pct,
+            "plans": plans,
+            "radar_size": len(radar),
+        },
+        "signals_market": "US",
+        "index_names": {"primary": "S&P 500", "secondary": "NASDAQ 100"},
+        "currency": "$",
+    }
+
 @app.get("/api/signals")
-async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0):
-    cache_key = f"signals_{int(capital)}_{risk_pct}"
+async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, market: str = None):
+    # 20:00–02:00 IST → the US engine takes over (same window as dashboard
+    # movers); ?market=IN|US overrides (Focus List pins IN).
+    sig_market = market.upper() if market and market.upper() in ("IN", "US") else _dashboard_movers_market()
+    cache_key = f"signals_{sig_market}_{int(capital)}_{risk_pct}"
     if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < SIGNALS_CACHE_TTL:
         return API_CACHE[cache_key]['data']
+
+    if sig_market == "US":
+        data = await _us_market_signals(capital, risk_pct)
+        API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+        return data
 
     is_open, why_closed = _signals_market_open()
 
@@ -2659,6 +2964,8 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0):
             "plans": plans,
             "radar_size": len(radar),
         },
+        "signals_market": "IN",
+        "currency": "₹",
     }
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
     return data
@@ -2674,8 +2981,9 @@ async def get_focus_list():
     if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < FOCUS_CACHE_TTL:
         return API_CACHE[cache_key]['data']
 
-    # Reuse the cached engines rather than re-hitting NSE/Yahoo
-    signals = await get_market_signals()
+    # Reuse the cached engines rather than re-hitting NSE/Yahoo.
+    # Focus List stays an NSE product — pin the India engine even at night.
+    signals = await get_market_signals(market="IN")
     try:
         momentum = await get_momentum("in")
     except HTTPException:

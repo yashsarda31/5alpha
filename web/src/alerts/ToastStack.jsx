@@ -26,9 +26,9 @@ const ToastStack = ({ toasts, onOpen, onDismiss }) => {
             <span className="st-score">{t.score}/100</span>
           </div>
           <div className="st-levels">
-            <span><span className="k">entry</span> ₹{fmt(t.entry)}</span>
-            <span><span className="k">stop</span> ₹{fmt(t.stop)}</span>
-            <span><span className="k">target</span> ₹{fmt(t.target)}</span>
+            <span><span className="k">entry</span> {t.currency || '₹'}{fmt(t.entry)}</span>
+            <span><span className="k">stop</span> {t.currency || '₹'}{fmt(t.stop)}</span>
+            <span><span className="k">target</span> {t.currency || '₹'}{fmt(t.target)}</span>
           </div>
         </div>
       ))}

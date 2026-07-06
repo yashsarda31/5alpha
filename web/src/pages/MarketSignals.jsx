@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, StatusPill } from '../components/ui';
 import './MarketSignals.css';
@@ -10,9 +11,23 @@ const BUCKET_META = {
   long_unwinding: { title: 'Long Unwinding', hint: 'OI ↓ price ↓', color: 'var(--primary-gold)' },
 };
 
+// US session variant: no free OI-change feed exists for US equities, so the
+// engine classifies by volume spurts instead — same four boxes, honest labels.
+const US_BUCKET_META = {
+  long_buildup: { title: 'Power Buying', hint: 'vol ↑ price ↑', color: 'var(--green-gain)' },
+  short_buildup: { title: 'Power Selling', hint: 'vol ↑ price ↓', color: 'var(--red-loss)' },
+  short_covering: { title: 'Quiet Drift Up', hint: 'vol ↓ price ↑', color: 'var(--primary-accent)' },
+  long_unwinding: { title: 'Quiet Drift Down', hint: 'vol ↓ price ↓', color: 'var(--primary-gold)' },
+};
+
 const fmt = (v, dec = 2) => (v === null || v === undefined || isNaN(v) ? 'N/A' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: dec }));
 
 const MarketSignals = () => {
+  const [searchParams] = useSearchParams();
+  // ?market=US / ?market=IN peeks at the other session; default follows the
+  // server clock (US engine 8pm–2am IST, NSE otherwise).
+  const marketOverride = (searchParams.get('market') || '').toUpperCase();
+  const marketQS = ['IN', 'US'].includes(marketOverride) ? `?market=${marketOverride}` : '';
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -22,7 +37,7 @@ const MarketSignals = () => {
   const fetchSignals = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      const res = await axios.get('/api/signals');
+      const res = await axios.get(`/api/signals${marketQS}`);
       setData(res.data);
       setError(null);
     } catch (err) {
@@ -71,6 +86,11 @@ const MarketSignals = () => {
   }
 
   const { regime, options, setups } = data;
+  const isUS = data.signals_market === 'US';
+  const cur = data.currency || '₹';
+  const idxPrimary = data.index_names?.primary || 'NIFTY';
+  const idxSecondary = data.index_names?.secondary || 'BANKNIFTY';
+  const bucketMeta = isUS ? US_BUCKET_META : BUCKET_META;
   const adv = regime.breadth?.adv || 0;
   const dec = regime.breadth?.dec || 0;
   const advPct = adv + dec > 0 ? (adv / (adv + dec)) * 100 : 50;
@@ -81,8 +101,8 @@ const MarketSignals = () => {
     <div className="signals-container fade-in">
       <PageHeader
         code="SIG"
-        title="Market Signals"
-        subtitle={`Live options intelligence, regime context & scored setups · as of ${data.as_of?.replace('T', ' ')} IST`}
+        title={isUS ? 'Market Signals · US' : 'Market Signals'}
+        subtitle={`${isUS ? '🇺🇸 US session (8pm–2am IST) · ' : ''}Live options intelligence, regime context & scored setups · as of ${data.as_of?.replace('T', ' ')} IST`}
         right={
           <>
             <StatusPill open={data.market_open} note={data.market_open ? undefined : `${data.market_note} (last session)`} />
@@ -108,12 +128,12 @@ const MarketSignals = () => {
           </div>
         </div>
         <div className="regime-card">
-          <div className="label">NIFTY Trend</div>
+          <div className="label">{idxPrimary} Trend</div>
           <div className={`value trend-${regime.nifty.label}`}>{regime.nifty.label}</div>
           <div className="detail">{regime.nifty.detail}</div>
         </div>
         <div className="regime-card">
-          <div className="label">BANKNIFTY Trend</div>
+          <div className="label">{idxSecondary} Trend</div>
           <div className={`value trend-${regime.banknifty.label}`}>{regime.banknifty.label}</div>
           <div className="detail">{regime.banknifty.detail}</div>
         </div>
@@ -159,10 +179,11 @@ const MarketSignals = () => {
                 <div className="oc-stat"><div className="k">Max Pain</div><div className="v" style={{ color: 'var(--primary-gold)' }}>{fmt(oc.max_pain, 0)} <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>({mpDrift >= 0 ? '+' : ''}{mpDrift.toFixed(1)}%)</span></div></div>
                 <div className="oc-stat"><div className="k">Support</div><div className="v" style={{ color: 'var(--green-gain)' }}>{fmt(oc.support, 0)}</div></div>
                 <div className="oc-stat"><div className="k">Resistance</div><div className="v" style={{ color: 'var(--red-loss)' }}>{fmt(oc.resistance, 0)}</div></div>
-                <div className="oc-stat"><div className="k">ATM Straddle</div><div className="v">₹{fmt(oc.straddle, 0)}</div></div>
+                <div className="oc-stat"><div className="k">ATM Straddle</div><div className="v">{cur}{fmt(oc.straddle, isUS ? 2 : 0)}</div></div>
                 <div className="oc-stat" title={`NSE raw leg IVs — CE ${fmt(oc.atm_iv_ce, 1)} / PE ${fmt(oc.atm_iv_pe, 1)}. Headline IV is solved from the straddle price (skew-free).`}><div className="k">ATM IV</div><div className="v">{fmt(oc.atm_iv ?? (oc.atm_iv_ce + oc.atm_iv_pe) / 2, 1)}% <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>({fmt(oc.atm_iv_ce, 1)}/{fmt(oc.atm_iv_pe, 1)})</span></div></div>
-                <div className="oc-stat"><div className="k">ΔOI Calls</div><div className="v" style={{ color: oc.ce_doi >= 0 ? 'var(--red-loss)' : 'var(--green-gain)' }}>{fmt(oc.ce_doi, 0)}</div></div>
-                <div className="oc-stat"><div className="k">ΔOI Puts</div><div className="v" style={{ color: oc.pe_doi >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>{fmt(oc.pe_doi, 0)}</div></div>
+                {/* US: yfinance has no OI-change; ce/pe_doi carry day VOLUME there */}
+                <div className="oc-stat"><div className="k">{isUS ? 'Call Vol' : 'ΔOI Calls'}</div><div className="v" style={{ color: isUS ? 'var(--text-primary)' : oc.ce_doi >= 0 ? 'var(--red-loss)' : 'var(--green-gain)' }}>{fmt(oc.ce_doi, 0)}</div></div>
+                <div className="oc-stat"><div className="k">{isUS ? 'Put Vol' : 'ΔOI Puts'}</div><div className="v" style={{ color: isUS ? 'var(--text-primary)' : oc.pe_doi >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>{fmt(oc.pe_doi, 0)}</div></div>
               </div>
             </div>
           );
@@ -170,7 +191,7 @@ const MarketSignals = () => {
       </div>
 
       <div className="buildup-grid">
-        {Object.entries(BUCKET_META).map(([key, meta]) => {
+        {Object.entries(bucketMeta).map(([key, meta]) => {
           const rows = options.buildups?.[key] || [];
           return (
             <div className="buildup-card" key={key}>
@@ -186,7 +207,7 @@ const MarketSignals = () => {
                         <td style={{ color: 'var(--text-secondary)' }}>{c.contract}</td>
                         <td style={{ textAlign: 'right' }}>{fmt(c.ltp)}</td>
                         <td style={{ textAlign: 'right', color: c.pChange >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>{c.pChange >= 0 ? '+' : ''}{fmt(c.pChange, 1)}%</td>
-                        <td style={{ textAlign: 'right', color: 'var(--primary-accent)' }}>OI {c.oiChangePct >= 0 ? '+' : ''}{fmt(c.oiChangePct, 0)}%</td>
+                        <td style={{ textAlign: 'right', color: 'var(--primary-accent)' }}>{isUS ? 'Vol' : 'OI'} {c.oiChangePct >= 0 ? '+' : ''}{fmt(c.oiChangePct, 0)}%</td>
                       </tr>
                     ))}
                   </tbody>
@@ -220,7 +241,9 @@ const MarketSignals = () => {
           <div style={{ fontSize: '28px', marginBottom: '8px' }}>🕸</div>
           <h3 style={{ marginBottom: '6px' }}>No high-conviction setups right now</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-            Nothing on the futures radar clears the 45/100 conviction threshold. Check back after fresh OI data.
+            {isUS
+              ? 'Nothing on the US momentum radar clears the 45/100 conviction threshold. Check back as the session develops.'
+              : 'Nothing on the futures radar clears the 45/100 conviction threshold. Check back after fresh OI data.'}
           </p>
         </div>
       ) : (
@@ -249,9 +272,9 @@ const MarketSignals = () => {
                       <div className="score-bar"><div style={{ width: `${p.score}%` }}></div></div>
                     </div>
                   </td>
-                  <td style={{ textAlign: 'right', fontWeight: 600 }}>₹{fmt(p.entry)}</td>
-                  <td style={{ textAlign: 'right', color: 'var(--red-loss)' }}>₹{fmt(p.stop)}</td>
-                  <td style={{ textAlign: 'right', color: 'var(--green-gain)' }}>₹{fmt(p.target)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{cur}{fmt(p.entry)}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--red-loss)' }}>{cur}{fmt(p.stop)}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--green-gain)' }}>{cur}{fmt(p.target)}</td>
                   <td style={{ textAlign: 'right' }}>{fmt(p.qty, 0)}</td>
                   <td style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{p.why}</td>
                 </tr>
@@ -261,8 +284,8 @@ const MarketSignals = () => {
         </div>
       )}
       <p className="signals-footnote">
-        Conviction = OI intensity + price momentum + liquidity + options-flow agreement + index bias + intraday & regime alignment (0–100, threshold 45).
-        *Qty sized so a stop-out loses {setups.risk_pct}% of ₹{fmt(setups.capital, 0)} capital, scaled by the volatility regime (×{regime.vol_scale}) — not rounded to lot size.
+        Conviction = {isUS ? 'volume intensity' : 'OI intensity'} + price momentum + liquidity + options-flow agreement + index bias + intraday & regime alignment (0–100, threshold 45).
+        *Qty sized so a stop-out loses {setups.risk_pct}% of {cur}{fmt(setups.capital, 0)} capital, scaled by the volatility regime (×{regime.vol_scale}) — not rounded to lot size.
         Signals are analytics, not investment advice.
       </p>
     </div>

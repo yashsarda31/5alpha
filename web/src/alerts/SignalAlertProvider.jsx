@@ -44,11 +44,13 @@ const SignalAlertProvider = ({ children }) => {
   }, [dismiss, navigate]);
 
   const notify = useCallback((plan) => {
+    // US-session plans carry currency: '$'; India plans default to ₹
+    const cur = plan.currency || '₹';
     // in-app toast
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const toast = {
       id, side: plan.side, symbol: plan.symbol, score: plan.score,
-      entry: plan.entry, stop: plan.stop, target: plan.target,
+      entry: plan.entry, stop: plan.stop, target: plan.target, currency: cur,
     };
     setToasts((prev) => [...prev, toast].slice(-MAX_TOASTS));
     setTimeout(() => dismiss(id), TOAST_TTL_MS);
@@ -58,7 +60,7 @@ const SignalAlertProvider = ({ children }) => {
         Notification.permission === 'granted' && document.hidden) {
       try {
         const n = new Notification(`⚡ ${plan.side} ${plan.symbol} · ${plan.score}/100`, {
-          body: `entry ₹${plan.entry} · stop ₹${plan.stop} · target ₹${plan.target}`,
+          body: `entry ${cur}${plan.entry} · stop ${cur}${plan.stop} · target ${cur}${plan.target}`,
           tag: keyOf(plan),
         });
         n.onclick = () => { window.focus(); navigate('/signals'); n.close(); };
@@ -69,21 +71,23 @@ const SignalAlertProvider = ({ children }) => {
   const detect = useCallback((data) => {
     const plans = (data && data.setups && data.setups.plans) || [];
     const dateKey = ((data && data.as_of) || '').slice(0, 10) || 'unknown';
+    const mkt = (data && data.signals_market) || 'IN';
     const current = plans
       .filter((p) => p && p.symbol && p.side)
       .map((p) => ({ p, k: keyOf(p) }));
 
     const seen = loadSeen();
-    // First ever, or a new trading day → seed silently (no toast blast)
-    if (!seen || seen.date !== dateKey) {
-      saveSeen({ date: dateKey, keys: current.map((c) => c.k) });
+    // First ever, a new trading day, or the 8pm IN→US session flip → seed
+    // silently (no toast blast of an entire fresh plan list)
+    if (!seen || seen.date !== dateKey || (seen.mkt || 'IN') !== mkt) {
+      saveSeen({ date: dateKey, mkt, keys: current.map((c) => c.k) });
       return;
     }
     const seenSet = new Set(seen.keys);
     const fresh = current.filter((c) => !seenSet.has(c.k));
     if (fresh.length) {
       fresh.forEach((c) => notify(c.p));
-      saveSeen({ date: dateKey, keys: Array.from(new Set([...seen.keys, ...current.map((c) => c.k)])) });
+      saveSeen({ date: dateKey, mkt, keys: Array.from(new Set([...seen.keys, ...current.map((c) => c.k)])) });
     }
   }, [notify]);
 
