@@ -8,6 +8,15 @@ import WatchlistStar from '../components/WatchlistStar';
 import { useSWR } from '../lib/swrCache';
 import './Dashboard.css';
 
+// "₹2,987.65" / "$214.30" — null when the quote has no price yet
+const fmtPrice = (v, market) => {
+  if (v === null || v === undefined || isNaN(v)) return null;
+  const us = market === 'US';
+  return (us ? '$' : '₹') + Number(v).toLocaleString(us ? 'en-US' : 'en-IN', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+};
+
 const TOKEN_KEY = 'alphanova_auth_token';
 const authHeader = () => {
   const token = localStorage.getItem(TOKEN_KEY);
@@ -71,8 +80,11 @@ const MyWatchlist = () => {
               >
                 <WatchlistStar symbol={sym} market={market} size={15} className="dash-mover-star" />
                 <span className="dash-mover-sym">{sym}</span>
-                <span className={`tnum ${dir === 'down' ? 'tone-loss' : dir === 'up' ? 'tone-gain' : ''}`}>
-                  {chg === null || chg === undefined ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+                <span className="dash-mover-row">
+                  <span className="dash-mover-price tnum">{fmtPrice(q?.last, market) ?? '—'}</span>
+                  <span className={`tnum ${dir === 'down' ? 'tone-loss' : dir === 'up' ? 'tone-gain' : ''}`}>
+                    {chg === null || chg === undefined ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+                  </span>
                 </span>
               </Link>
             );
@@ -246,8 +258,11 @@ const Dashboard = () => {
                 >
                   <WatchlistStar symbol={m.ticker} market={moversMarket} size={15} className="dash-mover-star" />
                   <span className="dash-mover-sym">{m.ticker}</span>
-                  <span className={`tnum ${m.change_pct >= 0 ? 'tone-gain' : 'tone-loss'}`}>
-                    {m.change_pct >= 0 ? '+' : ''}{m.change_pct.toFixed(2)}%
+                  <span className="dash-mover-row">
+                    <span className="dash-mover-price tnum">{fmtPrice(m.last, moversMarket) ?? '—'}</span>
+                    <span className={`tnum ${m.change_pct >= 0 ? 'tone-gain' : 'tone-loss'}`}>
+                      {m.change_pct >= 0 ? '+' : ''}{m.change_pct.toFixed(2)}%
+                    </span>
                   </span>
                 </Link>
               ))

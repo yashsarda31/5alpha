@@ -68,6 +68,21 @@ a.dash-mover:hover {
   font-size: 14px;
 }
 
+/* price + change share one row: price left, % right */
+.dash-mover-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  font-size: 13px;
+}
+
+.dash-mover-price {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* Analytics module launcher */
 .dash-nav-grid {
   display: grid;
