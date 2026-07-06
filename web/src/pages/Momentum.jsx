@@ -49,7 +49,7 @@ const Momentum = () => {
   const columns = [
     { key: 'ticker', label: 'Ticker', render: (r) => (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-        {market === 'in' && <WatchlistStar symbol={r.ticker} size={15} />}
+        <WatchlistStar symbol={r.ticker} market={market === 'in' ? 'IN' : 'US'} size={15} />
         <strong>{r.ticker}</strong>
       </span>
     ) },

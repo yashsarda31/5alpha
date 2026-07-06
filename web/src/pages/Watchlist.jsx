@@ -15,6 +15,7 @@ const fmtPrice = (n) => (n === null || n === undefined ? '—' : Number(n).toLoc
 
 const AddBox = ({ onAdd, error, onClearError }) => {
   const [value, setValue] = useState('');
+  const [market, setMarket] = useState('IN');
   const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
@@ -23,7 +24,7 @@ const AddBox = ({ onAdd, error, onClearError }) => {
     if (!v) return;
     setBusy(true);
     try {
-      await onAdd(v);
+      await onAdd(v, market);
       setValue('');
     } catch {
       // error surfaced via context
@@ -32,16 +33,25 @@ const AddBox = ({ onAdd, error, onClearError }) => {
     }
   };
 
+  const toggleStyle = (on) => ({
+    width: 'auto', padding: '8px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+    borderRadius: '8px', border: `1px solid ${on ? 'var(--primary-gold, #F5DC8C)' : 'var(--glass-border, rgba(255,255,255,0.12))'}`,
+    background: on ? 'rgba(245,220,140,0.12)' : 'transparent',
+    color: on ? 'var(--primary-gold, #F5DC8C)' : 'var(--text-secondary, #A1A1AA)',
+  });
+
   return (
     <form className="wl-addbox" onSubmit={submit}>
       <input
         type="text"
         value={value}
         onChange={(e) => { setValue(e.target.value); if (error) onClearError(); }}
-        placeholder="Add a symbol (e.g. RELIANCE)"
+        placeholder={market === 'IN' ? 'Add an NSE symbol (e.g. RELIANCE)' : 'Add a US symbol (e.g. AAPL)'}
         aria-label="Add a symbol to your watchlist"
         style={{ marginBottom: 0, textTransform: 'uppercase' }}
       />
+      <button type="button" onClick={() => setMarket('IN')} style={toggleStyle(market === 'IN')} aria-pressed={market === 'IN'}>NSE</button>
+      <button type="button" onClick={() => setMarket('US')} style={toggleStyle(market === 'US')} aria-pressed={market === 'US'}>US</button>
       <button type="submit" disabled={busy || !value.trim()} style={{ width: 'auto', whiteSpace: 'nowrap' }}>
         {busy ? 'Adding…' : '+ Add'}
       </button>
@@ -81,21 +91,25 @@ const Watchlist = () => {
 
   const rows = items.map((it) => ({
     symbol: it.symbol,
+    market: it.market || 'IN',
     last: quotes[it.symbol]?.last,
     change_pct: quotes[it.symbol]?.change_pct,
   }));
+
+  const chartSym = (r) => `${r.symbol}${r.market === 'US' ? '' : '.NS'}`;
 
   const columns = [
     {
       key: 'symbol',
       label: 'Symbol',
       render: (r) => (
-        <Link to={`/chart?symbol=${r.symbol}.NS`} className="wl-sym-link" title={`Open ${r.symbol} in Chart Analyser`}>
+        <Link to={`/chart?symbol=${chartSym(r)}`} className="wl-sym-link" title={`Open ${r.symbol} in Chart Analyser`}>
           {r.symbol}
+          {r.market === 'US' && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-secondary)', border: '1px solid var(--glass-border, rgba(255,255,255,0.15))', borderRadius: 4, padding: '1px 4px' }}>US</span>}
         </Link>
       ),
     },
-    { key: 'last', label: 'LTP', align: 'right', render: (r) => fmtPrice(r.last) },
+    { key: 'last', label: 'LTP', align: 'right', render: (r) => (r.last === null || r.last === undefined ? '—' : `${r.market === 'US' ? '$' : '₹'}${fmtPrice(r.last)}`) },
     {
       key: 'change_pct', label: 'Chg%', align: 'right',
       render: (r) => (
@@ -110,8 +124,8 @@ const Watchlist = () => {
       key: 'actions', label: '', align: 'right',
       render: (r) => (
         <span className="wl-actions">
-          <Link to={`/chart?symbol=${r.symbol}.NS`} title="Chart Analyser">📈</Link>
-          <Link to={`/fundamentals?symbol=${r.symbol}.NS`} title="Fundamentals">📊</Link>
+          <Link to={`/chart?symbol=${chartSym(r)}`} title="Chart Analyser">📈</Link>
+          <Link to={`/fundamentals?symbol=${chartSym(r)}`} title="Fundamentals">📊</Link>
           <button
             type="button"
             className="wl-remove"

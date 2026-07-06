@@ -113,3 +113,54 @@ def test_quotes_empty_watchlist():
     r = client.get("/api/watchlist/quotes", headers=h)
     assert r.status_code == 200
     assert r.json()["quotes"] == []
+
+
+# --- US-market support (2026-07-06) ---
+
+def test_add_us_symbol():
+    h = _new_user()
+    r = client.post("/api/watchlist", json={"symbol": "AAPL", "market": "US"}, headers=h)
+    assert r.status_code == 200
+    assert r.json()["market"] == "US"
+    rows = client.get("/api/watchlist", headers=h).json()["symbols"]
+    assert rows == [{"symbol": "AAPL", "market": "US",
+                     "added_at": rows[0]["added_at"], "sort_order": None}]
+
+
+def test_market_defaults_to_in():
+    h = _new_user()
+    client.post("/api/watchlist", json={"symbol": "RELIANCE"}, headers=h)
+    rows = client.get("/api/watchlist", headers=h).json()["symbols"]
+    assert rows[0]["market"] == "IN"
+
+
+def test_ns_suffix_forces_in_market():
+    h = _new_user()
+    # A .NS suffix means NSE no matter what market flag the client sent.
+    client.post("/api/watchlist", json={"symbol": "TCS.NS", "market": "US"}, headers=h)
+    rows = client.get("/api/watchlist", headers=h).json()["symbols"]
+    assert rows[0] == {"symbol": "TCS", "market": "IN",
+                       "added_at": rows[0]["added_at"], "sort_order": None}
+
+
+def test_bogus_market_falls_back_to_in():
+    h = _new_user()
+    client.post("/api/watchlist", json={"symbol": "INFY", "market": "MARS"}, headers=h)
+    rows = client.get("/api/watchlist", headers=h).json()["symbols"]
+    assert rows[0]["market"] == "IN"
+
+
+def test_quotes_use_market_for_yahoo_symbol(monkeypatch):
+    h = _new_user()
+    client.post("/api/watchlist", json={"symbol": "RELIANCE"}, headers=h)
+    client.post("/api/watchlist", json={"symbol": "NVDA", "market": "US"}, headers=h)
+    asked = []
+    monkeypatch.setattr(main, "_yf_quote_change",
+                        lambda t: asked.append(t) or {"last": 1.0, "change_pct": 0.5})
+    r = client.get("/api/watchlist/quotes", headers=h)
+    assert r.status_code == 200
+    # NSE gets .NS appended; US goes to Yahoo bare.
+    assert set(asked) == {"RELIANCE.NS", "NVDA"}
+    by_sym = {q["symbol"]: q for q in r.json()["quotes"]}
+    assert by_sym["NVDA"]["market"] == "US"
+    assert by_sym["RELIANCE"]["market"] == "IN"

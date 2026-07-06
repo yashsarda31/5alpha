@@ -59,14 +59,21 @@ export const WatchlistProvider = ({ children }) => {
   const symbols = useMemo(() => items.map((i) => i.symbol), [items]);
 
   const has = useCallback((sym) => symbolSet.has(normalizeSymbol(sym)), [symbolSet]);
+  const marketOf = useCallback(
+    (sym) => items.find((i) => i.symbol === normalizeSymbol(sym))?.market || 'IN',
+    [items]
+  );
 
-  const add = useCallback(async (rawSym) => {
+  const add = useCallback(async (rawSym, market = 'IN') => {
     const symbol = normalizeSymbol(rawSym);
+    // A trailing .NS always means NSE, whatever the caller passed.
+    const mkt = String(rawSym || '').trim().toUpperCase().endsWith('.NS') ? 'IN'
+      : (String(market).toUpperCase() === 'US' ? 'US' : 'IN');
     if (!symbol || symbolSet.has(symbol)) return;
     setError(null);
-    setItems((prev) => [...prev, { symbol, added_at: new Date().toISOString(), sort_order: null }]);
+    setItems((prev) => [...prev, { symbol, market: mkt, added_at: new Date().toISOString(), sort_order: null }]);
     try {
-      await axios.post('/api/watchlist', { symbol }, { headers: authHeader() });
+      await axios.post('/api/watchlist', { symbol, market: mkt }, { headers: authHeader() });
     } catch (e) {
       setItems((prev) => prev.filter((i) => i.symbol !== symbol)); // rollback
       setError(e.response?.data?.detail || 'Could not add to watchlist.');
@@ -97,11 +104,12 @@ export const WatchlistProvider = ({ children }) => {
     loading,
     error,
     has,
+    marketOf,
     add,
     remove,
     reload,
     clearError: () => setError(null),
-  }), [items, symbols, loading, error, has, add, remove, reload]);
+  }), [items, symbols, loading, error, has, marketOf, add, remove, reload]);
 
   return <WatchlistContext.Provider value={value}>{children}</WatchlistContext.Provider>;
 };

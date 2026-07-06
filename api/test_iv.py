@@ -42,12 +42,20 @@ def test_round_trip_recovers_known_sigma():
     assert abs(iv - 14.0) < 0.1, iv
 
 
-def test_live_shape_2026_07_06():
-    # The actual numbers from the user report day: legs said 12.2/16.5 (avg
-    # 14.4) but the straddle only supported ~12.7.
-    iv = _straddle_implied_iv(24350.0, 70.65, 74.85, "07-Jul-2026")
-    if iv is not None:  # None once that date is >1y in the past — skip then
-        assert 11.5 < iv < 13.5, iv
+def test_matches_brenner_subrahmanyam_approx():
+    # Independent cross-check: for a near-ATM straddle the solver should land
+    # close to the closed-form approximation sigma ≈ P_straddle/(0.8·F·√t).
+    # (The original user-report numbers can't be pinned — the same straddle
+    # price implies a higher IV as the clock runs toward the fixed expiry.)
+    expiry = _expiry_str(2)
+    expiry_dt = datetime.strptime(expiry, "%d-%b-%Y").replace(hour=15, minute=30, tzinfo=IST)
+    t = (expiry_dt - datetime.now(IST)).total_seconds() / (365.0 * 86400)
+    strike, ce, pe = 24350.0, 70.65, 74.85
+    fwd = strike + ce - pe
+    approx = (ce + pe) / (0.7979 * fwd * math.sqrt(t)) * 100
+    iv = _straddle_implied_iv(strike, ce, pe, expiry)
+    assert iv is not None
+    assert abs(iv - approx) < 0.35, (iv, approx)
 
 
 def test_rejects_bad_inputs():

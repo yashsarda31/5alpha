@@ -410,7 +410,9 @@ const Screener = () => {
                     <tr key={row.ticker}>
                       <td style={{fontWeight: '600'}}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                          {row.ticker.toUpperCase().endsWith('.NS') && <WatchlistStar symbol={row.ticker} size={15} />}
+                          {/* .NS = NSE; no exchange dot = US. Other exchanges (.DE, .L…) aren't watchlistable yet. */}
+                          {(row.ticker.toUpperCase().endsWith('.NS') || !row.ticker.includes('.')) &&
+                            <WatchlistStar symbol={row.ticker} market={row.ticker.includes('.') ? 'IN' : 'US'} size={15} />}
                           {row.ticker}
                         </span>
                       </td>

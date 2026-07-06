@@ -16,7 +16,7 @@ const authHeader = () => {
 // Personalized top section: the user's tracked stocks with live prices, or a
 // teaching nudge when the list is empty (the key first-run conversion moment).
 const MyWatchlist = () => {
-  const { symbols, loading } = useWatchlist();
+  const { symbols, marketOf, loading } = useWatchlist();
   const [quotes, setQuotes] = useState({});
   const symbolsKey = symbols.join(',');
 
@@ -58,16 +58,17 @@ const MyWatchlist = () => {
         <div className="dash-mover-grid">
           {symbols.map((sym) => {
             const q = quotes[sym];
+            const market = marketOf(sym);
             const chg = q?.change_pct;
             const dir = chg === null || chg === undefined ? '' : chg >= 0 ? 'up' : 'down';
             return (
               <Link
                 key={sym}
-                to={`/chart?symbol=${sym}.NS`}
+                to={`/chart?symbol=${sym}${market === 'US' ? '' : '.NS'}`}
                 title={`Open ${sym} in Chart Analyser`}
                 className={`dash-mover ${dir}`}
               >
-                <WatchlistStar symbol={sym} size={15} className="dash-mover-star" />
+                <WatchlistStar symbol={sym} market={market} size={15} className="dash-mover-star" />
                 <span className="dash-mover-sym">{sym}</span>
                 <span className={`tnum ${dir === 'down' ? 'tone-loss' : dir === 'up' ? 'tone-gain' : ''}`}>
                   {chg === null || chg === undefined ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
@@ -218,6 +219,7 @@ const Dashboard = () => {
   }, []);
 
   const movers = dashData?.movers || [];
+  const moversMarket = dashData?.movers_market || 'IN'; // US megacaps 8pm–2am IST
   const indices = dashData?.indices || [];
   const marketOpen = dashData?.market_open;
 
@@ -245,7 +247,7 @@ const Dashboard = () => {
 
       <div className="dash-grid">
         <div>
-          <SectionTitle icon="📊">Top Movers</SectionTitle>
+          <SectionTitle icon="📊">Top Movers{moversMarket === 'US' ? ' · US markets' : ''}</SectionTitle>
           <div className="dash-mover-grid">
             {loading ? (
               [1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} height={62} />)
@@ -253,11 +255,11 @@ const Dashboard = () => {
               movers.map((m) => (
                 <Link
                   key={m.ticker}
-                  to={`/chart?symbol=${m.ticker}.NS`}
+                  to={`/chart?symbol=${m.ticker}${moversMarket === 'US' ? '' : '.NS'}`}
                   title={`Open ${m.ticker} in Chart Analyser`}
                   className={`dash-mover ${m.change_pct >= 0 ? 'up' : 'down'}`}
                 >
-                  <WatchlistStar symbol={m.ticker} size={15} className="dash-mover-star" />
+                  <WatchlistStar symbol={m.ticker} market={moversMarket} size={15} className="dash-mover-star" />
                   <span className="dash-mover-sym">{m.ticker}</span>
                   <span className={`tnum ${m.change_pct >= 0 ? 'tone-gain' : 'tone-loss'}`}>
                     {m.change_pct >= 0 ? '+' : ''}{m.change_pct.toFixed(2)}%

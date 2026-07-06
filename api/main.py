@@ -2070,6 +2070,14 @@ async def get_fiidii():
 # TMPV = Tata Motors Passenger Vehicles (post-Oct-2025 demerger; TATAMOTORS is delisted on Yahoo)
 DASHBOARD_MOVERS = ["RELIANCE.NS", "HDFCBANK.NS", "TCS.NS", "INFY.NS", "ICICIBANK.NS",
                     "SBIN.NS", "BHARTIARTL.NS", "LT.NS", "ITC.NS", "TMPV.NS"]
+US_DASHBOARD_MOVERS = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN",
+                       "META", "TSLA", "AMD", "NFLX", "JPM"]
+
+def _dashboard_movers_market(now_ist=None):
+    """US megacaps between 20:00–02:00 IST (US cash session), NSE otherwise."""
+    now = now_ist or datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    mins = now.hour * 60 + now.minute
+    return "US" if (mins >= 20 * 60 or mins < 2 * 60) else "IN"
 
 def _is_indian_market_open():
     ist = timezone(timedelta(hours=5, minutes=30))
@@ -2099,7 +2107,8 @@ def _yf_quote_change(ticker):
 
 @app.get("/api/dashboard")
 async def get_dashboard():
-    cache_key = "dashboard"
+    movers_market = _dashboard_movers_market()
+    cache_key = f"dashboard_{movers_market}"
     if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < 300:
         data = dict(API_CACHE[cache_key]['data'])
         data["market_open"] = _is_indian_market_open()
@@ -2130,9 +2139,10 @@ async def get_dashboard():
         return indices
 
     def fetch_movers():
+        universe = US_DASHBOARD_MOVERS if movers_market == "US" else DASHBOARD_MOVERS
         movers = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(_yf_quote_change, t): t for t in DASHBOARD_MOVERS}
+            futures = {executor.submit(_yf_quote_change, t): t for t in universe}
             for future in concurrent.futures.as_completed(futures):
                 q = future.result()
                 if q:
@@ -2150,6 +2160,7 @@ async def get_dashboard():
     data = {
         "indices": indices or [],
         "movers": movers or [],
+        "movers_market": movers_market,
     }
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
     data = dict(data)
@@ -2894,6 +2905,10 @@ def _auth_db():
         sort_order INTEGER,
         PRIMARY KEY (user_id, symbol)
     )""")
+    try:  # 2026-07-06: US-stock support; no-op once the column exists
+        conn.execute("ALTER TABLE watchlist ADD COLUMN market TEXT NOT NULL DEFAULT 'IN'")
+    except sqlite3.OperationalError:
+        pass
     conn.execute("""CREATE TABLE IF NOT EXISTS daily_questions (
         qdate TEXT PRIMARY KEY,
         symbol TEXT NOT NULL DEFAULT 'NIFTY 50',
@@ -3067,8 +3082,10 @@ def auth_logout(authorization: str = Header(None)):
 
 # --- Watchlist (per-user, blob-mirrored like auth) ---
 # One list per user. Symbols stored canonical: UPPERCASE, no ".NS" (re-appended
-# only for the yfinance quote call). Writes follow the auth durability posture:
-# force-pull the shared blob DB before mutating, push after.
+# only for the yfinance quote call). `market` ('IN'|'US') says which exchange a
+# symbol belongs to — IN gets ".NS" appended for quotes, US goes to Yahoo as-is.
+# Writes follow the auth durability posture: force-pull the shared blob DB
+# before mutating, push after.
 WATCHLIST_MAX = 50
 _SYMBOL_RE = re.compile(r'^[A-Z0-9&-]{1,20}$')
 
@@ -3078,18 +3095,26 @@ def _normalize_symbol(raw):
         s = s[:-3]
     return s if _SYMBOL_RE.match(s) else None
 
+def _normalize_market(raw_symbol, market):
+    """A trailing .NS always wins; otherwise trust the caller's market flag."""
+    if (raw_symbol or "").strip().upper().endswith(".NS"):
+        return "IN"
+    return "US" if (market or "IN").strip().upper() == "US" else "IN"
+
 def _watchlist_rows(conn, user_id):
     return conn.execute(
-        "SELECT symbol, added_at, sort_order FROM watchlist WHERE user_id = ? "
+        "SELECT symbol, market, added_at, sort_order FROM watchlist WHERE user_id = ? "
         "ORDER BY CASE WHEN sort_order IS NULL THEN 1 ELSE 0 END, sort_order, added_at",
         (user_id,)
     ).fetchall()
 
 def _watchlist_json(rows):
-    return [{"symbol": r["symbol"], "added_at": r["added_at"], "sort_order": r["sort_order"]} for r in rows]
+    return [{"symbol": r["symbol"], "market": r["market"] or "IN",
+             "added_at": r["added_at"], "sort_order": r["sort_order"]} for r in rows]
 
 class WatchlistAdd(BaseModel):
     symbol: str
+    market: str = "IN"
 
 class WatchlistOrder(BaseModel):
     symbols: list
@@ -3107,7 +3132,8 @@ def watchlist_list(authorization: str = Header(None)):
 def watchlist_add(req: WatchlistAdd, authorization: str = Header(None)):
     symbol = _normalize_symbol(req.symbol)
     if not symbol:
-        raise HTTPException(status_code=400, detail="Enter a valid NSE symbol (e.g. RELIANCE).")
+        raise HTTPException(status_code=400, detail="Enter a valid symbol (e.g. RELIANCE or AAPL).")
+    market = _normalize_market(req.symbol, req.market)
     _blob_pull_db(force=True)
     conn = _auth_db()
     try:
@@ -3117,12 +3143,12 @@ def watchlist_add(req: WatchlistAdd, authorization: str = Header(None)):
             count = conn.execute("SELECT COUNT(*) AS c FROM watchlist WHERE user_id = ?", (uid,)).fetchone()["c"]
             if count >= WATCHLIST_MAX:
                 raise HTTPException(status_code=400, detail=f"Watchlist is full ({WATCHLIST_MAX} max). Remove a stock to add another.")
-            conn.execute("INSERT OR IGNORE INTO watchlist (user_id, symbol, added_at, sort_order) VALUES (?, ?, ?, ?)",
-                         (uid, symbol, _utc_now(), None))
+            conn.execute("INSERT OR IGNORE INTO watchlist (user_id, symbol, market, added_at, sort_order) VALUES (?, ?, ?, ?, ?)",
+                         (uid, symbol, market, _utc_now(), None))
             conn.commit()
             _blob_push_db()
-        r = conn.execute("SELECT symbol, added_at, sort_order FROM watchlist WHERE user_id = ? AND symbol = ?", (uid, symbol)).fetchone()
-        return {"symbol": r["symbol"], "added_at": r["added_at"], "sort_order": r["sort_order"]}
+        r = conn.execute("SELECT symbol, market, added_at, sort_order FROM watchlist WHERE user_id = ? AND symbol = ?", (uid, symbol)).fetchone()
+        return {"symbol": r["symbol"], "market": r["market"] or "IN", "added_at": r["added_at"], "sort_order": r["sort_order"]}
     finally:
         conn.close()
 
@@ -3163,23 +3189,24 @@ def watchlist_quotes(authorization: str = Header(None)):
     conn = _auth_db()
     try:
         row, conn = _require_user(conn, authorization)
-        symbols = [r["symbol"] for r in _watchlist_rows(conn, row["id"])]
+        entries = [(r["symbol"], r["market"] or "IN") for r in _watchlist_rows(conn, row["id"])]
     finally:
         conn.close()
-    if not symbols:
+    if not entries:
         return {"quotes": [], "market_open": _is_indian_market_open()}
-    # Key on the exact symbol set so add/remove naturally busts the cache.
-    cache_key = "wl_quotes_" + ",".join(symbols)
+    # Key on the exact symbol+market set so add/remove naturally busts the cache.
+    cache_key = "wl_quotes_" + ",".join(f"{s}:{m}" for s, m in entries)
     if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < 300:
         return {"quotes": API_CACHE[cache_key]['data'], "market_open": _is_indian_market_open()}
     quotes = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-        futs = {ex.submit(_yf_quote_change, s + ".NS"): s for s in symbols}
+        futs = {ex.submit(_yf_quote_change, s + ".NS" if m == "IN" else s): s for s, m in entries}
         for fut in concurrent.futures.as_completed(futs):
             quotes[futs[fut]] = fut.result()
     result = [{"symbol": s,
+               "market": m,
                "last": (quotes.get(s) or {}).get("last"),
-               "change_pct": (quotes.get(s) or {}).get("change_pct")} for s in symbols]
+               "change_pct": (quotes.get(s) or {}).get("change_pct")} for s, m in entries]
     API_CACHE[cache_key] = {'time': time.time(), 'data': result}
     return {"quotes": result, "market_open": _is_indian_market_open()}
 

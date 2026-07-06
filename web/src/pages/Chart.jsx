@@ -176,7 +176,7 @@ const Chart = () => {
                 <span style={{ fontSize: '14px', color: change >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>
                   {change >= 0 ? '+' : ''}{change.toFixed(2)} ({changePercent.toFixed(2)}%)
                 </span>
-                <WatchlistStar symbol={ticker} size={22} />
+                <WatchlistStar symbol={ticker} market={ticker.toUpperCase().endsWith('.NS') ? 'IN' : 'US'} size={22} />
               </div>
             </div>
             <div className="stat-box">
