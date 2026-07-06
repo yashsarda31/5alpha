@@ -4,7 +4,7 @@
  *   so deploys are picked up immediately and the app still opens offline.
  * - /api/* is never touched: market data and auth must always be live.
  */
-const CACHE = 'alphanova-v1';
+const CACHE = 'alphanova-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -50,4 +50,36 @@ self.addEventListener('fetch', (event) => {
       }).catch(() => caches.match('/'))
     );
   }
+});
+
+/* Web Push: server-sent signal alerts arrive here even when the app is closed.
+ * Payload: { title, body, tag, url } — tag makes the tray replace duplicates. */
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { /* non-JSON push */ }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Alpha Nova', {
+      body: data.body || 'New market signal',
+      tag: data.tag || 'alphanova-signal',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      data: { url: data.url || '/signals' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/signals';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        if ('focus' in w) {
+          w.navigate(url);
+          return w.focus();
+        }
+      }
+      return clients.openWindow(url);
+    })
+  );
 });

@@ -17,6 +17,71 @@ export const useSignalAlerts = () => useContext(SignalAlertContext);
 const notifSupported = () => typeof window !== 'undefined' && 'Notification' in window;
 const keyOf = (p) => `${p.symbol}|${p.side}|${p.kind}`;
 
+const authHeader = () => {
+  const t = localStorage.getItem('alphanova_auth_token');
+  return t ? { Authorization: `Bearer ${t}` } : {};
+};
+
+// Mobile Chrome/Safari forbid the page-context `new Notification()` constructor
+// (it throws) — notifications MUST go through the service worker registration.
+// Falls back to the constructor for desktop browsers without an active SW.
+const showNative = async (title, opts) => {
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg && reg.showNotification) {
+      await reg.showNotification(title, opts);
+      return;
+    }
+  } catch { /* fall through to constructor */ }
+  try {
+    const n = new Notification(title, opts);
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch { /* page-context notifications unsupported (mobile) */ }
+};
+
+const urlB64ToU8 = (s) => {
+  const pad = '='.repeat((4 - (s.length % 4)) % 4);
+  const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+};
+
+// Real Web Push: subscribe this device so the SERVER can reach it after the
+// app is closed. Best-effort — in-app toasts and SW-local notifications keep
+// working even if the server has no VAPID keys.
+const subscribePush = async () => {
+  try {
+    if (!('PushManager' in window)) return;
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (!reg) return; // SW registers in prod builds only
+    const res = await fetch('/api/push/vapid');
+    if (!res.ok) return;
+    const { key } = await res.json();
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlB64ToU8(key),
+    });
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(sub.toJSON()),
+    });
+  } catch { /* push stays best-effort */ }
+};
+
+const unsubscribePush = async () => {
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    const sub = await reg?.pushManager.getSubscription();
+    if (!sub) return;
+    await fetch('/api/push/unsubscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ endpoint: sub.endpoint }),
+    });
+    await sub.unsubscribe();
+  } catch { /* noop */ }
+};
+
 const loadSeen = () => {
   try { return JSON.parse(localStorage.getItem(SEEN_KEY)); } catch { return null; }
 };
@@ -59,15 +124,15 @@ const SignalAlertProvider = ({ children }) => {
     // native notification only when backgrounded + opted in + permitted
     if (notifSupported() && browserEnabledRef.current &&
         Notification.permission === 'granted' && document.hidden) {
-      try {
-        const n = new Notification(`⚡ ${plan.side} ${plan.symbol} · ${plan.score}/100`, {
-          body: `entry ${cur}${plan.entry} · stop ${cur}${plan.stop} · target ${cur}${plan.target}`,
-          tag: keyOf(plan),
-        });
-        n.onclick = () => { window.focus(); navigate('/signals'); n.close(); };
-      } catch { /* notification construction can throw on some platforms */ }
+      showNative(`⚡ ${plan.side} ${plan.symbol} · ${plan.score}/100`, {
+        body: `entry ${cur}${plan.entry} · stop ${cur}${plan.stop} · target ${cur}${plan.target}`,
+        tag: keyOf(plan),
+        icon: '/icons/icon-192.png',
+        badge: '/icons/icon-192.png',
+        data: { url: '/signals' },
+      });
     }
-  }, [dismiss, navigate]);
+  }, [dismiss]);
 
   const detect = useCallback((data) => {
     const plans = (data && data.setups && data.setups.plans) || [];
@@ -139,6 +204,7 @@ const SignalAlertProvider = ({ children }) => {
     if (browserEnabledRef.current) {
       setBrowserEnabled(false);
       try { localStorage.setItem(PREF_KEY, 'off'); } catch { /* noop */ }
+      unsubscribePush(); // stop server pushes to this device
       return;
     }
     let perm = Notification.permission;
@@ -149,6 +215,17 @@ const SignalAlertProvider = ({ children }) => {
     const on = perm === 'granted';
     setBrowserEnabled(on);
     try { localStorage.setItem(PREF_KEY, on ? 'on' : 'off'); } catch { /* noop */ }
+    if (on) subscribePush(); // register this device for server pushes
+  }, []);
+
+  // Devices that enabled alerts before Web Push existed (or after a cleared
+  // subscription) get re-subscribed on load. pushManager.subscribe returns
+  // the existing subscription when one is already active, so this is cheap.
+  useEffect(() => {
+    if (browserEnabled && notifSupported() && Notification.permission === 'granted') {
+      subscribePush();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

@@ -7,6 +7,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import os
+import json
 import math
 import requests
 from datetime import datetime, timedelta, timezone
@@ -2919,6 +2920,11 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
     if sig_market == "US":
         data = await _us_market_signals(capital, risk_pct)
         API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+        try:  # fan new scored setups out to phone push subscribers (best-effort)
+            await _bounded(asyncio.to_thread(
+                _broadcast_new_plans, data.get("setups", {}).get("plans") or [], "US", "$"), 12)
+        except Exception:
+            pass
         return data
 
     is_open, why_closed = _signals_market_open()
@@ -3015,6 +3021,10 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         "currency": "₹",
     }
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+    try:  # fan new scored setups out to phone push subscribers (best-effort)
+        await _bounded(asyncio.to_thread(_broadcast_new_plans, plans, "IN", "₹"), 12)
+    except Exception:
+        pass
     return data
 
 
@@ -3287,6 +3297,17 @@ def _auth_db():
         correct_calls INTEGER NOT NULL DEFAULT 0,
         last_resolved_date TEXT,
         hide_from_board INTEGER NOT NULL DEFAULT 0
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS push_subs (
+        endpoint TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS push_sent (
+        k TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL
     )""")
     return conn
 
@@ -3564,6 +3585,141 @@ def watchlist_quotes(authorization: str = Header(None)):
                "change_pct": (quotes.get(s) or {}).get("change_pct")} for s, m in entries]
     API_CACHE[cache_key] = {'time': time.time(), 'data': result}
     return {"quotes": result, "market_open": _is_indian_market_open()}
+
+
+# --- Web Push: signal alerts that reach the phone even when the app is closed ---
+# VAPID keys live in env (Vercel project settings). Without them the push
+# endpoints 503 and the broadcast quietly no-ops — in-app toasts still work.
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_SUB = os.environ.get("VAPID_SUB", "mailto:ssarda75@gmail.com")
+PUSH_MAX_PER_BATCH = 4  # cap a single compute's blast; tag-dedup handles repeats
+
+@app.get("/api/push/vapid")
+def push_vapid_key():
+    if not VAPID_PUBLIC_KEY:
+        raise HTTPException(status_code=503, detail="Push notifications are not configured on this server.")
+    return {"key": VAPID_PUBLIC_KEY}
+
+class PushSubscription(BaseModel):
+    endpoint: str
+    keys: dict = {}
+    expirationTime: float = None  # browsers include it; we don't use it
+
+@app.post("/api/push/subscribe")
+def push_subscribe(sub: PushSubscription, authorization: str = Header(None)):
+    endpoint = (sub.endpoint or "").strip()
+    p256dh = (sub.keys or {}).get("p256dh")
+    auth_key = (sub.keys or {}).get("auth")
+    if not endpoint.startswith("https://") or not p256dh or not auth_key:
+        raise HTTPException(status_code=400, detail="Invalid push subscription.")
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        conn.execute(
+            """INSERT INTO push_subs (endpoint, user_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, auth=excluded.auth""",
+            (endpoint, row["id"], p256dh, auth_key, _utc_now())
+        )
+        conn.commit()
+        _blob_push_db()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+class PushEndpoint(BaseModel):
+    endpoint: str
+
+@app.post("/api/push/unsubscribe")
+def push_unsubscribe(body: PushEndpoint, authorization: str = Header(None)):
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        conn.execute("DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?", (body.endpoint, row["id"]))
+        conn.commit()
+        _blob_push_db()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+def _push_send_one(sub_row, payload_json):
+    """Send one push. Returns the endpoint if it's dead and should be pruned."""
+    from pywebpush import webpush, WebPushException  # lazy: ~cryptography import cost
+    try:
+        webpush(
+            subscription_info={"endpoint": sub_row["endpoint"],
+                               "keys": {"p256dh": sub_row["p256dh"], "auth": sub_row["auth"]}},
+            data=payload_json,
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": VAPID_SUB},
+            timeout=8,
+        )
+    except WebPushException as e:
+        if getattr(e.response, "status_code", None) in (404, 410):
+            return sub_row["endpoint"]  # subscription expired/revoked
+    except Exception:
+        pass
+    return None
+
+def _broadcast_new_plans(plans, mkt, currency):
+    """Web-push scored plans that haven't been announced today.
+
+    Runs on every fresh signals compute. Idempotent via INSERT OR IGNORE claims
+    in push_sent (day|mkt|symbol|side|kind); the first compute of a day/market
+    seeds silently (no blast of the whole morning list), mirroring the
+    frontend's seen-set behavior. Cross-instance duplicate sends are possible
+    on cold starts — the notification `tag` makes the phone tray dedupe them.
+    """
+    if not (VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY) or not plans:
+        return
+    day = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%d")
+    try:
+        conn = _auth_db()
+    except Exception:
+        return
+    try:
+        prior = conn.execute("SELECT COUNT(*) FROM push_sent WHERE k LIKE ?", (f"{day}|{mkt}|%",)).fetchone()[0]
+        fresh = []
+        for p in plans:
+            if not (p.get("symbol") and p.get("side")):
+                continue
+            k = f"{day}|{mkt}|{p['symbol']}|{p['side']}|{p.get('kind')}"
+            if conn.execute("INSERT OR IGNORE INTO push_sent (k, created_at) VALUES (?, ?)", (k, _utc_now())).rowcount:
+                fresh.append(p)
+        conn.execute("DELETE FROM push_sent WHERE created_at < ?",
+                     ((datetime.now(timezone.utc) - timedelta(days=3)).isoformat(),))
+        conn.commit()
+        if prior == 0:
+            fresh = []  # first sight of this day/market: seed quietly
+        subs = conn.execute("SELECT endpoint, p256dh, auth FROM push_subs").fetchall() if fresh else []
+    finally:
+        conn.close()
+    if not fresh or not subs:
+        return
+    fresh = sorted(fresh, key=lambda p: -(p.get("score") or 0))[:PUSH_MAX_PER_BATCH]
+    dead = set()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        futs = []
+        for p in fresh:
+            payload = json.dumps({
+                "title": f"⚡ {p['side']} {p['symbol']} · {p.get('score')}/100",
+                "body": f"entry {currency}{p.get('entry'):,} · stop {currency}{p.get('stop'):,} · target {currency}{p.get('target'):,}",
+                "tag": f"{p['symbol']}|{p['side']}|{p.get('kind')}",
+                "url": "/signals",
+            })
+            futs.extend(ex.submit(_push_send_one, s, payload) for s in subs)
+        for fut in concurrent.futures.as_completed(futs):
+            if fut.result():
+                dead.add(fut.result())
+    if dead:
+        try:
+            conn = _auth_db()
+            conn.executemany("DELETE FROM push_subs WHERE endpoint = ?", [(e,) for e in dead])
+            conn.commit()
+            conn.close()
+            _blob_push_db()
+        except Exception:
+            pass
 
 
 # --- Daily Nifty call: streak + leaderboard (Phase 2A) ---

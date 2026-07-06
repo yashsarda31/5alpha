@@ -10,3 +10,4 @@ pydantic
 Pillow
 python-multipart
 vaderSentiment
+pywebpush
