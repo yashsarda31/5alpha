@@ -1144,59 +1144,106 @@ async def get_momentum(market: str = "us"):
                    "QCOM", "INTU", "TXN", "AMGN", "PM",
                    "DIS", "UBER", "PFE", "NOW", "SPGI"]
 
-    results = []
-    
-    def fetch_momentum(ticker):
+    def scan_universe():
+        # One batch download for the whole universe (~50 names, 14 months of
+        # daily OHLCV) — far faster than 50 per-ticker requests, and the OHLCV
+        # gives us breakout levels + volume ratios, not just closes.
         try:
-            stock = yf.Ticker(ticker)
-            # Fetch 1 year and a bit more to be safe
-            hist = stock.history(period="14mo")
-            closes = hist['Close'].dropna() if not hist.empty else hist
-            if len(closes) < 252:
-                return None
-
-            # ~21 days = 1m, ~126 days = 6m, ~252 days = 12m
-            current_price = closes.iloc[-1]
-            price_1m = closes.iloc[-21]
-            price_6m = closes.iloc[-126]
-            price_12m = closes.iloc[-252]
-
-            mom_1m = ((current_price / price_1m) - 1) * 100
-            mom_6m = ((current_price / price_6m) - 1) * 100
-            mom_12m = ((current_price / price_12m) - 1) * 100
-
-            # Simple average score
-            score = (mom_1m + mom_6m + mom_12m) / 3
-            # A NaN/inf would poison the JSON response for the whole list
-            if not all(np.isfinite(v) for v in (current_price, mom_1m, mom_6m, mom_12m, score)):
-                return None
-
-            return {
-                "ticker": ticker,
-                "mom_1m": round(mom_1m, 2),
-                "mom_6m": round(mom_6m, 2),
-                "mom_12m": round(mom_12m, 2),
-                "score": round(score, 2),
-                "price": round(current_price, 2)
-            }
+            df = yf.download(" ".join(tickers), period="14mo", group_by="ticker",
+                             threads=True, progress=False, auto_adjust=True)
         except Exception:
-            return None
+            return [], []
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures = {executor.submit(fetch_momentum, t): t for t in tickers}
-        for future in concurrent.futures.as_completed(futures):
-            res = future.result()
-            if res:
-                results.append(res)
-                
-    if not results:
+        leaders, breakouts = [], []
+        for ticker in tickers:
+            try:
+                h = df[ticker].dropna(how="all")
+                closes = h["Close"].dropna()
+                if len(closes) < 60:
+                    continue
+                last = float(closes.iloc[-1])
+                prev = float(closes.iloc[-2])
+                chg_today = (last / prev - 1) * 100 if prev else 0.0
+
+                # RSI(14)
+                delta = closes.diff()
+                gain = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
+                loss = (-delta.clip(upper=0)).ewm(com=13, adjust=False).mean()
+                rs = gain.iloc[-1] / loss.iloc[-1] if loss.iloc[-1] else float("inf")
+                rsi = 100 - (100 / (1 + rs)) if np.isfinite(rs) else 100.0
+
+                sma50 = float(closes.tail(50).mean())
+                dist_50dma = (last / sma50 - 1) * 100 if sma50 else 0.0
+                high_52w = float(h["High"].iloc[-252:].max()) if len(h) >= 252 else float(h["High"].max())
+                off_52w_high = (last / high_52w - 1) * 100 if high_52w else 0.0
+                vol = float(h["Volume"].iloc[-1] or 0)
+                avg_vol = float(h["Volume"].iloc[-21:-1].mean() or 0)
+                vol_ratio = vol / avg_vol if avg_vol else 0.0
+                spark = [round(float(c), 2) for c in closes.tail(60)]
+
+                # --- Breakout scan: last trade above the PRIOR high (today excluded) ---
+                prior_highs = h["High"].iloc[:-1]
+                hi20 = float(prior_highs.tail(20).max())
+                hi63 = float(prior_highs.tail(63).max())
+                hi252 = float(prior_highs.tail(252).max()) if len(prior_highs) >= 100 else None
+                if last > hi20 and chg_today > 0:
+                    if hi252 and last > hi252:
+                        btype, level = "52W HIGH", hi252
+                    elif last > hi63:
+                        btype, level = "3M HIGH", hi63
+                    else:
+                        btype, level = "20D HIGH", hi20
+                    breakouts.append({
+                        "ticker": ticker, "price": round(last, 2),
+                        "chg_today": round(chg_today, 2),
+                        "type": btype, "level": round(level, 2),
+                        "margin": round((last / level - 1) * 100, 2),
+                        "vol_ratio": round(vol_ratio, 2),
+                        "rsi": round(rsi, 1),
+                        "spark": spark,
+                        # strength: rarer high + volume conviction + move size
+                        "_rank": ({"52W HIGH": 3, "3M HIGH": 2, "20D HIGH": 1}[btype]
+                                  * (1 + min(vol_ratio, 4)) * (1 + abs(chg_today))),
+                    })
+
+                # --- Momentum leaders need a full year of history ---
+                if len(closes) < 252:
+                    continue
+                mom_1m = (last / float(closes.iloc[-21]) - 1) * 100
+                mom_6m = (last / float(closes.iloc[-126]) - 1) * 100
+                mom_12m = (last / float(closes.iloc[-252]) - 1) * 100
+                score = (mom_1m + mom_6m + mom_12m) / 3
+                if not all(np.isfinite(v) for v in (last, mom_1m, mom_6m, mom_12m, score, rsi)):
+                    continue
+                leaders.append({
+                    "ticker": ticker,
+                    "mom_1m": round(mom_1m, 2),
+                    "mom_6m": round(mom_6m, 2),
+                    "mom_12m": round(mom_12m, 2),
+                    "score": round(score, 2),
+                    "price": round(last, 2),
+                    "chg_today": round(chg_today, 2),
+                    "rsi": round(rsi, 1),
+                    "off_52w_high": round(off_52w_high, 2),
+                    "dist_50dma": round(dist_50dma, 2),
+                    "vol_ratio": round(vol_ratio, 2),
+                    "spark": spark,
+                })
+            except Exception:
+                continue
+        return leaders, breakouts
+
+    leaders, breakouts = await asyncio.to_thread(scan_universe)
+    if not leaders:
         raise HTTPException(status_code=400, detail="Failed to fetch momentum data for tickers")
 
-    # Sort by score descending and keep only the true leaders
-    results.sort(key=lambda x: x['score'], reverse=True)
-    results = results[:15]
+    leaders.sort(key=lambda x: x["score"], reverse=True)
+    breakouts.sort(key=lambda x: x["_rank"], reverse=True)
+    for b in breakouts:
+        b.pop("_rank", None)
 
-    response_data = {"data": results}
+    response_data = {"data": leaders[:15], "breakouts": breakouts[:10],
+                     "universe": len(tickers), "market": market.lower()}
     API_CACHE[cache_key] = {'time': time.time(), 'data': response_data}
     return response_data
 

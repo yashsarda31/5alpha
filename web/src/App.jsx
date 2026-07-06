@@ -120,11 +120,14 @@ const AppLayout = () => {
           <NavLink to="/watchlist" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>⭐</span> Watchlist
           </NavLink>
-          <NavLink to="/leaderboard" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🏆</span> Nifty Leaderboard
-          </NavLink>
           <NavLink to="/signals" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>⚡</span> Market Signals
+          </NavLink>
+          <NavLink to="/momentum" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
+            <span style={{marginRight: '12px', opacity: 0.8}}>🚀</span> Momentum Leaders
+          </NavLink>
+          <NavLink to="/news" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
+            <span style={{marginRight: '12px', opacity: 0.8}}>📰</span> News
           </NavLink>
           <NavLink to="/focus" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>🎯</span> Focus List
@@ -148,20 +151,17 @@ const AppLayout = () => {
           <NavLink to="/fundamentals" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>📊</span> Fundamentals
           </NavLink>
-          <NavLink to="/momentum" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>🚀</span> Momentum Leaders
-          </NavLink>
           <NavLink to="/arima" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>🔮</span> SARIMAX Forecaster
           </NavLink>
           <NavLink to="/position-sizing" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>⚖️</span> Position Sizing
           </NavLink>
-          <NavLink to="/news" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
-            <span style={{marginRight: '12px', opacity: 0.8}}>📰</span> News
-          </NavLink>
           <NavLink to="/option-chain" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>⛓️</span> Option Chain
+          </NavLink>
+          <NavLink to="/leaderboard" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
+            <span style={{marginRight: '12px', opacity: 0.8}}>🏆</span> Nifty Leaderboard
           </NavLink>
           <NavLink to="/trading-game" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <span style={{marginRight: '12px', opacity: 0.8}}>🎮</span> Discipline Arena
