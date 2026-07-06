@@ -56,6 +56,8 @@ const Leaderboard = () => {
   const top = data?.top || [];
   const you = data?.you;
   const youInTop = top.some((r) => r.is_you);
+  const minCalls = data?.min_calls ?? 20;
+  const myCalls = stats?.total_calls ?? 0;
 
   return (
     <div className="fade-in">
@@ -74,8 +76,24 @@ const Leaderboard = () => {
 
       <div className="lb-toggle">
         <button className={board === 'streak' ? 'active' : ''} onClick={() => setBoard('streak')}>Current Streak</button>
-        <button className={board === 'accuracy' ? 'active' : ''} onClick={() => setBoard('accuracy')}>Accuracy</button>
+        <button
+          className={board === 'accuracy' ? 'active' : ''}
+          onClick={() => setBoard('accuracy')}
+          title={`Shows players with ${minCalls}+ scored calls`}
+        >
+          Accuracy
+        </button>
       </div>
+
+      {board === 'accuracy' && (
+        <p className="lb-hint">
+          ⓘ The accuracy board only ranks players with at least {minCalls} scored calls — one
+          call a day gets you there in about a month.
+          {myCalls < minCalls
+            ? ` You have ${myCalls}, so ${minCalls - myCalls} more to qualify.`
+            : ' You qualify.'}
+        </p>
+      )}
 
       <DataTable
         columns={cols}

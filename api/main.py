@@ -310,10 +310,12 @@ def run_screener(req: ScreenerRequest):
                 "ticker": ticker,
                 "price": price,
                 "marketCap": market_cap,
-                "peRatio": pe if (pe is not None and np.isfinite(pe)) else None,
+                # Yahoo reports trailingPE as 0/negative for loss-makers — that is
+                # "no meaningful P/E", not a cheap stock, so surface it as null
+                "peRatio": pe if (pe is not None and np.isfinite(pe) and pe > 0) else None,
                 "divYield": div_pct,
-                "roe": roe_pct,
-                "epsGrowth": eps_pct,
+                "roe": roe_pct if roe is not None else None,
+                "epsGrowth": eps_pct if eps is not None else None,
                 "momentum": momentum,
                 "alphaScore": alpha_score
             }

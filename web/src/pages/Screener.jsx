@@ -150,12 +150,15 @@ const Screener = () => {
 
   const sortedData = useMemo(() => {
     const rows = [...data];
+    // Anything that renders as "N/A" (null, undefined, NaN/Infinity) must also
+    // sort as N/A — to the bottom regardless of direction
+    const isNA = (v) => v == null || (typeof v === 'number' && !Number.isFinite(v));
     rows.sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
-      // Push null/undefined metrics to the bottom regardless of direction
-      if (av === null || av === undefined) return 1;
-      if (bv === null || bv === undefined) return -1;
+      if (isNA(av) && isNA(bv)) return 0;
+      if (isNA(av)) return 1;
+      if (isNA(bv)) return -1;
       const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -413,9 +416,9 @@ const Screener = () => {
                       </td>
                       <td style={{textAlign: 'right'}}>{currencyFor(row.ticker)}{row.price.toFixed(2)}</td>
                       <td style={{textAlign: 'right'}}>{currencyFor(row.ticker)}{row.marketCap.toFixed(2)}</td>
-                      <td style={{textAlign: 'right'}}>{row.peRatio ? row.peRatio.toFixed(2) : 'N/A'}</td>
-                      <td style={{textAlign: 'right'}}>{row.roe ? row.roe.toFixed(2) + '%' : 'N/A'}</td>
-                      <td style={{textAlign: 'right', color: row.epsGrowth > 0 ? 'var(--green-gain)' : (row.epsGrowth < 0 ? 'var(--red-loss)' : 'inherit')}}>{row.epsGrowth ? row.epsGrowth.toFixed(2) + '%' : 'N/A'}</td>
+                      <td style={{textAlign: 'right'}}>{row.peRatio != null ? row.peRatio.toFixed(2) : 'N/A'}</td>
+                      <td style={{textAlign: 'right'}}>{row.roe != null ? row.roe.toFixed(2) + '%' : 'N/A'}</td>
+                      <td style={{textAlign: 'right', color: row.epsGrowth > 0 ? 'var(--green-gain)' : (row.epsGrowth < 0 ? 'var(--red-loss)' : 'inherit')}}>{row.epsGrowth != null ? row.epsGrowth.toFixed(2) + '%' : 'N/A'}</td>
                       <td style={{textAlign: 'right', color: row.divYield > 0 ? 'var(--green-gain)' : 'inherit'}}>{row.divYield.toFixed(2)}%</td>
                       {hasMomentum && (
                         <td style={{textAlign: 'right', color: row.momentum > 0 ? 'var(--green-gain)' : (row.momentum < 0 ? 'var(--red-loss)' : 'inherit')}}>
