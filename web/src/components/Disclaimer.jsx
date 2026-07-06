@@ -27,7 +27,7 @@ const Disclaimer = () => {
     <div className="disclaimer-alert">
       <span style={{ fontSize: '16px' }}>⚠️</span>
       <div>
-        <strong>COMPLIANCE NOTICE:</strong> The quantitative models and AI-generated insights provided on the Alpha Nova platform are for <em>educational and analytical purposes only</em>. They rely on third-party data which may be delayed or inaccurate. They do not constitute financial advice, investment recommendations, or an offer to buy/sell securities. Always consult with a registered fiduciary before making investment decisions.
+        <strong>COMPLIANCE NOTICE:</strong> The quantitative models and AI-generated insights provided on the Alpha Nova platform are for <em>educational and analytical purposes only</em>. They rely on third-party data which may be delayed or inaccurate. They do not constitute financial advice, investment recommendations, or an offer to buy/sell securities.
       </div>
       <button className="disclaimer-dismiss" onClick={dismiss} aria-label="Dismiss compliance notice">
         <X size={14} aria-hidden="true" />
