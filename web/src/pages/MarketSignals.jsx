@@ -160,7 +160,7 @@ const MarketSignals = () => {
                 <div className="oc-stat"><div className="k">Support</div><div className="v" style={{ color: 'var(--green-gain)' }}>{fmt(oc.support, 0)}</div></div>
                 <div className="oc-stat"><div className="k">Resistance</div><div className="v" style={{ color: 'var(--red-loss)' }}>{fmt(oc.resistance, 0)}</div></div>
                 <div className="oc-stat"><div className="k">ATM Straddle</div><div className="v">₹{fmt(oc.straddle, 0)}</div></div>
-                <div className="oc-stat"><div className="k">ATM IV CE/PE</div><div className="v">{fmt(oc.atm_iv_ce, 1)} / {fmt(oc.atm_iv_pe, 1)}</div></div>
+                <div className="oc-stat" title={`NSE raw leg IVs — CE ${fmt(oc.atm_iv_ce, 1)} / PE ${fmt(oc.atm_iv_pe, 1)}. Headline IV is solved from the straddle price (skew-free).`}><div className="k">ATM IV</div><div className="v">{fmt(oc.atm_iv ?? (oc.atm_iv_ce + oc.atm_iv_pe) / 2, 1)}% <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>({fmt(oc.atm_iv_ce, 1)}/{fmt(oc.atm_iv_pe, 1)})</span></div></div>
                 <div className="oc-stat"><div className="k">ΔOI Calls</div><div className="v" style={{ color: oc.ce_doi >= 0 ? 'var(--red-loss)' : 'var(--green-gain)' }}>{fmt(oc.ce_doi, 0)}</div></div>
                 <div className="oc-stat"><div className="k">ΔOI Puts</div><div className="v" style={{ color: oc.pe_doi >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>{fmt(oc.pe_doi, 0)}</div></div>
               </div>

@@ -12,7 +12,7 @@ const SentimentBadge = ({ sentiment }) => {
 };
 
 const News = () => {
-  const [ticker, setTicker] = useState('AAPL');
+  const [ticker, setTicker] = useState('RELIANCE');
   const [newsApiKey, setNewsApiKey] = useState(() => localStorage.getItem('news_api_key') || '');
   const [news, setNews] = useState([]);
   const [sentiment, setSentiment] = useState(null);
@@ -58,7 +58,7 @@ const News = () => {
               type="text" 
               value={ticker} 
               onChange={(e) => setTicker(e.target.value)} 
-              placeholder="Enter Ticker (e.g. AAPL, TSLA)"
+              placeholder="Enter Ticker (e.g. RELIANCE, TCS, AAPL)"
               style={{ flex: 1, marginBottom: 0 }}
             />
             <button type="submit" className="btn" disabled={loading} style={{ width: 'auto', padding: '12px 24px' }}>

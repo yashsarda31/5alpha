@@ -22,7 +22,7 @@ const pct = (v) => (
 );
 
 const Momentum = () => {
-  const [market, setMarket] = useState('us');
+  const [market, setMarket] = useState('in'); // NSE-first audience — Indian tab default
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);

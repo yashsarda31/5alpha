@@ -20,22 +20,29 @@ const Chart = () => {
   const [fundamentals, setFundamentals] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReport, setAiReport] = useState("");
+  const [fetchError, setFetchError] = useState("");
 
   const fetchChart = async (sym = ticker) => {
+    if (!sym || !sym.trim()) return;
     setLoading(true);
     setChartData(null);
     setFundamentals(null);
+    setFetchError("");
     try {
-      const [resChart, resFund] = await Promise.all([
-        axios.get(`/api/chart/${sym}`),
-        axios.get(`/api/fundamentals/${sym}`).catch(() => ({ data: null }))
-      ]);
+      const resChart = await axios.get(`/api/chart/${sym.trim()}`);
       setChartData(resChart.data);
+      // The backend resolves bare NSE symbols (RELIANCE → RELIANCE.NS);
+      // adopt the resolved name so the ₹/$ currency and star are right.
+      const resolved = resChart.data.ticker || sym.trim();
+      if (resolved !== ticker) setTicker(resolved);
+      const resFund = await axios.get(`/api/fundamentals/${resolved}`).catch(() => ({ data: null }));
       if (resFund.data && !resFund.data.error) {
         setFundamentals(resFund.data);
       }
     } catch (err) {
-      alert("Error fetching chart: " + err.message);
+      setFetchError(err.response?.status === 404
+        ? `"${sym.trim()}" not found — try the full Yahoo symbol (e.g. RELIANCE.NS, AAPL).`
+        : `Could not load chart: ${err.message}`);
     }
     setLoading(false);
   };
@@ -138,10 +145,11 @@ const Chart = () => {
 
         <div style={{ display: 'flex', gap: '12px' }}>
           <div style={{ width: '160px' }}>
-            <input 
-              value={ticker} 
-              onChange={(e) => setTicker(e.target.value.toUpperCase())} 
+            <input
+              value={ticker}
+              onChange={(e) => setTicker(e.target.value.toUpperCase())}
               onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !loading) fetchChart(); }}
               placeholder="SEARCH TICKER..."
               style={{ marginBottom: 0 }}
             />
@@ -151,6 +159,12 @@ const Chart = () => {
           </button>
         </div>
       </div>
+
+      {fetchError && (
+        <div className="card" style={{ padding: '14px 18px', marginBottom: '20px', border: '1px solid rgba(255,69,58,0.4)', color: 'var(--red-loss)', fontSize: '14px' }}>
+          ⚠ {fetchError}
+        </div>
+      )}
 
       {chartData ? (
         <div className="card" style={{ padding: '0', overflow: 'hidden' }}>

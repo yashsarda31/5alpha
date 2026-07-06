@@ -7,6 +7,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import os
+import math
 import requests
 from datetime import datetime, timedelta, timezone
 import asyncio
@@ -349,15 +350,48 @@ def run_screener(req: ScreenerRequest):
 
 import asyncio
 
+def _yf_resolve_history(ticker: str, period: str):
+    """history() with a .NS fallback — users of an NSE-focused app type bare
+    symbols (RELIANCE) that Yahoo only knows as RELIANCE.NS. Returns the
+    resolved ticker plus its dataframe."""
+    stock = yf.Ticker(ticker)
+    df = stock.history(period=period)
+    if df.empty and "." not in ticker:
+        alt = f"{ticker.upper()}.NS"
+        df_alt = yf.Ticker(alt).history(period=period)
+        if not df_alt.empty:
+            return alt, df_alt
+    return ticker, df
+
+def _yf_resolve_info(ticker: str):
+    """.info with the same .NS fallback; no price AND no market cap is the
+    tell that Yahoo doesn't know the bare symbol."""
+    def _known(i):
+        return bool(i.get("currentPrice") or i.get("regularMarketPrice") or i.get("marketCap"))
+    stock = yf.Ticker(ticker)
+    try:
+        info = stock.info or {}
+    except Exception:
+        info = {}
+    if not _known(info) and "." not in ticker:
+        alt = f"{ticker.upper()}.NS"
+        alt_stock = yf.Ticker(alt)
+        try:
+            alt_info = alt_stock.info or {}
+        except Exception:
+            alt_info = {}
+        if _known(alt_info):
+            return alt, alt_stock, alt_info
+    return ticker, stock, info
+
 @app.get("/api/chart/{ticker}")
 async def get_chart(ticker: str):
     def fetch_data():
-        stock = yf.Ticker(ticker)
         # Fetch 2y to ensure 200-day MA and 52-week high/low have enough data
-        return stock.history(period="2y")
-        
-    df = await asyncio.to_thread(fetch_data)
-    
+        return _yf_resolve_history(ticker, "2y")
+
+    resolved, df = await asyncio.to_thread(fetch_data)
+
     if df.empty:
         raise HTTPException(status_code=404, detail="Ticker not found")
         
@@ -418,6 +452,7 @@ async def get_chart(ticker: str):
     df_1y = df_1y.ffill().bfill()
     
     payload = {
+        "ticker": resolved.upper(),
         "dates": df_1y.index.tolist(),
         "open": df_1y['Open'].tolist(),
         "high": df_1y['High'].tolist(),
@@ -504,9 +539,10 @@ async def calculate_dcf(req: DCFRequest):
 async def get_dcf_data(ticker: str):
     def fetch_data():
         try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-            
+            resolved, stock, info = _yf_resolve_info(ticker)
+            if not (info.get("currentPrice") or info.get("regularMarketPrice") or info.get("marketCap")):
+                return {"error": f"Ticker '{ticker}' not found on Yahoo Finance"}
+
             current_price = info.get("currentPrice", 0)
             eps = info.get("trailingEps", 0)
             market_cap = info.get("marketCap", 0)
@@ -598,7 +634,7 @@ async def get_dcf_data(ticker: str):
                 div_pct=info.get("dividendYield"))
 
             return {
-                "ticker": ticker.upper(),
+                "ticker": resolved.upper(),
                 "currentPrice": current_price,
                 "eps": eps,
                 "fcf": fcf,
@@ -627,8 +663,7 @@ async def get_dcf_data(ticker: str):
 
 @app.post("/api/arima")
 def forecast_sarimax(req: ARIMARequest):
-    stock = yf.Ticker(req.ticker)
-    df = stock.history(period="2y")
+    _, df = _yf_resolve_history(req.ticker, "2y")
     if df.empty:
         raise HTTPException(status_code=404, detail="Data not found")
         
@@ -1169,9 +1204,10 @@ async def get_momentum(market: str = "us"):
 async def get_fundamentals(ticker: str):
     def fetch_fundamentals():
         try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-            
+            resolved, stock, info = _yf_resolve_info(ticker)
+            if not (info.get("currentPrice") or info.get("regularMarketPrice") or info.get("marketCap")):
+                return {"error": f"Ticker '{ticker}' not found on Yahoo Finance"}
+
             _eps = info.get("trailingEps")
             _pe = info.get("trailingPE")
             _rev = info.get("revenueGrowth")
@@ -1193,8 +1229,8 @@ async def get_fundamentals(ticker: str):
             # Extract relevant metrics
             metrics = {
                 "alphaScore": alpha_score,
-                "ticker": ticker,
-                "name": info.get("shortName", ticker),
+                "ticker": resolved,
+                "name": info.get("shortName", resolved),
                 "sector": info.get("sector", "N/A"),
                 "industry": info.get("industry", "N/A"),
                 "marketCap": info.get("marketCap", 0),
@@ -1955,16 +1991,26 @@ async def get_fiidii():
                 elif item.get("category") == "DII":
                     dii_today_net = float(item.get("netValue", 0))
 
+            # NSE publishes provisional FII/DII after the close, so intraday the
+            # "latest" numbers belong to the PREVIOUS session. Match them to the
+            # history row with that date instead of stamping them onto today's
+            # live bar (which duplicated the date and mismatched the Nifty close).
+            latest_dt = None
+            try:
+                latest_dt = datetime.strptime(latest_date_str, "%d-%b-%Y").date()
+            except Exception:
+                pass
+
             historical = []
             try:
                 # Fetch 60 days of real Nifty data for the historical timeline
                 nifty_ticker = yf.Ticker("^NSEI")
                 hist = nifty_ticker.history(period="60d")
-                
+
                 if not hist.empty:
                     # Reverse to show newest first
                     hist = hist.iloc[::-1]
-                    
+
                     for i in range(len(hist)):
                         row = hist.iloc[i]
                         current_close = float(row['Close'])
@@ -1973,18 +2019,19 @@ async def get_fiidii():
                             prev_close = float(hist.iloc[i+1]['Close'])
                         else:
                             prev_close = float(row['Open'])
-                            
+
                         change_pct = ((current_close - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
-                        
+
                         # Date string formatting
                         dt = hist.index[i]
                         date_str = dt.strftime("%d-%b-%Y")
-                        
-                        # For today's data, use the real NSE FII/DII data if date matches approx
-                        if i == 0:
+                        row_date = dt.date() if hasattr(dt, "date") else None
+
+                        if latest_dt and row_date and row_date > latest_dt:
+                            continue  # session still trading — no flow data published yet
+                        if (latest_dt and row_date == latest_dt) or (latest_dt is None and i == 0):
                             f_net = fii_today_net
                             d_net = dii_today_net
-                            date_str = latest_date_str
                         else:
                             # Generate simulated but highly realistic correlated FII DII data to fulfill historical requirements
                             # (Since free unauthenticated historical APIs block requests)
@@ -2128,6 +2175,48 @@ def _signals_market_open():
         return False, "after-hours"
     return True, "live"
 
+def _straddle_implied_iv(strike, ce_ltp, pe_ltp, expiry_str):
+    """ATM IV backed out of the straddle price (Black-76 against the
+    put-call-parity forward). NSE's per-leg impliedVolatility prices puts off
+    spot instead of the forward, inflating PE IV 3-5 pts — averaging CE/PE
+    read ~14-16% when the true ATM IV was ~12.6%. Returns IV %, or None when
+    it can't be solved sanely (caller falls back to the CE/PE average)."""
+    try:
+        if not (strike > 0 and ce_ltp > 0 and pe_ltp > 0):
+            return None
+        ist = timezone(timedelta(hours=5, minutes=30))
+        expiry_dt = datetime.strptime(expiry_str, "%d-%b-%Y").replace(
+            hour=15, minute=30, tzinfo=ist)
+        t = (expiry_dt - datetime.now(ist)).total_seconds() / (365.0 * 86400)
+        if t <= 1e-4:  # inside the last hour the estimate blows up
+            return None
+        fwd = strike + ce_ltp - pe_ltp  # r ≈ 0 over days-to-expiry
+        if fwd <= 0:
+            return None
+        target = ce_ltp + pe_ltp
+        sqrt_t = math.sqrt(t)
+        cdf = lambda x: 0.5 * (1 + math.erf(x / math.sqrt(2)))
+
+        def straddle(sigma):
+            sd = sigma * sqrt_t
+            d1 = (math.log(fwd / strike) + 0.5 * sd * sd) / sd
+            d2 = d1 - sd
+            return fwd * cdf(d1) - strike * cdf(d2) + strike * cdf(-d2) - fwd * cdf(-d1)
+
+        lo, hi = 0.005, 3.0
+        if not (straddle(lo) <= target <= straddle(hi)):
+            return None
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            if straddle(mid) < target:
+                lo = mid
+            else:
+                hi = mid
+        iv = (lo + hi) / 2 * 100
+        return round(iv, 2) if 1 <= iv <= 150 else None
+    except Exception:
+        return None
+
 def fetch_signal_chain_summary(symbol: str):
     """Condensed option-chain intelligence for an index: PCR (full + ±5% band),
     max pain, support/resistance walls, ATM IV and straddle price."""
@@ -2173,6 +2262,13 @@ def fetch_signal_chain_summary(symbol: str):
     band_pe = sum(pe_oi[k] for k in band)
     atm_ce = atm_row.get("CE") or {}
     atm_pe = atm_row.get("PE") or {}
+    atm_iv_ce = float(atm_ce.get("impliedVolatility") or 0)
+    atm_iv_pe = float(atm_pe.get("impliedVolatility") or 0)
+    atm_iv = _straddle_implied_iv(float(atm_row.get("strikePrice") or 0),
+                                  float(atm_ce.get("lastPrice") or 0),
+                                  float(atm_pe.get("lastPrice") or 0), expiry)
+    if atm_iv is None:
+        atm_iv = round((atm_iv_ce + atm_iv_pe) / 2, 2)
     return {
         "symbol": symbol,
         "expiry": expiry,
@@ -2184,8 +2280,9 @@ def fetch_signal_chain_summary(symbol: str):
         "support": support,
         "resistance": resistance,
         "atm_strike": float(atm_row.get("strikePrice") or 0),
-        "atm_iv_ce": float(atm_ce.get("impliedVolatility") or 0),
-        "atm_iv_pe": float(atm_pe.get("impliedVolatility") or 0),
+        "atm_iv": atm_iv,
+        "atm_iv_ce": atm_iv_ce,
+        "atm_iv_pe": atm_iv_pe,
         "straddle": float(atm_ce.get("lastPrice") or 0) + float(atm_pe.get("lastPrice") or 0),
         "ce_doi": tot_ce_doi,
         "pe_doi": tot_pe_doi,
@@ -2320,7 +2417,7 @@ def _signal_iv_regime(oc, vix):
     """ATM IV vs INDIA VIX → are near-expiry options rich or cheap?"""
     if not oc or not vix:
         return {"label": "N/A", "detail": ""}
-    iv = (oc["atm_iv_ce"] + oc["atm_iv_pe"]) / 2
+    iv = oc.get("atm_iv") or (oc["atm_iv_ce"] + oc["atm_iv_pe"]) / 2
     if iv > vix + 1.5:
         return {"label": "RICH", "detail": f"ATM {iv:.1f}% vs VIX {vix:.1f} — favour credit spreads / writing"}
     if iv < vix - 1.5:
@@ -2422,7 +2519,7 @@ def build_index_ideas(oc_list, vix):
         pcr = oc.get("pcr_band") or oc["pcr"]
         bias = "BULLISH" if pcr > 1.15 else "BEARISH" if pcr < 0.85 else "NEUTRAL"
         mp_drift = (oc["max_pain"] - spot) / spot * 100
-        iv = (oc["atm_iv_ce"] + oc["atm_iv_pe"]) / 2
+        iv = oc.get("atm_iv") or (oc["atm_iv_ce"] + oc["atm_iv_pe"]) / 2
         if bias == "NEUTRAL" and abs(mp_drift) < 0.6:
             wings = (f"iron condor inside {oc['support']:,.0f}–{oc['resistance']:,.0f}"
                      if oc["resistance"] > oc["support"] else
