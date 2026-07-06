@@ -20,6 +20,12 @@
       "runtimeArgs": ["vite", "--port", "5173", "--strictPort"],
       "cwd": "web",
       "port": 5173
+    },
+    {
+      "name": "adserver",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "4180"],
+      "port": 4180
     }
   ]
 }

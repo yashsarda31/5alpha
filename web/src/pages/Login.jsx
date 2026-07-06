@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
+import InstallApp from '../components/InstallApp';
 
 const Login = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -98,6 +99,9 @@ const Login = () => {
           <p style={{ fontSize: '12px', marginTop: '12px', color: 'var(--text-secondary)' }}>
             Accounts are stored locally in the app's own database — no third-party services.
           </p>
+          <div style={{ marginTop: '16px' }}>
+            <InstallApp compact />
+          </div>
         </div>
       </div>
     </div>

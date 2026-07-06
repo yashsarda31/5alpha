@@ -78,3 +78,15 @@ def test_validation_rules():
 def test_me_without_token():
     r = client.get("/api/auth/me")
     assert r.status_code == 401
+
+
+def test_input_length_limits():
+    # Oversized password and email are rejected outright
+    r = client.post("/api/auth/signup", json={"email": _unique_email(), "password": "x" * 129})
+    assert r.status_code == 400
+    r = client.post("/api/auth/signup", json={"email": "a" * 250 + "@test.local", "password": "secret123"})
+    assert r.status_code == 400
+    # Oversized display name is truncated, not stored verbatim
+    r = client.post("/api/auth/signup", json={"email": _unique_email(), "password": "secret123", "displayName": "D" * 5000})
+    assert r.status_code == 200
+    assert len(r.json()["user"]["displayName"]) <= 80

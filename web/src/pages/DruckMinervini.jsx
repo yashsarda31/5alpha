@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import PlotComponent from 'react-plotly.js';
+import Plot from '../components/Plot';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PageHeader } from '../components/ui';
-
-const Plot = PlotComponent.default || PlotComponent;
 
 const DruckMinervini = () => {
   // Form Inputs

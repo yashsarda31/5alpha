@@ -3,8 +3,7 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PageHeader } from '../components/ui';
-import PlotComponent from 'react-plotly.js';
-const Plot = PlotComponent.default || PlotComponent;
+import Plot from '../components/Plot';
 
 const currencyFor = (ticker) => {
   const t = (ticker || '').toUpperCase();
