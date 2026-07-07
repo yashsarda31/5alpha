@@ -27,13 +27,44 @@ const AlertBell = () => {
   );
 };
 
-// One-tap proof that pushes reach this user's devices (uses /api/push/test).
+// One-tap "make push work + prove it" button. If this device isn't subscribed
+// yet (the common case — the user never enabled alerts), it first requests
+// permission and registers the device, THEN sends the test. Previously it just
+// queried the server and dead-ended on "no devices subscribed".
 const PushTest = () => {
-  const { permission } = useSignalAlerts();
+  const { permission, ensureSubscribed } = useSignalAlerts();
   const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
   if (permission === 'unsupported') return null;
 
   const send = async () => {
+    setBusy(true);
+    setStatus('Enabling notifications on this device…');
+
+    // 1. Make sure this device is permitted + subscribed before sending.
+    const sub = await ensureSubscribed();
+    if (sub === 'denied') {
+      setStatus('Notifications are blocked for this site. Allow them in your browser settings (the lock icon in the address bar), then try again.');
+      setBusy(false);
+      return;
+    }
+    if (sub === 'unsupported') {
+      setStatus('This browser can’t receive push. On iPhone, install the app to your Home Screen first (Share → Add to Home Screen), then open it and retry.');
+      setBusy(false);
+      return;
+    }
+    if (sub === 'no-sw') {
+      setStatus('Still setting up — reload the page once, then tap again.');
+      setBusy(false);
+      return;
+    }
+    if (sub !== 'ok') {
+      setStatus('Couldn’t register this device for push. Please retry in a moment.');
+      setBusy(false);
+      return;
+    }
+
+    // 2. Now the server has our subscription — send the test.
     setStatus('Sending…');
     try {
       const token = localStorage.getItem('alphanova_auth_token');
@@ -42,16 +73,17 @@ const PushTest = () => {
       });
       const d = res.data;
       setStatus(d.subs === 0
-        ? 'No devices subscribed — turn Signal alerts ON first.'
+        ? 'Device registered but the server sees no subscription yet — reload and tap once more.'
         : `Sent to ${d.sent} of ${d.subs} device(s). Check your notification tray.`);
     } catch (err) {
       setStatus(`Failed: ${err.response?.data?.detail || err.message}`);
     }
+    setBusy(false);
   };
 
   return (
     <>
-      <button className="alert-bell" onClick={send} title="Send a test push notification to all your subscribed devices">
+      <button className="alert-bell" onClick={send} disabled={busy} title="Enable and send a test push notification to this device">
         <span className="ab-ico"><Send size={14} aria-hidden="true" /></span>
         Test notification
       </button>

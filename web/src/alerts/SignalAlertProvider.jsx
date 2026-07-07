@@ -15,7 +15,10 @@ const FETCH_TIMEOUT_MS = 20000;
 const TOAST_TTL_MS = 10000;
 const MAX_TOASTS = 4;
 
-const SignalAlertContext = createContext({ browserEnabled: false, toggleBrowser: () => {}, permission: 'default' });
+const SignalAlertContext = createContext({
+  browserEnabled: false, toggleBrowser: () => {},
+  ensureSubscribed: async () => 'error', permission: 'default',
+});
 export const useSignalAlerts = () => useContext(SignalAlertContext);
 
 const notifSupported = () => typeof window !== 'undefined' && 'Notification' in window;
@@ -49,27 +52,51 @@ const urlB64ToU8 = (s) => {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 };
 
+// Resolve an ACTIVE service-worker registration, waiting up to `ms` for one to
+// activate. getRegistration() can hand back a registration whose worker isn't
+// active yet; pushManager.subscribe needs an active worker, so we prefer
+// serviceWorker.ready (raced with a timeout so it never hangs when no SW exists,
+// e.g. dev builds).
+const swReady = async (ms = 6000) => {
+  if (!('serviceWorker' in navigator)) return null;
+  try {
+    const existing = await navigator.serviceWorker.getRegistration();
+    if (existing && existing.active) return existing;
+    return await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((r) => setTimeout(() => r(null), ms)),
+    ]);
+  } catch {
+    return null;
+  }
+};
+
 // Real Web Push: subscribe this device so the SERVER can reach it after the
-// app is closed. Best-effort — in-app toasts and SW-local notifications keep
-// working even if the server has no VAPID keys.
+// app is closed. Returns a status so callers (e.g. the Settings test button)
+// can explain exactly what went wrong instead of failing silently:
+// 'ok' | 'unsupported' | 'denied' | 'no-sw' | 'no-vapid' | 'error'
 const subscribePush = async () => {
   try {
-    if (!('PushManager' in window)) return;
-    const reg = await navigator.serviceWorker?.getRegistration();
-    if (!reg) return; // SW registers in prod builds only
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return 'unsupported';
+    if (notifSupported() && Notification.permission !== 'granted') return 'denied';
+    const reg = await swReady();
+    if (!reg) return 'no-sw'; // SW registers in prod builds only
     const res = await fetch('/api/push/vapid');
-    if (!res.ok) return;
+    if (!res.ok) return 'no-vapid';
     const { key } = await res.json();
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlB64ToU8(key),
     });
-    await fetch('/api/push/subscribe', {
+    const post = await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify(sub.toJSON()),
     });
-  } catch { /* push stays best-effort */ }
+    return post.ok ? 'ok' : 'error';
+  } catch {
+    return 'error';
+  }
 };
 
 const unsubscribePush = async () => {
@@ -232,6 +259,26 @@ const SignalAlertProvider = ({ children }) => {
     if (on) subscribePush(); // register this device for server pushes
   }, []);
 
+  // Get this device fully push-subscribed, prompting for permission if needed.
+  // Powers the Settings "Test notification" button so ONE tap does the whole
+  // flow (prompt → subscribe → the caller then sends the test), instead of the
+  // button failing with "no devices" when the user never enabled alerts.
+  // Returns the subscribePush status ('ok' | 'unsupported' | 'denied' | ...).
+  const ensureSubscribed = useCallback(async () => {
+    if (!notifSupported() || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      return 'unsupported';
+    }
+    let perm = Notification.permission;
+    if (perm === 'default') {
+      try { perm = await Notification.requestPermission(); } catch { perm = Notification.permission; }
+      setPermission(perm);
+    }
+    if (perm !== 'granted') return 'denied';
+    setBrowserEnabled(true);
+    try { localStorage.setItem(PREF_KEY, 'on'); } catch { /* noop */ }
+    return subscribePush();
+  }, []);
+
   // Every device with granted permission (and no explicit opt-out) subscribes
   // on load: covers users who granted before default-ON shipped, devices whose
   // subscription was cleared, and fresh logins. pushManager.subscribe returns
@@ -260,7 +307,7 @@ const SignalAlertProvider = ({ children }) => {
   }, []);
 
   return (
-    <SignalAlertContext.Provider value={{ browserEnabled, toggleBrowser, permission }}>
+    <SignalAlertContext.Provider value={{ browserEnabled, toggleBrowser, ensureSubscribed, permission }}>
       {children}
       {showNudge && (
         <div className="notif-nudge" role="dialog" aria-label="Enable notifications">
