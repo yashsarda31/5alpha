@@ -37,11 +37,13 @@
 .wl-actions a {
   text-decoration: none;
   opacity: 0.7;
-  transition: opacity 0.15s ease, transform 0.1s ease;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary-accent);
+  transition: opacity 0.15s ease;
 }
 .wl-actions a:hover {
   opacity: 1;
-  transform: scale(1.12);
 }
 
 .wl-remove {

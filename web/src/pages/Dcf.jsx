@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
+import useAutoAiInsight from '../lib/useAutoAiInsight';
 import './Dcf.css';
 
 // Steppers accumulate float noise (6.88 - 0.1 -> 6.7799...94) without rounding
@@ -218,6 +219,10 @@ const Dcf = () => {
     }
   };
 
+  // With a saved Gemini key, the valuation insight generates itself once per
+  // loaded ticker — no click needed on first run.
+  useAutoAiInsight(stockData, runAiAnalysis);
+
   return (
     <div className="dcf-calculator fade-in">
       {/* Top Header */}
@@ -234,7 +239,7 @@ const Dcf = () => {
             <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
               <input 
                 type="text" 
-                placeholder="🔍 Switch Ticker (e.g. MSFT)" 
+                placeholder="Switch Ticker (e.g. MSFT)"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 onKeyDown={handleSearch}
@@ -258,7 +263,7 @@ const Dcf = () => {
               height: 'fit-content'
             }}
           >
-            {aiLoading ? <><span className="spinner" style={{borderColor: 'rgba(62, 230, 255, 0.2)', borderTopColor: 'var(--primary-accent)', marginRight: '8px'}}></span> Analyzing...</> : '✨ Gemini AI Valuation'}
+            {aiLoading ? <><span className="spinner" style={{borderColor: 'rgba(62, 230, 255, 0.2)', borderTopColor: 'var(--primary-accent)', marginRight: '8px'}}></span> Analyzing...</> : 'Gemini AI Valuation'}
           </button>
         )}
       </div>
@@ -399,7 +404,7 @@ const Dcf = () => {
             <div className="summary-row" style={{ backgroundColor: 'var(--primary-accent-soft)' }}>
               <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary)' }}>Margin of Safety</span>
               <strong className="tnum" style={{ fontSize: '18px', color: marginOfSafety > 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>
-                {marginOfSafety < 0 && '👎'} {(marginOfSafety * 100).toFixed(2)}%
+                {(marginOfSafety * 100).toFixed(2)}%
               </strong>
             </div>
           </div>
@@ -415,7 +420,7 @@ const Dcf = () => {
       
       {aiReport && (
         <div className="ai-insight fade-in" style={{ marginTop: '20px', background: 'linear-gradient(135deg, rgba(62, 230, 255, 0.05) 0%, rgba(0, 0, 0, 0) 100%)', border: '1px solid rgba(62, 230, 255, 0.2)' }}>
-          <h3 style={{ color: 'var(--primary-accent)' }}>✨ AI Valuation Report</h3>
+          <h3 style={{ color: 'var(--primary-accent)' }}>AI Valuation Report</h3>
           <div className="ai-insight-content">
             <ReactMarkdown>{aiReport}</ReactMarkdown>
           </div>

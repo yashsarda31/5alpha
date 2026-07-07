@@ -753,19 +753,19 @@ const TradingGame = () => {
       {/* Header Area */}
       <PageHeader
         code="ARENA"
-        title="🎮 Discipline Arena"
+        title="Discipline Arena"
         subtitle="Gamify your psychology, risk controls, and trading consistency."
         right={
         <div style={{ display: 'flex', gap: '12px' }}>
           <button className="secondary" style={{ width: 'auto', padding: '10px 16px', fontSize: '13px' }} onClick={exportState}>
-            📥 Backup State
+            Backup State
           </button>
           <label className="secondary" style={{ width: 'auto', padding: '10px 16px', fontSize: '13px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', margin: 0 }}>
-            📤 Restore
+            Restore
             <input type="file" accept=".json" onChange={importState} style={{ display: 'none' }} />
           </label>
           <button className="secondary" style={{ width: 'auto', padding: '10px 16px', fontSize: '13px', borderColor: 'rgba(255,69,58,0.2)', color: 'var(--red-loss)' }} onClick={resetState}>
-            🚨 Reset
+            Reset
           </button>
         </div>
         }
@@ -885,7 +885,7 @@ const TradingGame = () => {
 
           {/* Inventory bag Card */}
           <div className="card">
-            <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>🎒 Equipment & Loot</h3>
+            <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>Equipment & Loot</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '16px' }}>Defeat bosses to earn gear. Click to equip passive buffs.</p>
             
             {gameState.inventory.length === 0 ? (
@@ -1003,7 +1003,7 @@ const TradingGame = () => {
 
           {/* Daily Quests List */}
           <div className="card">
-            <h3 style={{ fontSize: '18px', marginBottom: '4px' }}>🛡️ Daily Discipline Quests</h3>
+            <h3 style={{ fontSize: '18px', marginBottom: '4px' }}>Daily Discipline Quests</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '20px' }}>Tick off rules you have successfully followed in today's sessions.</p>
 
             <button 
@@ -1073,7 +1073,7 @@ const TradingGame = () => {
           
           {/* Mood Log Card */}
           <div className="card">
-            <h3 style={{ fontSize: '18px', marginBottom: '4px' }}>🧠 Psychological Mood Logger</h3>
+            <h3 style={{ fontSize: '18px', marginBottom: '4px' }}>Psychological Mood Logger</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '16px' }}>Rate your calm/happiness state before, during, or after trading.</p>
 
             <form onSubmit={handleLogMood}>
@@ -1120,7 +1120,7 @@ const TradingGame = () => {
 
           {/* Discipline Journal Card */}
           <div className="card">
-            <h3 style={{ fontSize: '18px', marginBottom: '4px' }}>✍️ Discipline Journal</h3>
+            <h3 style={{ fontSize: '18px', marginBottom: '4px' }}>Discipline Journal</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '16px' }}>Log lessons, rule breaks, or personal wins. Daily first log awards +30 XP.</p>
 
             <form onSubmit={handleSaveJournal}>
@@ -1152,25 +1152,25 @@ const TradingGame = () => {
                   className={`tag-pill ${journalTags.sizing ? 'active' : ''}`}
                   onClick={() => setJournalTags(prev => ({ ...prev, sizing: !prev.sizing }))}
                 >
-                  ⚖️ Sizing
+                  Sizing
                 </span>
                 <span 
                   className={`tag-pill ${journalTags.overtrade ? 'active' : ''}`}
                   onClick={() => setJournalTags(prev => ({ ...prev, overtrade: !prev.overtrade }))}
                 >
-                  ⏳ Overtrade
+                  Overtrade
                 </span>
                 <span 
                   className={`tag-pill ${journalTags.revenge ? 'active' : ''}`}
                   onClick={() => setJournalTags(prev => ({ ...prev, revenge: !prev.revenge }))}
                 >
-                  👿 Revenge
+                  Revenge
                 </span>
                 <span 
                   className={`tag-pill ${journalTags.setup ? 'active' : ''}`}
                   onClick={() => setJournalTags(prev => ({ ...prev, setup: !prev.setup }))}
                 >
-                  📈 Setup Check
+                  Setup Check
                 </span>
               </div>
 
@@ -1185,7 +1185,7 @@ const TradingGame = () => {
 
       {/* ================= BOTTOM ROW: HISTORY FEED ================= */}
       <div className="card" style={{ marginTop: '24px' }}>
-        <h3 style={{ fontSize: '18px', marginBottom: '4px' }}>📖 Discipline Logs History</h3>
+        <h3 style={{ fontSize: '18px', marginBottom: '4px' }}>Discipline Logs History</h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '20px' }}>A historical feed of your mental state and trading notes.</p>
 
         {gameState.journalLogs.length === 0 ? (

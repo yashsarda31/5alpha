@@ -3,6 +3,7 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PageHeader } from '../components/ui';
+import useAutoAiInsight from '../lib/useAutoAiInsight';
 
 const PositionSizing = () => {
   const [capital, setCapital] = useState(10000);
@@ -37,10 +38,15 @@ const PositionSizing = () => {
       });
       setAiReport(res.data.report);
     } catch (err) {
-      alert("Error fetching AI analysis: " + err.message);
+      // Inline, not alert() — this can run unattended via auto-insight
+      setAiReport(`**Error generating analysis:** ${err.response?.data?.detail || err.message}`);
     }
     setAiLoading(false);
   };
+
+  // The calculator always has live values, so with a saved Gemini key the
+  // risk insight generates itself once on first visit.
+  useAutoAiInsight('mount', runAiAnalysis);
 
   return (
     <div className="fade-in">
@@ -121,7 +127,7 @@ const PositionSizing = () => {
           <div style={{ marginTop: '24px' }}>
             {!aiReport ? (
               <button onClick={runAiAnalysis} disabled={aiLoading} className="secondary">
-                {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "⚡ GENERATE GEMINI AI RISK INSIGHT"}
+                {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "GENERATE GEMINI AI RISK INSIGHT"}
               </button>
             ) : (
               <div className="ai-insight">

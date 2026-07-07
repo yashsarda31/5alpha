@@ -51,8 +51,8 @@ const MyWatchlist = () => {
   return (
     <div>
       <div className="dash-section-head">
-        <SectionTitle icon="⭐">My Watchlist</SectionTitle>
-        {symbols.length > 0 && <Link to="/watchlist" className="dash-manage-link">Manage ⭐</Link>}
+        <SectionTitle>My Watchlist</SectionTitle>
+        {symbols.length > 0 && <Link to="/watchlist" className="dash-manage-link">Manage</Link>}
       </div>
       {loading ? (
         <div className="dash-mover-grid">
@@ -96,14 +96,14 @@ const MyWatchlist = () => {
 };
 
 const NAV_MODULES = [
-  { to: '/signals', icon: '⚡', title: 'SIG > Market Signals', desc: 'Options intelligence, regime context & scored setups.' },
-  { to: '/focus', icon: '🎯', title: 'FCS > Focus List', desc: 'Today\'s stocks flagged by setups, momentum & flow.' },
-  { to: '/option-chain', icon: '⛓️', title: 'OCHN > Option Chain', desc: 'Institutional derivative analytics & structural mapping.' },
-  { to: '/chart', icon: '📈', title: 'GP > Chart Analyser', desc: 'Technical analysis with Minervini VCP ratings.' },
-  { to: '/screener', icon: '🔍', title: 'EQS > Quant Screener', desc: 'Filter market using institutional constraints.' },
-  { to: '/dcf', icon: '💵', title: 'DCF > Valuations', desc: 'Intrinsic value via reverse-engineered cash flows.' },
-  { to: '/fiidii', icon: '🏦', title: 'FLOW > Inst. Activity', desc: 'Track FII/DII cash market activity and flow.' },
-  { to: '/arima', icon: '🔮', title: 'FORE > SARIMAX', desc: 'Time-series modeling for equity trajectory.' },
+  { to: '/signals', code: 'SIG', title: 'Market Signals', desc: 'Options intelligence, regime context & scored setups.' },
+  { to: '/focus', code: 'FCS', title: 'Focus List', desc: 'Today\'s stocks flagged by setups, momentum & flow.' },
+  { to: '/option-chain', code: 'OCHN', title: 'Option Chain', desc: 'Institutional derivative analytics & structural mapping.' },
+  { to: '/chart', code: 'GP', title: 'Chart Analyser', desc: 'Technical analysis with Minervini VCP ratings.' },
+  { to: '/screener', code: 'EQS', title: 'Quant Screener', desc: 'Filter market using institutional constraints.' },
+  { to: '/dcf', code: 'DCF', title: 'Valuations', desc: 'Intrinsic value via reverse-engineered cash flows.' },
+  { to: '/fiidii', code: 'FLOW', title: 'Inst. Activity', desc: 'Track FII/DII cash market activity and flow.' },
+  { to: '/arima', code: 'FORE', title: 'SARIMAX', desc: 'Time-series modeling for equity trajectory.' },
 ];
 
 // Daily NIFTY call — the retention hook. Pre-lock: two buttons. Locked: your
@@ -126,7 +126,7 @@ const TodaysCall = () => {
     try { await submit(choice); } catch { /* context surfaces error */ } finally { setBusy(false); }
   };
 
-  const flame = <span className="tc-streak" title="Current streak">🔥 {streak}</span>;
+  const flame = <span className="tc-streak" title="Current streak">Streak {streak}</span>;
   const label = (c) => (c === 'UP' ? 'GREEN' : c === 'DOWN' ? 'RED' : '—');
 
   let body;
@@ -157,11 +157,11 @@ const TodaysCall = () => {
         <button
           className={`tc-btn up ${yourChoice === 'UP' ? 'active' : ''}`}
           onClick={() => pick('UP')} disabled={busy}
-        >🟢 Green</button>
+        >Green ▲</button>
         <button
           className={`tc-btn down ${yourChoice === 'DOWN' ? 'active' : ''}`}
           onClick={() => pick('DOWN')} disabled={busy}
-        >🔴 Red</button>
+        >Red ▼</button>
         {yourChoice && <span className="tc-locknote">Locks at market open · tap to change</span>}
       </div>
     );
@@ -171,7 +171,7 @@ const TodaysCall = () => {
     <div className="tc-card">
       <div className="tc-head">
         <div>
-          <div className="tc-title">🎯 Today's Call</div>
+          <div className="tc-title">Today's Call</div>
           <div className="tc-prompt">{today.prompt}</div>
         </div>
         <div className="tc-right">
@@ -244,7 +244,7 @@ const Dashboard = () => {
 
       <div className="dash-grid">
         <div>
-          <SectionTitle icon="📊">Top Movers{moversMarket === 'US' ? ' · US markets' : ''}</SectionTitle>
+          <SectionTitle>Top Movers{moversMarket === 'US' ? ' · US markets' : ''}</SectionTitle>
           <div className="dash-mover-grid">
             {loading ? (
               [1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} height={62} />)
@@ -273,7 +273,7 @@ const Dashboard = () => {
         </div>
 
         <div>
-          <SectionTitle icon="🌐">Macro</SectionTitle>
+          <SectionTitle>Macro</SectionTitle>
           <DataTable
             columns={MACRO_COLUMNS}
             rows={indices}
@@ -286,11 +286,11 @@ const Dashboard = () => {
 
       <TodaysCall />
 
-      <SectionTitle icon="🧩">Analytics Modules</SectionTitle>
+      <SectionTitle>Analytics Modules</SectionTitle>
       <div className="dash-nav-grid">
         {NAV_MODULES.map((mod) => (
           <Link key={mod.to} to={mod.to} className="dash-nav-card">
-            <span className="dash-nav-icon">{mod.icon}</span>
+            <span className="dash-nav-icon ui-code-chip">{mod.code}</span>
             <span className="dash-nav-title">{mod.title}</span>
             <span className="dash-nav-desc">{mod.desc}</span>
           </Link>

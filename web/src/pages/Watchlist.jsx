@@ -124,8 +124,8 @@ const Watchlist = () => {
       key: 'actions', label: '', align: 'right',
       render: (r) => (
         <span className="wl-actions">
-          <Link to={`/chart?symbol=${chartSym(r)}`} title="Chart Analyser">📈</Link>
-          <Link to={`/fundamentals?symbol=${chartSym(r)}`} title="Fundamentals">📊</Link>
+          <Link to={`/chart?symbol=${chartSym(r)}`} title="Chart Analyser">Chart</Link>
+          <Link to={`/fundamentals?symbol=${chartSym(r)}`} title="Fundamentals">Fund.</Link>
           <button
             type="button"
             className="wl-remove"
@@ -157,7 +157,7 @@ const Watchlist = () => {
         rowKey={(r) => r.symbol}
         loading={loading}
         empty={
-          <EmptyState icon="⭐" title="Your watchlist is empty">
+          <EmptyState title="Your watchlist is empty">
             Track your stocks: tap the ☆ on any Chart, Screener result, Momentum leader,
             or a mover on your Dashboard — or add one by symbol above.
           </EmptyState>

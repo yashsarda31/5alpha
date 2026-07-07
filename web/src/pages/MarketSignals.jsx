@@ -102,7 +102,7 @@ const MarketSignals = () => {
       />
 
       {/* ---- Regime context ---- */}
-      <div className="signals-section-title">🌡 Regime Context</div>
+      <div className="signals-section-title">Regime Context</div>
       <div className="regime-grid">
         <div className="regime-card regime-hero">
           <div className="label">Market Regime</div>
@@ -146,7 +146,7 @@ const MarketSignals = () => {
       </div>
 
       {/* ---- Options intelligence ---- */}
-      <div className="signals-section-title">⛓ Options Intelligence</div>
+      <div className="signals-section-title">Options Intelligence</div>
       <div className="oc-summary-grid">
         {options.indices.map(oc => {
           const mpDrift = oc.spot ? ((oc.max_pain - oc.spot) / oc.spot) * 100 : 0;
@@ -204,7 +204,7 @@ const MarketSignals = () => {
 
       {options.ideas?.length > 0 && (
         <>
-          <div className="signals-section-title">💡 Index Option Structures</div>
+          <div className="signals-section-title">Index Option Structures</div>
           {options.ideas.map((idea, i) => (
             <div className="idea-row" key={i}>
               <span className={`idea-chip bias-${idea.bias}`}>{idea.symbol} · {idea.bias}</span>
@@ -215,14 +215,13 @@ const MarketSignals = () => {
       )}
 
       {/* ---- Actionable setups ---- */}
-      <div className="signals-section-title">🎯 Actionable Setups
+      <div className="signals-section-title">Actionable Setups
         <span style={{ color: 'var(--text-secondary)', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
           · index bias: <strong className={setups.index_bias === 'bull' ? 'side-LONG' : setups.index_bias === 'bear' ? 'side-SHORT' : ''}>{setups.index_bias.toUpperCase()}</strong> · {setups.radar_size} names on radar
         </span>
       </div>
       {setups.plans.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '32px' }}>
-          <div style={{ fontSize: '28px', marginBottom: '8px' }}>🕸</div>
           <h3 style={{ marginBottom: '6px' }}>No high-conviction setups right now</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
             {isUS

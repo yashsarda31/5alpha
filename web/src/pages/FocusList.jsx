@@ -82,7 +82,6 @@ const FocusList = () => {
 
           {data.stocks.length === 0 ? (
             <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-              <div style={{ fontSize: '30px', marginBottom: '10px' }}>🕸</div>
               <h3 style={{ marginBottom: '6px' }}>Nothing flagged right now</h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
                 Signals build through the session — check back after the first half hour of trading.

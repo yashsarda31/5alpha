@@ -451,17 +451,23 @@ async def get_chart(ticker: str):
     df_1y.index = df_1y.index.strftime('%Y-%m-%d')
     # Fill any remaining NaNs
     df_1y = df_1y.ffill().bfill()
-    
+
+    # Raw yfinance floats carry precision noise (e.g. 2456.8999999999996)
+    # that leaks into the UI and AI prompts — round at the source.
+    def _r2list(series, nd=2):
+        return [round(float(v), nd) if math.isfinite(float(v)) else None
+                for v in series.tolist()]
+
     payload = {
         "ticker": resolved.upper(),
         "dates": df_1y.index.tolist(),
-        "open": df_1y['Open'].tolist(),
-        "high": df_1y['High'].tolist(),
-        "low": df_1y['Low'].tolist(),
-        "close": df_1y['Close'].tolist(),
-        "volume": df_1y['Volume'].tolist(),
-        "sma20": df_1y['SMA_20'].tolist(),
-        "rsi": df_1y['RSI'].tolist(),
+        "open": _r2list(df_1y['Open']),
+        "high": _r2list(df_1y['High']),
+        "low": _r2list(df_1y['Low']),
+        "close": _r2list(df_1y['Close']),
+        "volume": [int(v) if math.isfinite(float(v)) else 0 for v in df_1y['Volume'].tolist()],
+        "sma20": _r2list(df_1y['SMA_20']),
+        "rsi": _r2list(df_1y['RSI']),
         "vcp_rating": vcp_rating
     }
     return payload
@@ -1182,6 +1188,17 @@ async def get_momentum(market: str = "us"):
                 vol_ratio = vol / avg_vol if avg_vol else 0.0
                 spark = [round(float(c), 2) for c in closes.tail(60)]
 
+                # Last ~60 sessions of OHLCV for the frontend candlestick
+                # charts (spark stays for back-compat with Focus List)
+                ohlc = h.dropna(subset=["Open", "High", "Low", "Close"]).tail(60)
+                candles = {
+                    "o": [round(float(x), 2) for x in ohlc["Open"]],
+                    "h": [round(float(x), 2) for x in ohlc["High"]],
+                    "l": [round(float(x), 2) for x in ohlc["Low"]],
+                    "c": [round(float(x), 2) for x in ohlc["Close"]],
+                    "v": [int(x) if np.isfinite(x) else 0 for x in ohlc["Volume"].fillna(0)],
+                }
+
                 # --- Breakout scan: last trade above the PRIOR high (today excluded) ---
                 prior_highs = h["High"].iloc[:-1]
                 hi20 = float(prior_highs.tail(20).max())
@@ -1202,6 +1219,7 @@ async def get_momentum(market: str = "us"):
                         "vol_ratio": round(vol_ratio, 2),
                         "rsi": round(rsi, 1),
                         "spark": spark,
+                        "candles": candles,
                         # strength: rarer high + volume conviction + move size
                         "_rank": ({"52W HIGH": 3, "3M HIGH": 2, "20D HIGH": 1}[btype]
                                   * (1 + min(vol_ratio, 4)) * (1 + abs(chg_today))),
@@ -1229,6 +1247,7 @@ async def get_momentum(market: str = "us"):
                     "dist_50dma": round(dist_50dma, 2),
                     "vol_ratio": round(vol_ratio, 2),
                     "spark": spark,
+                    "candles": candles,
                 })
             except Exception:
                 continue
@@ -1274,6 +1293,13 @@ async def get_fundamentals(ticker: str):
                 div_pct=info.get("dividendYield")
             )
             
+            # Percent conversions (x * 100) and raw Yahoo ratios both carry
+            # float noise (12.000000000000002) — round every numeric metric.
+            def _r2(v, nd=2):
+                if isinstance(v, (int, float)) and math.isfinite(v):
+                    return round(v, nd)
+                return v
+
             # Extract relevant metrics
             metrics = {
                 "alphaScore": alpha_score,
@@ -1282,21 +1308,21 @@ async def get_fundamentals(ticker: str):
                 "sector": info.get("sector", "N/A"),
                 "industry": info.get("industry", "N/A"),
                 "marketCap": info.get("marketCap", 0),
-                "trailingPE": info.get("trailingPE", "N/A"),
-                "forwardPE": info.get("forwardPE", "N/A"),
-                "pegRatio": info.get("pegRatio", "N/A"),
-                "priceToBook": info.get("priceToBook", "N/A"),
-                "dividendYield": info.get("dividendYield", 0) if info.get("dividendYield") else 0,
-                "profitMargin": info.get("profitMargins", 0) * 100 if info.get("profitMargins") else 0,
-                "operatingMargin": info.get("operatingMargins", 0) * 100 if info.get("operatingMargins") else 0,
-                "returnOnAssets": info.get("returnOnAssets", 0) * 100 if info.get("returnOnAssets") else 0,
-                "returnOnEquity": info.get("returnOnEquity", 0) * 100 if info.get("returnOnEquity") else 0,
-                "revenueGrowth": info.get("revenueGrowth", 0) * 100 if info.get("revenueGrowth") else 0,
-                "earningsGrowth": info.get("earningsGrowth", 0) * 100 if info.get("earningsGrowth") else 0,
-                "trailingEps": info.get("trailingEps", "N/A"),
-                "forwardEps": info.get("forwardEps", "N/A"),
-                "debtToEquity": info.get("debtToEquity", "N/A"),
-                "currentRatio": info.get("currentRatio", "N/A"),
+                "trailingPE": _r2(info.get("trailingPE", "N/A")),
+                "forwardPE": _r2(info.get("forwardPE", "N/A")),
+                "pegRatio": _r2(info.get("pegRatio", "N/A")),
+                "priceToBook": _r2(info.get("priceToBook", "N/A")),
+                "dividendYield": _r2(info.get("dividendYield", 0) if info.get("dividendYield") else 0),
+                "profitMargin": _r2(info.get("profitMargins", 0) * 100 if info.get("profitMargins") else 0),
+                "operatingMargin": _r2(info.get("operatingMargins", 0) * 100 if info.get("operatingMargins") else 0),
+                "returnOnAssets": _r2(info.get("returnOnAssets", 0) * 100 if info.get("returnOnAssets") else 0),
+                "returnOnEquity": _r2(info.get("returnOnEquity", 0) * 100 if info.get("returnOnEquity") else 0),
+                "revenueGrowth": _r2(info.get("revenueGrowth", 0) * 100 if info.get("revenueGrowth") else 0),
+                "earningsGrowth": _r2(info.get("earningsGrowth", 0) * 100 if info.get("earningsGrowth") else 0),
+                "trailingEps": _r2(info.get("trailingEps", "N/A")),
+                "forwardEps": _r2(info.get("forwardEps", "N/A")),
+                "debtToEquity": _r2(info.get("debtToEquity", "N/A")),
+                "currentRatio": _r2(info.get("currentRatio", "N/A")),
                 "totalCash": info.get("totalCash", 0),
                 "totalDebt": info.get("totalDebt", 0),
                 "freeCashflow": info.get("freeCashflow", 0)
@@ -3702,7 +3728,7 @@ def _broadcast_new_plans(plans, mkt, currency):
         futs = []
         for p in fresh:
             payload = json.dumps({
-                "title": f"⚡ {p['side']} {p['symbol']} · {p.get('score')}/100",
+                "title": f"{p['side']} {p['symbol']} · {p.get('score')}/100",
                 "body": f"entry {currency}{p.get('entry'):,} · stop {currency}{p.get('stop'):,} · target {currency}{p.get('target'):,}",
                 "tag": f"{p['symbol']}|{p['side']}|{p.get('kind')}",
                 "url": "/signals",

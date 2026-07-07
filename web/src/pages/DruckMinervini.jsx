@@ -158,7 +158,7 @@ const DruckMinervini = () => {
     <div className="page" style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
       <PageHeader
         code="SEPA"
-        title="🦅 Druckenmiller + Minervini Trade Analyzer"
+        title="Druckenmiller + Minervini Trade Analyzer"
         subtitle="Evaluate technical setups with Mark Minervini's SEPA (Stage 2 Uptrends, VCP, Pivot Breakouts) integrated with Stanley Druckenmiller's macroeconomic liquidity and sizing principles."
       />
 
@@ -167,7 +167,7 @@ const DruckMinervini = () => {
         {/* INPUTS PANEL */}
         <div className="card" style={{ padding: '24px' }}>
           <h3 style={{ marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', color: 'var(--primary-gold)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>🛠️</span> Setup Parameters
+            Setup Parameters
           </h3>
           <form onSubmit={handleAnalyze}>
             <div style={{ marginBottom: '20px' }}>
@@ -268,7 +268,6 @@ const DruckMinervini = () => {
                   </div>
                 ) : (
                   <div>
-                    <span style={{ fontSize: '36px', display: 'block', marginBottom: '8px' }}>📤</span>
                     <span style={{ display: 'block', fontWeight: '500', marginBottom: '4px' }}>Drag & Drop Chart Image</span>
                     <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)' }}>or click to browse from files</span>
                   </div>
@@ -302,9 +301,7 @@ const DruckMinervini = () => {
                   Analyzing E2E Setup...
                 </>
               ) : (
-                <>
-                  <span>⚡</span> Execute Trade Analysis
-                </>
+                <>Execute Trade Analysis</>
               )}
             </button>
           </form>
@@ -332,12 +329,11 @@ const DruckMinervini = () => {
                   fontWeight: '600',
                   fontSize: '13px'
                 }}>
-                  {convictionScore >= 8 ? '🎯 Tier 1 Conviction Setup' : convictionScore >= 5 ? '⚠️ Tier 2 Tactical Setup' : '🚫 Neutral / High Risk'}
+                  {convictionScore >= 8 ? 'Tier 1 Conviction Setup' : convictionScore >= 5 ? 'Tier 2 Tactical Setup' : 'Neutral / High Risk'}
                 </div>
               </div>
             ) : (
               <div style={{ color: 'var(--text-secondary)' }}>
-                <span style={{ fontSize: '40px', display: 'block', marginBottom: '8px' }}>⚖️</span>
                 Run trade analysis to calculate conviction alignment rating.
               </div>
             )}
@@ -346,7 +342,7 @@ const DruckMinervini = () => {
           {/* DYNAMIC POSITION SIZING CALCULATOR */}
           <div className="card" style={{ padding: '24px' }}>
             <h3 style={{ marginBottom: '16px', color: 'var(--primary-gold)', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>⚖️</span> Goldman Sizing Engine
+              Goldman Sizing Engine
             </h3>
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
@@ -420,7 +416,7 @@ const DruckMinervini = () => {
                 </div>
                 {positionSizePct > 25 && (
                   <div style={{ marginTop: '12px', fontSize: '11px', color: 'var(--primary-gold)', background: 'rgba(212,175,55,0.08)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(212,175,55,0.2)' }}>
-                    🔥 <strong>Druckenmiller Size Alert:</strong> Extremely large capital allocation ({positionSizePct.toFixed(0)}%). Highly aggressive! Ensure macroeconomic factors are extremely strong.
+                    <strong>Druckenmiller Size Alert:</strong> Extremely large capital allocation ({positionSizePct.toFixed(0)}%). Highly aggressive! Ensure macroeconomic factors are extremely strong.
                   </div>
                 )}
               </div>
@@ -450,7 +446,7 @@ const DruckMinervini = () => {
               {/* MINERVINI CHECKLIST */}
               <div className="card" style={{ padding: '24px' }}>
                 <h3 style={{ marginBottom: '16px', color: 'var(--primary-gold)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>✓</span> Minervini Stage 2 Trend Template Rules
+                  Minervini Stage 2 Trend Template Rules
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {Object.entries(results.sepa_checks).map(([key, check]) => (
@@ -473,7 +469,7 @@ const DruckMinervini = () => {
               {results.chart_data && (
                 <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column' }}>
                   <h3 style={{ marginBottom: '12px', color: 'var(--primary-gold)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>📈</span> Python Trend Overlay
+                    Python Trend Overlay
                   </h3>
                   <div style={{ flex: 1, minHeight: '380px' }}>
                     <Plot
@@ -543,7 +539,7 @@ const DruckMinervini = () => {
           <div className="card" style={{ padding: '32px' }}>
             <h3 style={{ marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', color: 'var(--primary-gold)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>🦅</span> Macro-Micro Investment Research Report
+                Macro-Micro Investment Research Report
               </span>
               <button 
                 onClick={() => {

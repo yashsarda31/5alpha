@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { PageHeader } from '../components/ui';
+import useAutoAiInsight from '../lib/useAutoAiInsight';
 
 const currencyFor = (ticker) => {
   const t = (ticker || '').toUpperCase();
@@ -73,6 +74,10 @@ const Fundamentals = () => {
     }
   };
 
+  // With a saved Gemini key, the AI report generates itself once per loaded
+  // company — no click needed on first run.
+  useAutoAiInsight(data && !data.error ? data : null, runAiAnalysis);
+
   return (
     <div className="page fade-in">
       <PageHeader
@@ -92,7 +97,7 @@ const Fundamentals = () => {
               borderRadius: 'var(--r-pill)'
             }}
           >
-            {aiLoading ? <><span className="spinner" style={{borderColor: 'rgba(62, 230, 255, 0.2)', borderTopColor: 'var(--primary-accent)', marginRight: '8px'}}></span> Analyzing...</> : '✨ Gemini AI Analysis'}
+            {aiLoading ? <><span className="spinner" style={{borderColor: 'rgba(62, 230, 255, 0.2)', borderTopColor: 'var(--primary-accent)', marginRight: '8px'}}></span> Analyzing...</> : 'Gemini AI Analysis'}
           </button>
         )}
       />
@@ -140,7 +145,7 @@ const Fundamentals = () => {
 
       {aiReport && (
         <div className="ai-insight fade-in" style={{ marginBottom: '20px', background: 'linear-gradient(135deg, rgba(62, 230, 255, 0.05) 0%, rgba(0, 0, 0, 0) 100%)', border: '1px solid rgba(62, 230, 255, 0.2)' }}>
-          <h3 style={{ color: 'var(--primary-accent)' }}>✨ Fundamental AI Report</h3>
+          <h3 style={{ color: 'var(--primary-accent)' }}>Fundamental AI Report</h3>
           <div className="ai-insight-content">
             <ReactMarkdown>{aiReport}</ReactMarkdown>
           </div>

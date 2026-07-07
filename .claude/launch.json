@@ -10,9 +10,16 @@
     {
       "name": "web-dist",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "preview", "--outDir", "dist", "--port", "4173", "--strictPort"],
+      "runtimeArgs": ["vite", "preview", "--outDir", "dist", "--port", "4174", "--strictPort"],
       "cwd": "web",
-      "port": 4173
+      "port": 4174
+    },
+    {
+      "name": "web-dist-alt",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "preview", "--outDir", "dist", "--port", "4176", "--strictPort"],
+      "cwd": "web",
+      "port": 4176
     },
     {
       "name": "web-dev",

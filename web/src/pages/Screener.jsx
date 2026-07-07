@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PageHeader } from '../components/ui';
 import WatchlistStar from '../components/WatchlistStar';
+import useAutoAiInsight from '../lib/useAutoAiInsight';
 
 const COLUMNS = [
   { key: 'ticker', label: 'Ticker', numeric: false },
@@ -26,19 +27,19 @@ const currencyFor = (ticker) => {
 // exactly what each screen applies before running it.
 const GURU_SCREENS = {
   buffett: {
-    name: 'Buffett', icon: '🏛', accent: 'var(--primary-gold)',
+    name: 'Buffett', accent: 'var(--primary-gold)',
     desc: 'Quality at a fair price: durable profitability (ROE ≥ 15%), sensible valuation (P/E ≤ 25), still growing (EPS ≥ 5%), strong Alpha Score.',
     filters: { maxPe: '25', minDiv: '', minRoe: '15', minEpsGrowth: '5', minMomentum: '', minAlphaScore: '60' },
     sort: 'alphaScore',
   },
   minervini: {
-    name: 'Minervini', icon: '🚀', accent: 'var(--primary-accent)',
+    name: 'Minervini', accent: 'var(--primary-accent)',
     desc: 'SEPA-style leaders: strong multi-timeframe momentum (≥ 15%) with accelerating earnings (EPS growth ≥ 20%). Trend first, valuation second.',
     filters: { maxPe: '', minDiv: '', minRoe: '', minEpsGrowth: '20', minMomentum: '15', minAlphaScore: '' },
     sort: 'momentum',
   },
   greenblatt: {
-    name: 'Greenblatt', icon: '🧮', accent: 'var(--green-gain)',
+    name: 'Greenblatt', accent: 'var(--green-gain)',
     desc: 'Magic Formula proxy: good businesses (ROE ≥ 20% for return on capital) at cheap prices (P/E ≤ 20 for earnings yield ≥ 5%).',
     filters: { maxPe: '20', minDiv: '', minRoe: '20', minEpsGrowth: '', minMomentum: '', minAlphaScore: '' },
     sort: 'roe',
@@ -190,10 +191,15 @@ const Screener = () => {
       });
       setAiReport(res.data.report);
     } catch (err) {
-      alert("Error fetching AI analysis: " + err.message);
+      // Inline, not alert() — this can run unattended via auto-insight
+      setAiReport(`**Error generating analysis:** ${err.response?.data?.detail || err.message}`);
     }
     setAiLoading(false);
   };
+
+  // With a saved Gemini key, the screener insight generates itself after each
+  // screen run (keyed on the results array, so new runs refresh it).
+  useAutoAiInsight(hasRun && data.length > 0 ? data : null, runAiAnalysis);
 
   return (
     <div>
@@ -214,14 +220,14 @@ const Screener = () => {
               boxShadow: activeGuru === key ? `0 0 12px ${g.accent}33` : 'none'
             }}
           >
-            {g.icon} {g.name}
+            {g.name}
           </button>
         ))}
       </div>
 
       {activeGuru && (
         <div className="card" style={{ padding: '12px 16px', marginBottom: '14px', fontSize: '13px', color: 'var(--text-secondary)', borderLeft: `3px solid ${GURU_SCREENS[activeGuru].accent}` }}>
-          <strong style={{ color: GURU_SCREENS[activeGuru].accent }}>{GURU_SCREENS[activeGuru].icon} {GURU_SCREENS[activeGuru].name} screen:</strong>{' '}
+          <strong style={{ color: GURU_SCREENS[activeGuru].accent }}>{GURU_SCREENS[activeGuru].name} screen:</strong>{' '}
           {GURU_SCREENS[activeGuru].desc} The filter boxes below now hold these criteria — tweak them freely, then RUN SCREEN.
         </div>
       )}
@@ -254,7 +260,6 @@ const Screener = () => {
                       border: '1px solid var(--primary-accent-border)',
                     }}
                   >
-                    <span style={{ fontSize: '20px' }}>📊</span>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 700, color: 'var(--primary-accent)' }}>
                         {preset} — scanning {universeMeta?.count} stocks
@@ -326,7 +331,7 @@ const Screener = () => {
           </div>
           <div className="form-group">
             <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }} title="Composite of 1M, 6M and 12M returns — same as the Momentum Leaders tab. Adds price history per stock, so large scans take a bit longer.">
-              Min Momentum % 🚀
+              Min Momentum %
             </label>
             <input
               type="number"
@@ -339,7 +344,7 @@ const Screener = () => {
           </div>
           <div className="form-group">
             <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }} title="Alpha Nova Score 0-100 (est.) — same formula as the DCF tab: valuation margin of safety, business predictability and P/E bonus.">
-              Min Alpha Score ✨
+              Min Alpha Score
             </label>
             <input
               type="number"
@@ -438,7 +443,6 @@ const Screener = () => {
           </>
         ) : hasRun ? (
           <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
-            <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔍</div>
             <h3 style={{ marginBottom: '8px' }}>No stocks passed your filters</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
               All {scanMeta?.scanned ?? requestedCount} stocks were screened out. Try relaxing the P/E, dividend, ROE, or EPS growth limits.
@@ -453,7 +457,7 @@ const Screener = () => {
         <div style={{ marginTop: '40px' }}>
           {!aiReport ? (
             <button onClick={runAiAnalysis} disabled={aiLoading} className="secondary">
-              {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "⚡ GENERATE GEMINI AI SCREENER INSIGHT"}
+              {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "GENERATE GEMINI AI SCREENER INSIGHT"}
             </button>
           ) : (
             <div className="ai-insight">

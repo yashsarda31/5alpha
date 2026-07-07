@@ -25,9 +25,52 @@ const pct = (v) => (
   <span className={v >= 0 ? 'tone-gain' : 'tone-loss'}>{v >= 0 ? '+' : ''}{Number(v).toFixed(2)}%</span>
 );
 
+// Inline SVG candlestick chart with a volume strip — real OHLC candles without
+// pulling Plotly's 1.2MB bundle into this page. `level` draws a dashed line at
+// the breakout price; `bars` trims to the most recent N sessions so small
+// table cells stay readable.
+const CandleChart = ({ candles, level, width = 280, height = 96, bars }) => {
+  if (!candles || !candles.c || candles.c.length < 2) return null;
+  const n0 = candles.c.length;
+  const n = bars ? Math.min(bars, n0) : n0;
+  const sl = (arr) => (arr || []).slice(n0 - n);
+  const o = sl(candles.o), h = sl(candles.h), l = sl(candles.l), c = sl(candles.c), v = sl(candles.v);
+  const volH = Math.max(10, Math.round(height * 0.24));
+  const priceH = height - volH - 3;
+  const lo = Math.min(...l, level ?? Infinity);
+  const hi = Math.max(...h, level ?? -Infinity);
+  const range = hi - lo || 1;
+  const slot = width / n;
+  const bw = Math.max(1, Math.min(slot * 0.65, 9));
+  const px = (i) => i * slot + slot / 2;
+  const py = (val) => 2 + (1 - (val - lo) / range) * (priceH - 4);
+  const vMax = Math.max(...v, 1);
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }} aria-hidden="true">
+      {c.map((cl, i) => {
+        const up = cl >= o[i];
+        const col = up ? C.gain : C.loss;
+        const top = py(Math.max(o[i], cl));
+        const bot = py(Math.min(o[i], cl));
+        const vh = Math.max((v[i] / vMax) * volH, 0.5);
+        return (
+          <g key={i}>
+            <line x1={px(i)} x2={px(i)} y1={py(h[i])} y2={py(l[i])} stroke={col} strokeWidth="1" />
+            <rect x={px(i) - bw / 2} y={top} width={bw} height={Math.max(bot - top, 1)} fill={col} />
+            <rect x={px(i) - bw / 2} y={height - vh} width={bw} height={vh} fill={col} opacity="0.45" />
+          </g>
+        );
+      })}
+      {level != null && (
+        <line x1="0" x2={width} y1={py(level)} y2={py(level)} stroke={C.gold} strokeWidth="1" strokeDasharray="4 3" />
+      )}
+    </svg>
+  );
+};
+
 // Inline SVG price chart: area sparkline over the last ~60 sessions, with an
-// optional dashed line at the breakout level. No Plotly — keeps this page off
-// the 1.2MB chart bundle and renders instantly.
+// optional dashed line at the breakout level. Fallback while a cached
+// /api/momentum response predates the OHLCV `candles` field.
 const Spark = ({ values, level, width = 260, height = 72, stroke, id }) => {
   if (!values || values.length < 2) return null;
   const lo = Math.min(...values, level ?? Infinity);
@@ -79,13 +122,15 @@ const BreakoutCard = ({ b, market, cur }) => {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '0.06em', padding: '2px 7px', borderRadius: '4px', ...BADGE_STYLE[b.type] }}>
-          ⚡ {b.type}
+          {b.type}
         </span>
         <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
           broke {cur}{Number(b.level).toLocaleString('en-IN')} · now +{b.margin}% above
         </span>
       </div>
-      <Spark values={b.spark} level={b.level} id={`bo-${name}`} width={280} height={74} />
+      {b.candles
+        ? <CandleChart candles={b.candles} level={b.level} width={280} height={110} />
+        : <Spark values={b.spark} level={b.level} id={`bo-${name}`} width={280} height={74} />}
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
         <span>LTP <strong style={{ color: 'var(--text-primary)' }}>{cur}{Number(b.price).toLocaleString('en-IN')}</strong></span>
         <span title="Today's volume vs 20-day average">
@@ -135,7 +180,11 @@ const Momentum = () => {
         </Link>
       </span>
     ) },
-    { key: 'spark', label: '3M Trend', render: (r) => <Spark values={r.spark} width={110} height={30} id={`ld-${r.ticker}`} /> },
+    { key: 'spark', label: 'Trend (6W)', render: (r) => (
+      r.candles
+        ? <CandleChart candles={r.candles} bars={30} width={150} height={46} />
+        : <Spark values={r.spark} width={110} height={30} id={`ld-${r.ticker}`} />
+    ) },
     { key: 'price', label: 'Price', align: 'right', render: (r) => `${cur}${r.price}` },
     { key: 'chg_today', label: 'Today', align: 'right', render: (r) => pct(r.chg_today ?? 0) },
     { key: 'mom_1m', label: '1M', align: 'right', render: (r) => pct(r.mom_1m) },
@@ -184,7 +233,7 @@ const Momentum = () => {
         <>
           {/* ---- Breaking out today ---- */}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', margin: '4px 0 12px' }}>
-            <h3 style={{ margin: 0, fontSize: '15px', letterSpacing: '0.04em' }}>🔥 BREAKING OUT TODAY</h3>
+            <h3 style={{ margin: 0, fontSize: '15px', letterSpacing: '0.04em' }}>BREAKING OUT TODAY</h3>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
               price above its prior 20-day / 3-month / 52-week high · dashed line = level broken
             </span>
@@ -205,7 +254,7 @@ const Momentum = () => {
 
           {/* ---- Momentum leaders ---- */}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', margin: '4px 0 12px' }}>
-            <h3 style={{ margin: 0, fontSize: '15px', letterSpacing: '0.04em' }}>🚀 MOMENTUM LEADERS</h3>
+            <h3 style={{ margin: 0, fontSize: '15px', letterSpacing: '0.04em' }}>MOMENTUM LEADERS</h3>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
               ranked by average of 1M / 6M / 12M returns · click a ticker for the full chart
             </span>

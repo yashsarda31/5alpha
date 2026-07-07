@@ -22,7 +22,7 @@ const ToastStack = ({ toasts, onOpen, onDismiss }) => {
           >×</button>
           <div className="st-head">
             <span className="st-side">{t.side}</span>
-            <span className="st-sym">⚡ {t.symbol}</span>
+            <span className="st-sym">{t.symbol}</span>
             <span className="st-score">{t.score}/100</span>
           </div>
           <div className="st-levels">

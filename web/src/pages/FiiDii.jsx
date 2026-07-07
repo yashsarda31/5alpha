@@ -100,7 +100,7 @@ const FiiDii = () => {
       {loading ? (
         <div className="ui-table-wrap" style={{ padding: 16 }}><Skeleton rows={6} height={34} /></div>
       ) : error ? (
-        <EmptyState icon="⚠️" title="Data unavailable">
+        <EmptyState title="Data unavailable">
           {error}{' '}
           <button onClick={fetchData} style={{ width: 'auto', padding: '6px 16px', marginLeft: 8 }}>Retry</button>
         </EmptyState>

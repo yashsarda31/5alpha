@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, Bell, BellOff, Trophy, EyeOff } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { useSignalAlerts } from '../alerts/SignalAlertProvider';
 import { usePrediction } from '../PredictionContext';
@@ -19,7 +19,7 @@ const AlertBell = () => {
       title={title}
       disabled={permission === 'denied'}
     >
-      <span className="ab-ico">{browserEnabled ? '🔔' : '🔕'}</span>
+      <span className="ab-ico">{browserEnabled ? <Bell size={14} aria-hidden="true" /> : <BellOff size={14} aria-hidden="true" />}</span>
       Signal alerts
       <span className="ab-state">{state}</span>
     </button>
@@ -36,7 +36,7 @@ const LeaderboardOptOut = () => {
       onClick={() => setHidden(!hidden)}
       title="Show or hide your name on the Nifty Leaderboard"
     >
-      <span className="ab-ico">{hidden ? '🙈' : '🏆'}</span>
+      <span className="ab-ico">{hidden ? <EyeOff size={14} aria-hidden="true" /> : <Trophy size={14} aria-hidden="true" />}</span>
       Leaderboard
       <span className="ab-state">{hidden ? 'HIDDEN' : 'VISIBLE'}</span>
     </button>

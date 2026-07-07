@@ -62,7 +62,7 @@ const InstallApp = ({ compact = false }) => {
           cursor: 'pointer'
         }}
       >
-        <span>📲</span> Install App
+        Install App
       </button>
       {showHelp && (
         <div style={{

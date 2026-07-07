@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PageHeader } from '../components/ui';
 import Plot from '../components/Plot';
+import useAutoAiInsight from '../lib/useAutoAiInsight';
 
 const currencyFor = (ticker) => {
   const t = (ticker || '').toUpperCase();
@@ -48,12 +49,15 @@ const Arima = () => {
       });
       setAiReport(res.data.report);
     } catch (err) {
-      alert("Error fetching AI analysis: " + err.message);
+      // Inline, not alert() — this can run unattended via auto-insight
+      setAiReport(`**Error generating analysis:** ${err.response?.data?.detail || err.message}`);
     }
     setAiLoading(false);
   };
 
-  // Removed auto-run on mount
+  // With a saved Gemini key the forecast insight generates itself after each
+  // model run (keyed on the response object, so re-runs refresh it too).
+  useAutoAiInsight(forecastData, runAiAnalysis);
 
   return (
     <div>
@@ -142,7 +146,7 @@ const Arima = () => {
         <div style={{ marginTop: '24px' }}>
           {!aiReport ? (
             <button onClick={runAiAnalysis} disabled={aiLoading} className="secondary">
-              {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "⚡ GENERATE GEMINI AI FORECAST INSIGHT"}
+              {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "GENERATE GEMINI AI FORECAST INSIGHT"}
             </button>
           ) : (
             <div className="ai-insight">

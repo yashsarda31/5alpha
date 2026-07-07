@@ -108,7 +108,7 @@ a.dash-mover:hover {
   transform: translateY(-2px);
 }
 
-.dash-nav-icon { font-size: 20px; }
+.dash-nav-icon { align-self: flex-start; } /* module code chip (ui-code-chip) */
 .dash-nav-title { color: var(--primary-gold); font-weight: 700; font-size: 14px; }
 .dash-nav-desc { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 

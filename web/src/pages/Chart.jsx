@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import WatchlistStar from '../components/WatchlistStar';
+import useAutoAiInsight from '../lib/useAutoAiInsight';
 
 const currencyFor = (ticker) => {
   const t = (ticker || '').toUpperCase();
@@ -27,6 +28,7 @@ const Chart = () => {
     setLoading(true);
     setChartData(null);
     setFundamentals(null);
+    setAiReport("");
     setFetchError("");
     try {
       const resChart = await axios.get(`/api/chart/${sym.trim()}`);
@@ -87,10 +89,15 @@ const Chart = () => {
       });
       setAiReport(res.data.report);
     } catch (err) {
-      alert("Error fetching AI analysis: " + err.message);
+      // Inline, not alert() — this can run unattended via auto-insight
+      setAiReport(`**Error generating analysis:** ${err.response?.data?.detail || err.message}`);
     }
     setAiLoading(false);
   };
+
+  // With a saved Gemini key, the technical insight generates itself as soon
+  // as a chart loads — no click needed on first run.
+  useAutoAiInsight(chartData ? (chartData.ticker || ticker) : null, runAiAnalysis);
 
   const lastPrice = chartData ? chartData.close[chartData.close.length - 1] : 0;
   const prevPrice = chartData ? chartData.close[chartData.close.length - 2] : 0;
@@ -106,6 +113,12 @@ const Chart = () => {
     if (lastPrice > sma20) return { signal: 'BULLISH', color: 'var(--primary-gold)', bg: 'rgba(212,175,55,0.1)', border: 'rgba(212,175,55,0.3)' };
     return { signal: 'HOLD', color: 'var(--text-secondary)', bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.1)' };
   };
+
+  // Values arrive as raw numbers; format here so float noise never renders
+  const fmtPct = (val) => (
+    val === "N/A" || val === null || val === undefined || isNaN(val)
+      ? "N/A" : `${Number(val).toFixed(2)}%`
+  );
 
   const renderDashRow = (label, current, forward, conditionGood) => {
     const formatVal = (val) => {
@@ -233,6 +246,17 @@ const Chart = () => {
                   },
                   {
                     x: chartData.dates,
+                    y: chartData.volume,
+                    type: 'bar',
+                    name: 'Volume',
+                    marker: {
+                      color: chartData.close.map((c, i) =>
+                        c >= chartData.open[i] ? 'rgba(52, 199, 89, 0.45)' : 'rgba(255, 59, 48, 0.45)'),
+                    },
+                    yaxis: 'y3'
+                  },
+                  {
+                    x: chartData.dates,
                     y: chartData.rsi,
                     type: 'scatter',
                     mode: 'lines',
@@ -252,13 +276,22 @@ const Chart = () => {
                     linecolor: 'rgba(255, 255, 255, 0.1)',
                     tickfont: { color: '#A1A1AA' }
                   },
-                  yaxis: { 
-                    domain: [0.25, 1],
+                  yaxis: {
+                    domain: [0.4, 1],
                     gridcolor: 'rgba(255, 255, 255, 0.1)',
                     linecolor: 'rgba(255, 255, 255, 0.1)',
                     side: 'right',
                     tickprefix: cur,
                     tickfont: { color: '#A1A1AA' }
+                  },
+                  yaxis3: {
+                    domain: [0.21, 0.36],
+                    gridcolor: 'rgba(255, 255, 255, 0.06)',
+                    linecolor: 'rgba(255, 255, 255, 0.1)',
+                    side: 'right',
+                    nticks: 3,
+                    tickfont: { color: '#A1A1AA', size: 10 },
+                    title: { text: 'VOL', font: { size: 10, color: '#6e6e80' } }
                   },
                   yaxis2: {
                     domain: [0, 0.15],
@@ -269,6 +302,7 @@ const Chart = () => {
                     range: [0, 100],
                     tickvals: [30, 70]
                   },
+                  bargap: 0.35,
                   margin: { l: 20, r: 60, b: 40, t: 20 },
                   height: 650,
                   showlegend: true,
@@ -303,7 +337,7 @@ const Chart = () => {
             
             <div style={{ flex: '1 1 30%', padding: '24px', backgroundColor: 'var(--card-bg)', borderLeft: '1px solid var(--glass-border)' }}>
               <h3 style={{ marginBottom: '24px', fontSize: '15px', color: 'var(--text-secondary)', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: 'var(--primary-gold)' }}>⚡</span> STOCK PRO DASH
+                STOCK PRO DASH
               </h3>
               
               <div style={{ padding: '16px', backgroundColor: techSignal.bg, border: `1px solid ${techSignal.border}`, borderRadius: '8px', marginBottom: '30px', textAlign: 'center' }}>
@@ -322,13 +356,12 @@ const Chart = () => {
                   
                   {renderDashRow("P/E Ratio", fundamentals.trailingPE, fundamentals.forwardPE, fundamentals.forwardPE !== "N/A" && fundamentals.forwardPE < fundamentals.trailingPE)}
                   {renderDashRow("EPS (TTM)", fundamentals.trailingEps, fundamentals.forwardEps, fundamentals.forwardEps !== "N/A" && fundamentals.forwardEps > fundamentals.trailingEps)}
-                  {renderDashRow("EPS Growth", fundamentals.earningsGrowth !== "N/A" && fundamentals.earningsGrowth !== null ? fundamentals.earningsGrowth + "%" : "N/A", "N/A", fundamentals.earningsGrowth > 0)}
-                  {renderDashRow("ROE", fundamentals.returnOnEquity !== "N/A" && fundamentals.returnOnEquity !== null ? fundamentals.returnOnEquity + "%" : "N/A", "N/A", fundamentals.returnOnEquity > 15)}
-                  {renderDashRow("Debt / Equity", fundamentals.debtToEquity !== "N/A" && fundamentals.debtToEquity !== null ? fundamentals.debtToEquity + "%" : "N/A", "N/A", fundamentals.debtToEquity !== "N/A" && fundamentals.debtToEquity < 100)}
+                  {renderDashRow("EPS Growth", fmtPct(fundamentals.earningsGrowth), "N/A", fundamentals.earningsGrowth > 0)}
+                  {renderDashRow("ROE", fmtPct(fundamentals.returnOnEquity), "N/A", fundamentals.returnOnEquity > 15)}
+                  {renderDashRow("Debt / Equity", fmtPct(fundamentals.debtToEquity), "N/A", fundamentals.debtToEquity !== "N/A" && fundamentals.debtToEquity < 100)}
                 </div>
               ) : (
                 <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
-                  <div style={{ opacity: 0.5, fontSize: '24px', marginBottom: '10px' }}>📊</div>
                   <div>Fundamental data unavailable</div>
                 </div>
               )}
@@ -338,7 +371,7 @@ const Chart = () => {
           <div style={{ padding: '24px', borderTop: '1px solid var(--glass-border)', backgroundColor: 'rgba(0,0,0,0.02)' }}>
             {!aiReport ? (
               <button onClick={runAiAnalysis} disabled={aiLoading} className="secondary">
-                {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "⚡ GENERATE GEMINI AI TECHNICAL INSIGHT"}
+                {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "GENERATE GEMINI AI TECHNICAL INSIGHT"}
               </button>
             ) : (
               <div className="ai-insight">
@@ -357,7 +390,6 @@ const Chart = () => {
         </div>
       ) : (
         <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '400px', textAlign: 'center' }}>
-          <div style={{ fontSize: '48px', marginBottom: '20px', opacity: 0.3 }}>📈</div>
           <h3 style={{ color: 'var(--text-secondary)' }}>No Ticker Loaded</h3>
           <p style={{ color: '#555', maxWidth: '300px' }}>Enter a symbol above to fetch real-time market data and AI analysis.</p>
         </div>

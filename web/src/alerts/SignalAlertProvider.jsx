@@ -124,7 +124,7 @@ const SignalAlertProvider = ({ children }) => {
     // native notification only when backgrounded + opted in + permitted
     if (notifSupported() && browserEnabledRef.current &&
         Notification.permission === 'granted' && document.hidden) {
-      showNative(`⚡ ${plan.side} ${plan.symbol} · ${plan.score}/100`, {
+      showNative(`${plan.side} ${plan.symbol} · ${plan.score}/100`, {
         body: `entry ${cur}${plan.entry} · stop ${cur}${plan.stop} · target ${cur}${plan.target}`,
         tag: keyOf(plan),
         icon: '/icons/icon-192.png',

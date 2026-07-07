@@ -19,7 +19,7 @@ const nameCell = (r) => (
 const STREAK_COLS = [
   { key: 'rank', label: '#', render: (r) => r.rank },
   { key: 'name', label: 'Player', render: nameCell },
-  { key: 'current_streak', label: 'Streak 🔥', align: 'right', render: (r) => r.current_streak },
+  { key: 'current_streak', label: 'Streak', align: 'right', render: (r) => r.current_streak },
   { key: 'longest_streak', label: 'Best', align: 'right', render: (r) => r.longest_streak },
   { key: 'accuracy', label: 'Acc %', align: 'right', render: (r) => (r.accuracy == null ? '—' : `${r.accuracy}%`) },
 ];
@@ -29,7 +29,7 @@ const ACC_COLS = [
   { key: 'name', label: 'Player', render: nameCell },
   { key: 'accuracy', label: 'Accuracy', align: 'right', render: (r) => (r.accuracy == null ? '—' : `${r.accuracy}%`) },
   { key: 'total_calls', label: 'Calls', align: 'right', render: (r) => r.total_calls },
-  { key: 'current_streak', label: 'Streak 🔥', align: 'right', render: (r) => r.current_streak },
+  { key: 'current_streak', label: 'Streak', align: 'right', render: (r) => r.current_streak },
 ];
 
 const Leaderboard = () => {
@@ -68,7 +68,7 @@ const Leaderboard = () => {
       />
 
       <StatGrid>
-        <StatTile label="Current Streak" value={`🔥 ${stats?.current_streak ?? 0}`} />
+        <StatTile label="Current Streak" value={stats?.current_streak ?? 0} />
         <StatTile label="Best Streak" value={stats?.longest_streak ?? 0} />
         <StatTile label="Accuracy" value={stats?.accuracy == null ? '—' : `${stats.accuracy}%`} />
         <StatTile label="Total Calls" value={stats?.total_calls ?? 0} />
@@ -102,7 +102,6 @@ const Leaderboard = () => {
         loading={loading}
         empty={
           <div className="ui-empty">
-            <div className="ui-empty-icon">🏆</div>
             <div className="ui-empty-title">No one's on the board yet</div>
             <p className="ui-empty-body">
               {board === 'accuracy'
@@ -115,7 +114,7 @@ const Leaderboard = () => {
 
       {you && !youInTop && (
         <>
-          <SectionTitle icon="📍">Your Rank</SectionTitle>
+          <SectionTitle>Your Rank</SectionTitle>
           <DataTable columns={cols} rows={[you]} rowKey={() => 'you'} />
         </>
       )}

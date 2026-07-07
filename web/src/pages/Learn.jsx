@@ -5,7 +5,6 @@ import { PageHeader } from '../components/ui';
 // source; books link to Goodreads (buy/borrow anywhere).
 const TRACKS = {
   Investing: {
-    icon: '💰',
     path: 'Start with Buffett\'s letters and Zerodha Varsity, then Graham for the mental framework, Damodaran when you\'re ready to value businesses yourself.',
     items: [
       { title: 'Berkshire Hathaway Shareholder Letters', source: 'Warren Buffett', type: 'Free letters', level: 'All levels', link: 'https://www.berkshirehathaway.com/letters/letters.html', desc: 'Fifty years of the clearest thinking on business, moats and market temperament ever written. The single best free resource in investing.' },
@@ -19,7 +18,6 @@ const TRACKS = {
     ],
   },
   Trading: {
-    icon: '📈',
     path: 'Read Minervini for the system, O\'Neil for the pattern language, Douglas for the psychology — then Market Wizards to see how the greats differ.',
     items: [
       { title: 'Trade Like a Stock Market Wizard', source: 'Mark Minervini', type: 'Book', level: 'Intermediate', link: 'https://www.goodreads.com/book/show/16189528-trade-like-a-stock-market-wizard', desc: 'SEPA methodology: stage-2 uptrends, volatility contraction and precise risk. The framework behind our Druck & Minervini tab and guru screen.' },
@@ -32,7 +30,6 @@ const TRACKS = {
     ],
   },
   Options: {
-    icon: '⛓️',
     path: 'Varsity\'s two options modules first (free), then Natenberg for volatility, McMillan as the desk reference. OIC for mechanics whenever confused.',
     items: [
       { title: 'Varsity — Options Theory for Professionals', source: 'Zerodha', type: 'Free course', level: 'Beginner', link: 'https://zerodha.com/varsity/module/option-theory/', desc: 'Calls, puts, moneyness, the Greeks — the best free starting point, with NIFTY examples matching our Option Chain tab.' },
@@ -73,7 +70,7 @@ const Learn = () => {
             className={track === name ? '' : 'secondary'}
             style={{ width: 'auto', padding: '10px 22px', borderRadius: '20px' }}
           >
-            {t.icon} {name}
+            {name}
           </button>
         ))}
       </div>
