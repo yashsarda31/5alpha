@@ -796,6 +796,24 @@ def forecast_sarimax(req: ARIMARequest):
          raise HTTPException(status_code=400, detail=f"Forecasting error: {str(e)}")
 
 
+def _ai_error_report(e: Exception) -> dict:
+    """Readable insight-panel message instead of a raw Gemini exception dump.
+
+    The frontend auto-generates insights on page load, so this text is often
+    the first thing a user with a misconfigured key sees.
+    """
+    msg = str(e)
+    if "API key not valid" in msg or "API_KEY_INVALID" in msg or "PERMISSION_DENIED" in msg:
+        friendly = "Your Gemini API key was rejected. Re-check the key in Settings (get one free at aistudio.google.com)."
+    elif "RESOURCE_EXHAUSTED" in msg or "429" in msg or "quota" in msg.lower():
+        friendly = "Your Gemini API key has hit its rate limit or quota. Wait a minute and press REFRESH, or use a different key."
+    elif "UNAVAILABLE" in msg or "503" in msg or "timeout" in msg.lower():
+        friendly = "The Gemini service is temporarily unavailable. Press REFRESH to retry."
+    else:
+        friendly = f"AI analysis failed: {msg[:200]}"
+    return {"report": f"**{friendly}**"}
+
+
 @app.post("/api/ai/chart")
 def ai_chart_summary(req: AIChartRequest):
     if not req.apiKey:
@@ -819,7 +837,7 @@ def ai_chart_summary(req: AIChartRequest):
         )
         return {"report": response.text}
     except Exception as e:
-        return {"report": f"AI Error: {str(e)}"}
+        return _ai_error_report(e)
 
 @app.post("/api/ai/druck-minervini")
 async def analyze_druck_minervini(
@@ -1019,7 +1037,7 @@ def ai_dcf_summary(req: AIDCFRequest):
         )
         return {"report": response.text}
     except Exception as e:
-        return {"report": f"AI Error: {str(e)}"}
+        return _ai_error_report(e)
 
 @app.post("/api/ai/fundamentals")
 def ai_fundamentals_summary(req: AIFundamentalsRequest):
@@ -1042,7 +1060,7 @@ def ai_fundamentals_summary(req: AIFundamentalsRequest):
         )
         return {"report": response.text}
     except Exception as e:
-        return {"report": f"AI Error: {str(e)}"}
+        return _ai_error_report(e)
 
 @app.post("/api/ai/arima")
 def ai_arima_summary(req: AIARIMARequest):
@@ -1067,7 +1085,7 @@ def ai_arima_summary(req: AIARIMARequest):
         )
         return {"report": response.text}
     except Exception as e:
-        return {"report": f"AI Error: {str(e)}"}
+        return _ai_error_report(e)
 
 @app.post("/api/ai/position-sizing")
 def ai_position_sizing_summary(req: AIPositionSizingRequest):
@@ -1094,7 +1112,7 @@ def ai_position_sizing_summary(req: AIPositionSizingRequest):
         )
         return {"report": response.text}
     except Exception as e:
-        return {"report": f"AI Error: {str(e)}"}
+        return _ai_error_report(e)
 
 @app.post("/api/ai/screener")
 def ai_screener_summary(req: AIScreenerRequest):
@@ -1119,7 +1137,7 @@ def ai_screener_summary(req: AIScreenerRequest):
         )
         return {"report": response.text}
     except Exception as e:
-        return {"report": f"AI Error: {str(e)}"}
+        return _ai_error_report(e)
 
 @app.get("/api/momentum")
 async def get_momentum(market: str = "us"):

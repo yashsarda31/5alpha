@@ -336,8 +336,9 @@ const Dcf = () => {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '20px', marginTop: '20px' }}>
-            <div className="stage-box">
+          {/* wrap: side-by-side stage boxes overflow the viewport on phones */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', marginTop: '20px' }}>
+            <div className="stage-box" style={{ minWidth: '240px' }}>
               <h4>Growth Stage</h4>
               <div className="stage-input">
                 <label>Years</label>
@@ -361,7 +362,7 @@ const Dcf = () => {
               </div>
             </div>
 
-            <div className="stage-box">
+            <div className="stage-box" style={{ minWidth: '240px' }}>
               <h4>Terminal Stage</h4>
               <div className="stage-input">
                 <label>Years</label>
