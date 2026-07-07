@@ -3686,6 +3686,74 @@ def push_unsubscribe(body: PushEndpoint, authorization: str = Header(None)):
     finally:
         conn.close()
 
+@app.post("/api/push/test")
+def push_test(all: int = 0, key: str = "", authorization: str = Header(None)):
+    """Send a test notification: to the caller's devices (auth), or to every
+    subscribed device (?all=1&key=<ADMIN_METRICS_KEY>). Returns delivery stats
+    so 'is push working?' is answerable without waiting for a fresh signal."""
+    if not (VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY):
+        raise HTTPException(status_code=503, detail="Push notifications are not configured on this server.")
+    conn = _auth_db()
+    try:
+        if all:
+            _require_admin(key)
+            subs = conn.execute("SELECT endpoint, p256dh, auth FROM push_subs").fetchall()
+        else:
+            row, conn = _require_user(conn, authorization)
+            subs = conn.execute("SELECT endpoint, p256dh, auth FROM push_subs WHERE user_id = ?",
+                                (row["id"],)).fetchall()
+    finally:
+        conn.close()
+    if not subs:
+        return {"subs": 0, "sent": 0, "pruned": 0,
+                "detail": "No subscribed devices. Enable Signal alerts in Settings (installed app on phones)."}
+    payload = json.dumps({
+        "title": "Alpha Nova — test notification",
+        "body": "Push is working. Scored trade setups will arrive here during market hours.",
+        "tag": "an-push-test",
+        "url": "/signals",
+    })
+    dead, errors = set(), 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(_push_send_status, s, payload): s for s in subs}
+        for fut in concurrent.futures.as_completed(futs):
+            status = fut.result()
+            if status == "dead":
+                dead.add(futs[fut]["endpoint"])
+            elif status != "ok":
+                errors += 1
+    if dead:
+        try:
+            conn = _auth_db()
+            conn.executemany("DELETE FROM push_subs WHERE endpoint = ?", [(e,) for e in dead])
+            conn.commit()
+            conn.close()
+            _blob_push_db()
+        except Exception:
+            pass
+    return {"subs": len(subs), "sent": len(subs) - len(dead) - errors,
+            "pruned": len(dead), "errors": errors}
+
+def _push_send_status(sub_row, payload_json):
+    """Like _push_send_one but reports 'ok' | 'dead' | 'error' for stats."""
+    from pywebpush import webpush, WebPushException
+    try:
+        webpush(
+            subscription_info={"endpoint": sub_row["endpoint"],
+                               "keys": {"p256dh": sub_row["p256dh"], "auth": sub_row["auth"]}},
+            data=payload_json,
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": VAPID_SUB},
+            timeout=8,
+        )
+        return "ok"
+    except WebPushException as e:
+        if getattr(e.response, "status_code", None) in (404, 410):
+            return "dead"
+        return "error"
+    except Exception:
+        return "error"
+
 def _push_send_one(sub_row, payload_json):
     """Send one push. Returns the endpoint if it's dead and should be pruned."""
     from pywebpush import webpush, WebPushException  # lazy: ~cryptography import cost
@@ -3730,6 +3798,7 @@ def _broadcast_new_plans(plans, mkt, currency):
             k = f"{day}|{mkt}|{p['symbol']}|{p['side']}|{p.get('kind')}"
             if conn.execute("INSERT OR IGNORE INTO push_sent (k, created_at) VALUES (?, ?)", (k, _utc_now())).rowcount:
                 fresh.append(p)
+        claimed = len(fresh)
         conn.execute("DELETE FROM push_sent WHERE created_at < ?",
                      ((datetime.now(timezone.utc) - timedelta(days=3)).isoformat(),))
         conn.commit()
@@ -3738,6 +3807,15 @@ def _broadcast_new_plans(plans, mkt, currency):
         subs = conn.execute("SELECT endpoint, p256dh, auth FROM push_subs").fetchall() if fresh else []
     finally:
         conn.close()
+    if claimed:
+        # Persist claims to the blob store. Without this, every serverless
+        # cold start pulls a DB with no push_sent rows for today, prior==0
+        # re-seeds silently, and no notification is EVER sent (the bug that
+        # made push look dead in prod, found 2026-07-07).
+        try:
+            _blob_push_db()
+        except Exception:
+            pass
     if not fresh or not subs:
         return
     fresh = sorted(fresh, key=lambda p: -(p.get("score") or 0))[:PUSH_MAX_PER_BATCH]

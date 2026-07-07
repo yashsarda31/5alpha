@@ -100,6 +100,44 @@ def test_broadcast_seeds_first_call_then_sends(monkeypatch):
     assert "CCC" in sent[0] and "88/100" in sent[0]
 
 
+def test_push_test_requires_auth(monkeypatch):
+    monkeypatch.setattr(main, "VAPID_PUBLIC_KEY", "pub")
+    monkeypatch.setattr(main, "VAPID_PRIVATE_KEY", "priv")
+    assert client.post("/api/push/test").status_code == 401
+
+
+def test_push_test_own_devices(monkeypatch):
+    monkeypatch.setattr(main, "VAPID_PUBLIC_KEY", "pub")
+    monkeypatch.setattr(main, "VAPID_PRIVATE_KEY", "priv")
+    h = _new_user()
+
+    # no devices yet → informative zero response, no send attempted
+    r = client.post("/api/push/test", headers=h)
+    assert r.status_code == 200
+    assert r.json()["subs"] == 0
+
+    ep = f"https://push.example/{uuid.uuid4().hex}"
+    client.post("/api/push/subscribe",
+                json={"endpoint": ep, "keys": {"p256dh": "BKey", "auth": "AKey"}}, headers=h)
+    sent = []
+    monkeypatch.setattr(main, "_push_send_status", lambda s, p: sent.append(p) or "ok")
+    r = client.post("/api/push/test", headers=h)
+    assert r.status_code == 200
+    assert r.json()["subs"] == 1 and r.json()["sent"] == 1
+    assert len(sent) == 1 and "test notification" in sent[0]
+    client.post("/api/push/unsubscribe", json={"endpoint": ep}, headers=h)
+
+
+def test_push_test_all_requires_admin_key(monkeypatch):
+    monkeypatch.setattr(main, "VAPID_PUBLIC_KEY", "pub")
+    monkeypatch.setattr(main, "VAPID_PRIVATE_KEY", "priv")
+    monkeypatch.setattr(main, "ADMIN_METRICS_KEY", "sekrit")
+    assert client.post("/api/push/test?all=1&key=wrong").status_code == 403
+    monkeypatch.setattr(main, "_push_send_status", lambda s, p: "ok")
+    r = client.post("/api/push/test?all=1&key=sekrit")
+    assert r.status_code == 200
+
+
 def test_broadcast_noop_without_keys(monkeypatch):
     monkeypatch.setattr(main, "VAPID_PUBLIC_KEY", "")
     monkeypatch.setattr(main, "VAPID_PRIVATE_KEY", "")

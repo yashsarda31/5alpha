@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Bell, BellOff, Trophy, EyeOff } from 'lucide-react';
+import axios from 'axios';
+import { X, Bell, BellOff, Trophy, EyeOff, Send } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { useSignalAlerts } from '../alerts/SignalAlertProvider';
 import { usePrediction } from '../PredictionContext';
@@ -23,6 +24,39 @@ const AlertBell = () => {
       Signal alerts
       <span className="ab-state">{state}</span>
     </button>
+  );
+};
+
+// One-tap proof that pushes reach this user's devices (uses /api/push/test).
+const PushTest = () => {
+  const { permission } = useSignalAlerts();
+  const [status, setStatus] = useState(null);
+  if (permission === 'unsupported') return null;
+
+  const send = async () => {
+    setStatus('Sending…');
+    try {
+      const token = localStorage.getItem('alphanova_auth_token');
+      const res = await axios.post('/api/push/test', null, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const d = res.data;
+      setStatus(d.subs === 0
+        ? 'No devices subscribed — turn Signal alerts ON first.'
+        : `Sent to ${d.sent} of ${d.subs} device(s). Check your notification tray.`);
+    } catch (err) {
+      setStatus(`Failed: ${err.response?.data?.detail || err.message}`);
+    }
+  };
+
+  return (
+    <>
+      <button className="alert-bell" onClick={send} title="Send a test push notification to all your subscribed devices">
+        <span className="ab-ico"><Send size={14} aria-hidden="true" /></span>
+        Test notification
+      </button>
+      {status && <p className="settings-hint" style={{ marginTop: 4 }}>{status}</p>}
+    </>
   );
 };
 
@@ -95,6 +129,7 @@ const SettingsSheet = ({ open, onClose }) => {
         <div className="settings-section">
           <div className="settings-section-title">Notifications &amp; visibility</div>
           <AlertBell />
+          <PushTest />
           <LeaderboardOptOut />
         </div>
 
