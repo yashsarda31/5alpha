@@ -6,8 +6,10 @@ import './alerts.css';
 
 const SEEN_KEY = 'alphanova_seen_signals';
 const PREF_KEY = 'alphanova_browser_notifs';
-const NUDGE_KEY = 'alphanova_notif_nudge_until';
-const NUDGE_SNOOZE_MS = 7 * 24 * 3600 * 1000;
+// "Later" only hides the enable banner for the current session — it returns
+// on the next visit until the user actually enables (free platform: every
+// account should end up push-subscribed).
+const NUDGE_KEY = 'alphanova_notif_nudge_dismissed';
 const POLL_MS = 120000;      // matches server signals cache TTL
 const FETCH_TIMEOUT_MS = 20000;
 const TOAST_TTL_MS = 10000;
@@ -106,7 +108,7 @@ const SignalAlertProvider = ({ children }) => {
   const [showNudge, setShowNudge] = useState(() => {
     if (!notifSupported() || Notification.permission !== 'default') return false;
     if (localStorage.getItem(PREF_KEY) === 'off') return false;
-    try { return Date.now() > +(localStorage.getItem(NUDGE_KEY) || 0); } catch { return true; }
+    try { return !sessionStorage.getItem(NUDGE_KEY); } catch { return true; }
   });
 
   const browserEnabledRef = useRef(browserEnabled);
@@ -248,11 +250,11 @@ const SignalAlertProvider = ({ children }) => {
   // (permission prompt from a click gesture → subscribe); Later snoozes 7 days.
   const snoozeNudge = useCallback(() => {
     setShowNudge(false);
-    try { localStorage.setItem(NUDGE_KEY, String(Date.now() + NUDGE_SNOOZE_MS)); } catch { /* noop */ }
+    try { sessionStorage.setItem(NUDGE_KEY, '1'); } catch { /* noop */ }
   }, []);
   const enableFromNudge = useCallback(async () => {
     setShowNudge(false);
-    try { localStorage.setItem(NUDGE_KEY, String(Date.now() + NUDGE_SNOOZE_MS)); } catch { /* noop */ }
+    try { sessionStorage.setItem(NUDGE_KEY, '1'); } catch { /* noop */ }
     await toggleBrowser();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

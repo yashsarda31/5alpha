@@ -3353,7 +3353,40 @@ def _auth_db():
         k TEXT PRIMARY KEY,
         created_at TEXT NOT NULL
     )""")
+    _purge_test_accounts(conn)
     return conn
+
+# One-time cleanup (2026-07-07): months of QA left ~40 obvious test accounts in
+# the prod DB (@example.com / @test.com / @test.local / testuser99). Runs once
+# per instance, ONLY on Vercel — locally/CI it would eat the test suite's own
+# @test.local users mid-run. Cold-start execution makes it self-healing if a
+# stale warm instance ever re-pushes a snapshot containing purged rows.
+_KEEP_TEST_EMAILS = ("claude-qa-0706@test.local",)  # standing prod-QA login
+_purge_done = False
+
+def _purge_test_accounts(conn):
+    global _purge_done
+    if _purge_done or not os.environ.get("VERCEL"):
+        return
+    _purge_done = True
+    try:
+        keep = ",".join("?" * len(_KEEP_TEST_EMAILS))
+        rows = conn.execute(
+            f"""SELECT id FROM users WHERE (
+                    email LIKE '%@example.com' OR email LIKE '%@test.com'
+                    OR email LIKE '%@test.local' OR email = 'testuser99@gmail.com'
+                ) AND email NOT IN ({keep})""", _KEEP_TEST_EMAILS).fetchall()
+        if not rows:
+            return
+        ids = [(r["id"],) for r in rows]
+        for table in ("sessions", "watchlist", "predictions", "streak_stats", "push_subs"):
+            conn.executemany(f"DELETE FROM {table} WHERE user_id = ?", ids)
+        conn.executemany("DELETE FROM users WHERE id = ?", ids)
+        conn.commit()
+        print(f"purged {len(ids)} test accounts")
+        _blob_push_db()
+    except Exception as e:  # cleanup must never take auth down
+        print(f"test-account purge failed: {e}")
 
 def _utc_now():
     return datetime.now(timezone.utc).isoformat()
