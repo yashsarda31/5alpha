@@ -6,6 +6,8 @@ import './alerts.css';
 
 const SEEN_KEY = 'alphanova_seen_signals';
 const PREF_KEY = 'alphanova_browser_notifs';
+const NUDGE_KEY = 'alphanova_notif_nudge_until';
+const NUDGE_SNOOZE_MS = 7 * 24 * 3600 * 1000;
 const POLL_MS = 120000;      // matches server signals cache TTL
 const FETCH_TIMEOUT_MS = 20000;
 const TOAST_TTL_MS = 10000;
@@ -93,9 +95,19 @@ const SignalAlertProvider = ({ children }) => {
   const navigate = useNavigate();
   const [toasts, setToasts] = useState([]);
   const [permission, setPermission] = useState(notifSupported() ? Notification.permission : 'unsupported');
+  // Default-ON: alerts are enabled unless the user explicitly turned them off.
+  // (Was opt-in via the Settings bell — almost nobody found it, so no device
+  // ever subscribed and pushes had no audience.)
   const [browserEnabled, setBrowserEnabled] = useState(
-    () => notifSupported() && Notification.permission === 'granted' && localStorage.getItem(PREF_KEY) === 'on'
+    () => notifSupported() && Notification.permission === 'granted' && localStorage.getItem(PREF_KEY) !== 'off'
   );
+  // One-tap enable banner for users who haven't granted permission yet
+  // (permission prompts must come from a user gesture, so we can't just ask)
+  const [showNudge, setShowNudge] = useState(() => {
+    if (!notifSupported() || Notification.permission !== 'default') return false;
+    if (localStorage.getItem(PREF_KEY) === 'off') return false;
+    try { return Date.now() > +(localStorage.getItem(NUDGE_KEY) || 0); } catch { return true; }
+  });
 
   const browserEnabledRef = useRef(browserEnabled);
   useEffect(() => { browserEnabledRef.current = browserEnabled; }, [browserEnabled]);
@@ -218,19 +230,48 @@ const SignalAlertProvider = ({ children }) => {
     if (on) subscribePush(); // register this device for server pushes
   }, []);
 
-  // Devices that enabled alerts before Web Push existed (or after a cleared
-  // subscription) get re-subscribed on load. pushManager.subscribe returns
+  // Every device with granted permission (and no explicit opt-out) subscribes
+  // on load: covers users who granted before default-ON shipped, devices whose
+  // subscription was cleared, and fresh logins. pushManager.subscribe returns
   // the existing subscription when one is already active, so this is cheap.
   useEffect(() => {
-    if (browserEnabled && notifSupported() && Notification.permission === 'granted') {
+    if (notifSupported() && Notification.permission === 'granted' &&
+        localStorage.getItem(PREF_KEY) !== 'off') {
+      try { localStorage.setItem(PREF_KEY, 'on'); } catch { /* noop */ }
+      setBrowserEnabled(true);
       subscribePush();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Nudge banner actions: Enable runs the same flow as the Settings bell
+  // (permission prompt from a click gesture → subscribe); Later snoozes 7 days.
+  const snoozeNudge = useCallback(() => {
+    setShowNudge(false);
+    try { localStorage.setItem(NUDGE_KEY, String(Date.now() + NUDGE_SNOOZE_MS)); } catch { /* noop */ }
+  }, []);
+  const enableFromNudge = useCallback(async () => {
+    setShowNudge(false);
+    try { localStorage.setItem(NUDGE_KEY, String(Date.now() + NUDGE_SNOOZE_MS)); } catch { /* noop */ }
+    await toggleBrowser();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <SignalAlertContext.Provider value={{ browserEnabled, toggleBrowser, permission }}>
       {children}
+      {showNudge && (
+        <div className="notif-nudge" role="dialog" aria-label="Enable notifications">
+          <div className="notif-nudge-text">
+            <strong>Get trade alerts</strong>
+            <span>Scored setups reach this device even when the app is closed.</span>
+          </div>
+          <div className="notif-nudge-actions">
+            <button className="notif-nudge-later" onClick={snoozeNudge}>Later</button>
+            <button className="notif-nudge-enable" onClick={enableFromNudge}>Enable</button>
+          </div>
+        </div>
+      )}
       <ToastStack toasts={toasts} onOpen={openToast} onDismiss={dismiss} />
     </SignalAlertContext.Provider>
   );
