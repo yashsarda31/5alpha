@@ -46,7 +46,9 @@ const CandleChart = ({ candles, level, width = 280, height = 96, bars }) => {
   const py = (val) => 2 + (1 - (val - lo) / range) * (priceH - 4);
   const vMax = Math.max(...v, 1);
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }} aria-hidden="true">
+    // Fluid: scales down with the card via viewBox (fixed width leaked out of
+    // narrow grid columns on mobile/tablet), never grows past its natural size
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', width: '100%', maxWidth: width, height: 'auto' }} aria-hidden="true">
       {c.map((cl, i) => {
         const up = cl >= o[i];
         const col = up ? C.gain : C.loss;
@@ -83,7 +85,7 @@ const Spark = ({ values, level, width = 260, height = 72, stroke, id }) => {
   const color = stroke || (values[values.length - 1] >= values[0] ? C.gain : C.loss);
   const gid = `sg-${id}`;
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }} aria-hidden="true">
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', width: '100%', maxWidth: width, height: 'auto' }} aria-hidden="true">
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.28" />
@@ -180,10 +182,14 @@ const Momentum = () => {
         </Link>
       </span>
     ) },
+    // Fixed-width wrapper: the table scrolls horizontally on small screens,
+    // so the mini chart keeps its natural size instead of shrinking
     { key: 'spark', label: 'Trend (6W)', render: (r) => (
-      r.candles
-        ? <CandleChart candles={r.candles} bars={30} width={150} height={46} />
-        : <Spark values={r.spark} width={110} height={30} id={`ld-${r.ticker}`} />
+      <div style={{ width: 150 }}>
+        {r.candles
+          ? <CandleChart candles={r.candles} bars={30} width={150} height={46} />
+          : <Spark values={r.spark} width={110} height={30} id={`ld-${r.ticker}`} />}
+      </div>
     ) },
     { key: 'price', label: 'Price', align: 'right', render: (r) => `${cur}${r.price}` },
     { key: 'chg_today', label: 'Today', align: 'right', render: (r) => pct(r.chg_today ?? 0) },
