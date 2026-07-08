@@ -1310,6 +1310,24 @@ SECTOR_INDICES = {
     "Nifty Infra": ("^CNXINFRA", "NIFTY INFRASTRUCTURE"),
 }
 SECTOR_BENCHMARK = ("^NSEI", "NIFTY 50")
+
+# US sectors: the SPDR sector ETFs vs SPY. During the US cash session (20:00–
+# 02:00 IST, same window the dashboard/signals use) /api/sectors serves this
+# instead of the NSE map. display name -> (yahoo ticker, live-source key=None).
+US_SECTOR_INDICES = {
+    "Technology": ("XLK", None),
+    "Financials": ("XLF", None),
+    "Health Care": ("XLV", None),
+    "Energy": ("XLE", None),
+    "Discretionary": ("XLY", None),
+    "Staples": ("XLP", None),
+    "Industrials": ("XLI", None),
+    "Materials": ("XLB", None),
+    "Utilities": ("XLU", None),
+    "Real Estate": ("XLRE", None),
+    "Comm Svcs": ("XLC", None),
+}
+US_SECTOR_BENCHMARK = ("SPY", "S&P 500")
 RRG_TAIL_WEEKS = 6          # length of the trajectory tail on the RRG chart
 RRG_NORM_WINDOW = 10        # rolling window for the RS z-score normalization
 
@@ -1335,10 +1353,13 @@ def _squash(x, scale):
         return 50.0
     return 50.0 + max(-50.0, min(50.0, (x / scale) * 50.0))
 
-def _compute_sector_rotation():
+def _compute_sector_rotation(market="IN"):
     import pandas as pd
-    bench_tk = SECTOR_BENCHMARK[0]
-    tickers = [t[0] for t in SECTOR_INDICES.values()] + [bench_tk]
+    market = "US" if str(market).upper() == "US" else "IN"
+    sectors_map = US_SECTOR_INDICES if market == "US" else SECTOR_INDICES
+    benchmark = US_SECTOR_BENCHMARK if market == "US" else SECTOR_BENCHMARK
+    bench_tk = benchmark[0]
+    tickers = [t[0] for t in sectors_map.values()] + [bench_tk]
     try:
         df = yf.download(" ".join(tickers), period="9mo", group_by="ticker",
                          threads=True, progress=False, auto_adjust=True)
@@ -1359,17 +1380,19 @@ def _compute_sector_rotation():
         return None
     bench_w = bench.resample("W-FRI").last().dropna()
 
-    # Live daily % change per sector (best-effort; missing -> None)
+    # Live daily % change per sector. India overlays NSE allIndices; the US map
+    # has no such feed, so there we use each ETF's latest 1-session move instead.
     live = {}
-    try:
-        idx = nse_get("/api/allIndices")
-        for row in (idx or {}).get("data", []):
-            live[row.get("index", "")] = row.get("percentChange")
-    except Exception:
-        pass
+    if market == "IN":
+        try:
+            idx = nse_get("/api/allIndices")
+            for row in (idx or {}).get("data", []):
+                live[row.get("index", "")] = row.get("percentChange")
+        except Exception:
+            pass
 
     rows = []
-    for name, (tk, nse_name) in SECTOR_INDICES.items():
+    for name, (tk, nse_name) in sectors_map.items():
         c = weekly_closes(tk)
         if c is None:
             continue
@@ -1400,6 +1423,13 @@ def _compute_sector_rotation():
         sma50 = float(c.tail(50).mean()) if len(c) >= 50 else None
         trend = (float(c.iloc[-1]) / sma50 - 1) * 100 if sma50 else None
 
+        # Live "today" move: NSE for India, else the ETF's latest 1-session return.
+        if market == "IN":
+            live_pct = live.get(nse_name)
+        else:
+            r_today = _pct_return(c, 1)
+            live_pct = None if r_today is None else round(r_today, 2)
+
         # Composite near-term rotation score (0-100). Weighted toward the
         # short-horizon relative strength that a "next week" read cares about,
         # with the RRG momentum trajectory and the medium trend as context.
@@ -1425,7 +1455,7 @@ def _compute_sector_rotation():
             "rel_1m": None if rel1m is None else round(rel1m, 2),
             "rel_3m": None if rel3m is None else round(rel3m, 2),
             "trend_50d": None if trend is None else round(trend, 2),
-            "live_pct": live.get(nse_name),
+            "live_pct": live_pct,
             "score": score,
             "outlook": outlook,
         })
@@ -1437,8 +1467,9 @@ def _compute_sector_rotation():
     quad_counts = {q: sum(1 for r in rows if r["quadrant"] == q)
                    for q in ("Leading", "Weakening", "Lagging", "Improving")}
     return {
+        "market": market,
         "sectors": rows,
-        "benchmark": {"name": SECTOR_BENCHMARK[1],
+        "benchmark": {"name": benchmark[1],
                       "ret_1w": None if b1w is None else round(b1w, 2),
                       "ret_1m": round(_pct_return(bench, 21), 2) if _pct_return(bench, 21) is not None else None},
         "quadrant_counts": quad_counts,
@@ -1448,13 +1479,17 @@ def _compute_sector_rotation():
     }
 
 @app.get("/api/sectors")
-async def get_sector_rotation():
-    cache_key = "sector_rotation"
+async def get_sector_rotation(market: str = None):
+    # US sector map during the US cash session (20:00–02:00 IST), NSE otherwise;
+    # ?market=IN|US overrides. Cached per market.
+    sec_market = market.upper() if market and market.upper() in ("IN", "US") else _dashboard_movers_market()
+    cache_key = f"sector_rotation_{sec_market}"
     if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < 1800:
         return API_CACHE[cache_key]['data']
-    data = await asyncio.to_thread(_compute_sector_rotation)
+    data = await asyncio.to_thread(_compute_sector_rotation, sec_market)
     if not data:
         raise HTTPException(status_code=503, detail="Sector data is temporarily unavailable. Please retry shortly.")
+    data = _json_safe(data)
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
     return data
 
@@ -1467,9 +1502,12 @@ def ai_sector_summary(req: AISectorRequest):
     if not req.apiKey:
         return {"report": "API Key Required."}
     client = _genai_client(req.apiKey)
+    _is_us = str((req.sector_data or {}).get("market", "")).upper() == "US"
+    _bench = ((req.sector_data or {}).get("benchmark") or {}).get("name") or ("S&P 500" if _is_us else "Nifty 50")
+    _trader = "US equity trader" if _is_us else "Indian equity trader"
     prompt = f"""
-    You are a market strategist explaining SECTOR ROTATION to an Indian equity trader.
-    The data below is derived from a Relative Rotation Graph (RRG) versus the Nifty 50
+    You are a market strategist explaining SECTOR ROTATION to a {_trader}.
+    The data below is derived from a Relative Rotation Graph (RRG) versus the {_bench}
     plus multi-timeframe relative strength. Quadrants: Leading (strong & strengthening),
     Weakening (strong but fading), Lagging (weak & weakening), Improving (weak but turning up).
     Rotation typically flows clockwise: Improving -> Leading -> Weakening -> Lagging.

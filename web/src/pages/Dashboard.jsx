@@ -97,7 +97,6 @@ const MyWatchlist = () => {
 
 const NAV_MODULES = [
   { to: '/signals', code: 'SIG', title: 'Market Signals', desc: 'Options intelligence, regime context & scored setups.' },
-  { to: '/focus', code: 'FCS', title: 'Focus List', desc: 'Today\'s stocks flagged by setups, momentum & flow.' },
   { to: '/option-chain', code: 'OCHN', title: 'Option Chain', desc: 'Institutional derivative analytics & structural mapping.' },
   { to: '/chart', code: 'GP', title: 'Chart Analyser', desc: 'Technical analysis with Minervini VCP ratings.' },
   { to: '/screener', code: 'EQS', title: 'Quant Screener', desc: 'Filter market using institutional constraints.' },

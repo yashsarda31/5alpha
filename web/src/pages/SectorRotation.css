@@ -1,6 +1,12 @@
 .sr-container { max-width: 1100px; margin: 0 auto; padding-bottom: 48px; }
 
 .sr-refresh { width: auto; padding: 8px 16px; font-size: 12px; }
+.sr-market-pill {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 5px 11px; border-radius: var(--r-pill, 999px); white-space: nowrap;
+  color: var(--primary-gold, #F5DC8C); background: rgba(245,220,140,0.12);
+  border: 1px solid rgba(245,220,140,0.3);
+}
 
 /* Outlook summary */
 .sr-outlook-grid {

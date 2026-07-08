@@ -1,7 +1,7 @@
 import React, { useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import {
-  LayoutGrid, Star, Zap, Rocket, Newspaper, Target,
+  LayoutGrid, Star, Zap, Rocket, Newspaper,
   LineChart, Bird, Search, Landmark, Calculator, BarChart3, Sparkles, Scale, Link2,
   Trophy, Gamepad2, GraduationCap, Settings, Menu, Compass, ArrowLeftRight,
 } from 'lucide-react';
@@ -31,7 +31,6 @@ const routeImporters = {
   '/signals': () => import('./pages/MarketSignals'),
   '/sectors': () => import('./pages/SectorRotation'),
   '/deals': () => import('./pages/Deals'),
-  '/focus': () => import('./pages/FocusList'),
   '/learn': () => import('./pages/Learn'),
   '/druck-minervini': () => import('./pages/DruckMinervini'),
   '/trading-game': () => import('./pages/TradingGame'),
@@ -62,7 +61,6 @@ const OptionChain = lazy(routeImporters['/option-chain']);
 const MarketSignals = lazy(routeImporters['/signals']);
 const SectorRotation = lazy(routeImporters['/sectors']);
 const Deals = lazy(routeImporters['/deals']);
-const FocusList = lazy(routeImporters['/focus']);
 const Learn = lazy(routeImporters['/learn']);
 const DruckMinervini = lazy(routeImporters['/druck-minervini']);
 const TradingGame = lazy(routeImporters['/trading-game']);
@@ -80,7 +78,6 @@ const NAV_SECTIONS = [
       { to: '/sectors', label: 'Sector Rotation', Icon: Compass },
       { to: '/momentum', label: 'Momentum Leaders', Icon: Rocket },
       { to: '/news', label: 'News', Icon: Newspaper },
-      { to: '/focus', label: 'Focus List', Icon: Target },
     ],
   },
   {
@@ -248,7 +245,6 @@ const AppLayout = () => {
           <Route path="/signals" element={<MarketSignals />} />
           <Route path="/sectors" element={<SectorRotation />} />
           <Route path="/deals" element={<Deals />} />
-          <Route path="/focus" element={<FocusList />} />
           <Route path="/learn" element={<Learn />} />
           <Route path="/trading-game" element={<TradingGame />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

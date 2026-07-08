@@ -132,7 +132,7 @@ const SectorRotation = () => {
   if (loading) {
     return (
       <div className="sr-container fade-in">
-        <PageHeader code="SEC" title="Sector Rotation" subtitle="Which sectors are gaining and losing strength vs the Nifty 50" />
+        <PageHeader code="SEC" title="Sector Rotation" subtitle="Which sectors are gaining and losing strength vs the broad market" />
         <div className="card" style={{ padding: 24 }}>
           <div className="skeleton skeleton-header" />
           {[1, 2, 3, 4, 5].map((i) => <div key={i} className="skeleton skeleton-row" style={{ height: 36, marginTop: 14 }} />)}
@@ -144,7 +144,7 @@ const SectorRotation = () => {
   if (error) {
     return (
       <div className="sr-container fade-in">
-        <PageHeader code="SEC" title="Sector Rotation" subtitle="Which sectors are gaining and losing strength vs the Nifty 50" />
+        <PageHeader code="SEC" title="Sector Rotation" subtitle="Which sectors are gaining and losing strength vs the broad market" />
         <div className="card sr-error">
           <p>{error}</p>
           <button className="secondary" onClick={revalidate}>Retry</button>
@@ -154,6 +154,11 @@ const SectorRotation = () => {
   }
 
   const { sectors, quadrant_counts: qc, leaders, laggards, benchmark, as_of } = data;
+  // US sector map (SPDR ETFs vs S&P 500) serves during US market hours; India
+  // (NSE sectors vs Nifty 50) otherwise. Labels follow whichever is live.
+  const isUS = data.market === 'US';
+  const benchName = isUS ? 'S&P 500' : 'Nifty 50';
+  const benchShort = isUS ? 'S&P' : 'Nifty';
   // Simple posture read: more sectors leading/improving than lagging/weakening
   // = broad strength (risk-on); the reverse leans defensive.
   const offensive = (qc.Leading || 0) + (qc.Improving || 0);
@@ -167,8 +172,13 @@ const SectorRotation = () => {
       <PageHeader
         code="SEC"
         title="Sector Rotation"
-        subtitle="Which sectors are gaining and losing strength vs the Nifty 50"
-        right={<button className="secondary sr-refresh" onClick={revalidate} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>}
+        subtitle={`Which sectors are gaining and losing strength vs the ${benchName}`}
+        right={
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <span className="sr-market-pill">{isUS ? 'US market' : 'India'}</span>
+            <button className="secondary sr-refresh" onClick={revalidate} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+          </div>
+        }
       />
 
       {/* Outlook summary: favored vs headwind */}
@@ -229,9 +239,9 @@ const SectorRotation = () => {
               <tr>
                 <th>#</th><th>Sector</th><th>Outlook</th><th>Quadrant</th>
                 <th className="sr-num">Score</th>
-                <th className="sr-num">1W vs Nifty</th>
-                <th className="sr-num">1M vs Nifty</th>
-                <th className="sr-num">3M vs Nifty</th>
+                <th className="sr-num">1W vs {benchShort}</th>
+                <th className="sr-num">1M vs {benchShort}</th>
+                <th className="sr-num">3M vs {benchShort}</th>
                 <th className="sr-num">vs 50-DMA</th>
                 <th className="sr-num">Today</th>
               </tr>
@@ -262,7 +272,7 @@ const SectorRotation = () => {
           </table>
         </div>
         <p className="sr-note">
-          "vs Nifty" = the sector's return minus the Nifty 50's over the same window (positive = outperforming).
+          "vs {benchShort}" = the sector's return minus the {benchName}'s over the same window (positive = outperforming).
           Score blends short-term relative strength, rotation momentum and trend. Momentum-based — it can reverse.
         </p>
       </div>
