@@ -4612,12 +4612,18 @@ def _valid_plan_levels(p):
         return None
     return e, s, t, side
 
+def _market_today(market):
+    """The current TRADING-day date for a market. US must use ET, not IST — a
+    signal fired at 01:00 IST is still the previous US session, and stamping it
+    with the IST date shifts the resolver's 'skip the entry day' by a day."""
+    return (_ny_now() if market == "US" else datetime.now(_IST)).strftime("%Y-%m-%d")
+
 def _enter_signal_positions(conn, plans, mkt):
     """FCFS entry of new plans into the model portfolio. Skips symbols already
     open (or closed today, to avoid same-day churn) and stops at the slot cap.
     Highest score first so the best signals claim the scarce slots. Caller owns
     the commit + blob push. Returns the number of positions opened."""
-    today = datetime.now(_IST).strftime("%Y-%m-%d")
+    today = _market_today(mkt)
     open_syms = {r["symbol"] for r in conn.execute(
         "SELECT symbol FROM signal_positions WHERE status='open' AND market=?", (mkt,))}
     closed_today = {r["symbol"] for r in conn.execute(
@@ -4647,8 +4653,14 @@ def _enter_signal_positions(conn, plans, mkt):
     return added
 
 def _resolve_one_position(r):
-    """Walk daily bars from entry onward; return (status, exit_price, exit_date)
-    once target/stop is touched or the time stop trips, else None. Network call."""
+    """Walk COMPLETE daily bars AFTER the entry day; return (status, exit_price,
+    exit_date) once target/stop is touched or the time stop trips, else None.
+
+    The entry day is skipped on purpose: the position was entered intraday, and
+    that day's daily high/low includes pre-entry action, so it can't honestly
+    say whether the stop/target was hit after we were in. (This was the bug that
+    manufactured a wall of same-day stop-outs.) Fills are gap-aware: a bar that
+    opens through the level fills at the open, not the level. Network call."""
     yf_sym = _pf_yf_symbol(r["market"], r["symbol"])
     try:
         hist = yf.Ticker(yf_sym).history(start=r["entry_date"], auto_adjust=True)
@@ -4659,18 +4671,27 @@ def _resolve_one_position(r):
     entry, stop, target, side = float(r["entry"]), float(r["stop"]), float(r["target"]), r["side"]
     for ts, bar in hist.iterrows():
         d = ts.strftime("%Y-%m-%d")
-        if d < r["entry_date"]:
+        if d <= r["entry_date"]:      # skip the entry day (and anything earlier)
             continue
-        hi, lo = float(bar["High"]), float(bar["Low"])
+        op, hi, lo = float(bar["Open"]), float(bar["High"]), float(bar["Low"])
         if side == "LONG":
-            hit_stop, hit_tgt = lo <= stop, hi >= target
+            if op <= stop:            # gapped through the stop → fill at the open
+                return "loss", op, d
+            if lo <= stop:
+                return "loss", stop, d
+            if op >= target:          # gapped through the target
+                return "win", op, d
+            if hi >= target:
+                return "win", target, d
         else:
-            hit_stop, hit_tgt = hi >= stop, lo <= target
-        # If a single bar spans both, assume the stop filled first (conservative).
-        if hit_stop:
-            return "loss", stop, d
-        if hit_tgt:
-            return "win", target, d
+            if op >= stop:
+                return "loss", op, d
+            if hi >= stop:
+                return "loss", stop, d
+            if op <= target:
+                return "win", op, d
+            if lo <= target:
+                return "win", target, d
     # Time stop: close a position that has sat open past the max hold.
     try:
         entry_dt = datetime.strptime(r["entry_date"], "%Y-%m-%d").date()
@@ -4679,6 +4700,184 @@ def _resolve_one_position(r):
     if (datetime.now(_IST).date() - entry_dt).days >= SIGNAL_PF_MAX_HOLD_DAYS:
         return "closed", round(float(hist["Close"].iloc[-1]), 2), datetime.now(_IST).strftime("%Y-%m-%d")
     return None
+
+_pf_healed = False
+
+def _heal_intraday_closures(conn):
+    """One-time cleanup of positions the OLD resolver closed on their own entry
+    day (exit_date <= entry_date) — artificial stop-outs, not real trades.
+    Delete them so the track record reflects only honest, post-entry outcomes.
+    Idempotent: the fixed resolver never produces such rows again."""
+    n = conn.execute(
+        "DELETE FROM signal_positions WHERE status!='open' AND exit_date IS NOT NULL "
+        "AND substr(exit_date,1,10) <= entry_date"
+    ).rowcount
+    return n
+
+
+# --- Historical backfill: replay the India signal engine on real F&O bhavcopy ---
+# The live engine is stateless (recomputes from intraday NSE feeds), so it can't
+# be replayed exactly. But NSE's end-of-day F&O bhavcopy carries the two inputs
+# the engine keys on — per-future price change and open-interest change — so we
+# can faithfully reconstruct the OI-buildup DIRECTION and the same 1.5R trade
+# levels, then resolve each on REAL subsequent daily bars. Selection uses the
+# three components computable from EOD data (OI intensity, momentum, liquidity);
+# the outcome of every trade is 100% real price action. Used to seed the model
+# portfolio with genuine recent history for the track record.
+_FO_BHAV_URL = "https://nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_{ymd}_F_0000.csv.zip"
+
+def _fetch_fo_bhavcopy(ymd):
+    """Near-month stock-future rows for a date → {symbol: row dict}. None if the
+    archive isn't published for that date (weekend/holiday)."""
+    import csv as _csvmod
+    import zipfile
+    try:
+        r = requests.get(_FO_BHAV_URL.format(ymd=ymd),
+                         headers={"User-Agent": NSE_HEADERS["User-Agent"], "Accept": "*/*",
+                                  "Referer": "https://www.nseindia.com/"}, timeout=25)
+        if r.status_code != 200:
+            return None
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        raw = z.read(z.namelist()[0]).decode("utf-8", "ignore")
+    except Exception:
+        return None
+    by_sym = {}
+    for x in _csvmod.DictReader(io.StringIO(raw)):
+        if x.get("FinInstrmTp") != "STF":       # stock futures only
+            continue
+        s, exp = x.get("TckrSymb"), x.get("XpryDt", "")
+        if s and (s not in by_sym or exp < by_sym[s].get("XpryDt", "z")):  # near month
+            by_sym[s] = x
+    return by_sym or None
+
+def _reconstruct_signals_for_day(by_sym):
+    """Scored LONG/SHORT plans from one day's F&O bhavcopy, mirroring the live
+    engine's buildup classification and 1.5R levels (EOD close as the entry)."""
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    plans = []
+    for s, x in by_sym.items():
+        close, prev = num(x.get("ClsPric")), num(x.get("PrvsClsgPric"))
+        hi, lo = num(x.get("HghPric")), num(x.get("LwPric"))
+        oi, doi = num(x.get("OpnIntrst")), num(x.get("ChngInOpnIntrst"))
+        trades = num(x.get("TtlNbOfTxsExctd")) or 0
+        if None in (close, prev, hi, lo, oi, doi) or prev <= 0 or close <= 0 or trades < 2000:
+            continue
+        px = (close - prev) / prev * 100
+        prev_oi = oi - doi
+        oi_pct = (doi / prev_oi * 100) if prev_oi > 0 else 0.0
+        if px > 0 and oi_pct > 0:
+            kind, side = "long_buildup", "LONG"
+        elif px < 0 and oi_pct > 0:
+            kind, side = "short_buildup", "SHORT"
+        elif px > 0 and oi_pct < 0:
+            kind, side = "short_covering", "LONG"
+        else:
+            continue  # long unwinding — the live engine doesn't trade it
+        if abs(px) < 1.0 or abs(oi_pct) < 5.0:
+            continue  # needs a real move + real OI shift
+        s_oi = min(abs(oi_pct) / 10, 1) * 22 * (0.6 if kind == "short_covering" else 1)
+        s_px = min(abs(px) / 3, 1) * 18
+        s_liq = min(trades / 20000, 1) * 10
+        score = round(s_oi + s_px + s_liq)
+        entry = close
+        rng = max(hi - lo, entry * 0.006)
+        if side == "LONG":
+            stop = min(lo, entry * 0.996)
+            target = entry + 1.5 * (entry - stop)
+        else:
+            stop = max(hi, entry * 1.004)
+            target = entry - 1.5 * (stop - entry)
+        plans.append({"symbol": s, "side": side, "kind": kind, "score": score,
+                      "entry": round(entry, 2), "stop": round(stop, 2), "target": round(target, 2)})
+    plans.sort(key=lambda p: -p["score"])
+    return plans
+
+def _sim_hit(pos, op, hi, lo, dstr):
+    """Gap-aware target/stop check for one bar — mirrors _resolve_one_position."""
+    e, stop, tgt, side = pos["entry"], pos["stop"], pos["target"], pos["side"]
+    def out(px, status):
+        ret = (px - e) / e * 100 * (1 if side == "LONG" else -1)
+        return {"status": status, "exit": round(px, 2), "exit_date": dstr, "ret_pct": round(ret, 2)}
+    if side == "LONG":
+        if op <= stop:  return out(op, "loss")
+        if lo <= stop:  return out(stop, "loss")
+        if op >= tgt:   return out(op, "win")
+        if hi >= tgt:   return out(tgt, "win")
+    else:
+        if op >= stop:  return out(op, "loss")
+        if hi >= stop:  return out(stop, "loss")
+        if op <= tgt:   return out(op, "win")
+        if lo <= tgt:   return out(tgt, "win")
+    return None
+
+def _backfill_model_portfolio(conn, days_back=8, min_score=40):
+    """Walk-forward simulation of the model book over the last `days_back` F&O
+    sessions from real bhavcopy: each day resolve the open book on that day's
+    range (skipping each position's own entry day), then fill free slots FCFS
+    with that day's top reconstructed signals. Wipes existing positions and
+    seeds the result. Returns (closed_count, open_count)."""
+    ist = datetime.now(_IST)
+    day_data = []
+    d = ist.date() - timedelta(days=1)   # skip today (incomplete)
+    tries = 0
+    while len(day_data) < days_back and tries < days_back * 3 + 6:
+        tries += 1
+        bs = _fetch_fo_bhavcopy(d.strftime("%Y%m%d"))
+        if bs:
+            day_data.append((d.strftime("%Y-%m-%d"), bs))
+        d -= timedelta(days=1)
+    if not day_data:
+        return 0, 0
+    day_data.reverse()  # ascending by date
+
+    ohlc = {}
+    for dstr, bs in day_data:
+        day = {}
+        for s, x in bs.items():
+            try:
+                day[s] = (float(x["OpnPric"]), float(x["HghPric"]), float(x["LwPric"]), float(x["ClsPric"]))
+            except (KeyError, ValueError, TypeError):
+                continue
+        ohlc[dstr] = day
+
+    book, closed = [], []
+    for dstr, bs in day_data:
+        still = []
+        for pos in book:
+            bar = ohlc.get(dstr, {}).get(pos["symbol"])  # (open, high, low, close)
+            res = _sim_hit(pos, bar[0], bar[1], bar[2], dstr) if (bar and pos["entry_date"] < dstr) else None
+            (closed if res else still).append({**pos, **res} if res else pos)
+        book = still
+        open_syms = {p["symbol"] for p in book}
+        for sig in _reconstruct_signals_for_day(bs):
+            if len(book) >= SIGNAL_PF_SLOTS:
+                break
+            if sig["score"] < min_score or sig["symbol"] in open_syms:
+                continue
+            book.append({**sig, "entry_date": dstr})
+            open_syms.add(sig["symbol"])
+
+    conn.execute("DELETE FROM signal_positions")
+    now = _utc_now()
+    for p in closed:
+        conn.execute(
+            """INSERT INTO signal_positions (market, symbol, side, kind, score, entry, stop, target,
+               entry_date, status, exit, exit_date, ret_pct, last_price, updated_at)
+               VALUES ('IN',?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (p["symbol"], p["side"], p["kind"], p["score"], p["entry"], p["stop"], p["target"],
+             p["entry_date"], p["status"], p["exit"], p["exit_date"], p["ret_pct"], p["exit"], now))
+    for p in book:
+        conn.execute(
+            """INSERT INTO signal_positions (market, symbol, side, kind, score, entry, stop, target,
+               entry_date, status, last_price, updated_at)
+               VALUES ('IN',?,?,?,?,?,?,?,?, 'open', ?, ?)""",
+            (p["symbol"], p["side"], p["kind"], p["score"], p["entry"], p["stop"], p["target"],
+             p["entry_date"], p["entry"], now))
+    return len(closed), len(book)
 
 def _resolve_signal_positions(conn):
     """Close any open positions whose target/stop was touched (or time-stopped).
@@ -4788,16 +4987,27 @@ async def get_signal_portfolio():
         return API_CACHE[cache_key]['data']
 
     def work():
-        global _last_pf_resolve
+        global _last_pf_resolve, _pf_healed
         _blob_pull_db(force=True)
         conn = _auth_db()
         try:
+            changed = False
+            if not _pf_healed:
+                _pf_healed = True
+                try:
+                    changed = _heal_intraday_closures(conn) > 0
+                except Exception:
+                    pass
             if time.time() - _last_pf_resolve > 900:
                 _last_pf_resolve = time.time()
                 try:
-                    if _resolve_signal_positions(conn) > 0:
-                        conn.commit()
-                        _blob_push_db()
+                    changed = (_resolve_signal_positions(conn) > 0) or changed
+                except Exception:
+                    pass
+            if changed:
+                conn.commit()
+                try:
+                    _blob_push_db()
                 except Exception:
                     pass
             rows = [dict(r) for r in conn.execute("SELECT * FROM signal_positions ORDER BY id")]

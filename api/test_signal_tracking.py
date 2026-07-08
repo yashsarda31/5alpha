@@ -66,10 +66,18 @@ def test_entry_rejects_incoherent_levels():
 # ---- resolution -------------------------------------------------------------
 
 def _fake_hist(rows):
-    # rows: list of (date_str, high, low, close)
+    # rows: (date, high, low, close) or (date, open, high, low, close).
+    # When Open is omitted it defaults to the bar mid so it never gaps a level.
     idx = pd.to_datetime([r[0] for r in rows])
-    return pd.DataFrame({"High": [r[1] for r in rows], "Low": [r[2] for r in rows],
-                         "Close": [r[3] for r in rows]}, index=idx)
+    op, hi, lo, cl = [], [], [], []
+    for r in rows:
+        if len(r) == 5:
+            _, o, h, l, c = r
+        else:
+            _, h, l, c = r
+            o = (h + l) / 2
+        op.append(o); hi.append(h); lo.append(l); cl.append(c)
+    return pd.DataFrame({"Open": op, "High": hi, "Low": lo, "Close": cl}, index=idx)
 
 
 def _patch_yf(monkeypatch, hist):
@@ -132,6 +140,49 @@ def test_resolve_stop_first_when_bar_spans_both(monkeypatch):
     main._resolve_signal_positions(conn)
     r = conn.execute("SELECT * FROM signal_positions WHERE symbol='AMB'").fetchone()
     assert r["status"] == "loss"
+    conn.close()
+
+
+def test_resolve_skips_entry_day(monkeypatch):
+    # A bar dated on the entry day must NOT resolve the position (intraday entry
+    # can't be judged against its own daily high/low) — this was the same-day bug.
+    conn = _reset()
+    ed = (datetime.now(IST).date() - timedelta(days=1)).strftime("%Y-%m-%d")
+    _insert(conn, symbol="SAME", side="LONG", entry=100, stop=95, target=110, entry_date=ed)
+    _patch_yf(monkeypatch, _fake_hist([(ed, 99, 130, 90, 100)]))  # entry-day bar spans both
+    assert main._resolve_signal_positions(conn) == 0
+    assert conn.execute("SELECT status FROM signal_positions WHERE symbol='SAME'").fetchone()["status"] == "open"
+    conn.close()
+
+
+def test_resolve_gap_through_stop_fills_at_open(monkeypatch):
+    conn = _reset()
+    ed = (datetime.now(IST).date() - timedelta(days=2)).strftime("%Y-%m-%d")
+    d = (datetime.now(IST).date() - timedelta(days=1)).strftime("%Y-%m-%d")
+    _insert(conn, symbol="GAP", side="LONG", entry=100, stop=95, target=110, entry_date=ed)
+    # opens at 90 — gapped below the 95 stop → fills at 90, not 95
+    _patch_yf(monkeypatch, _fake_hist([(d, 90, 92, 88, 91)]))
+    main._resolve_signal_positions(conn)
+    r = conn.execute("SELECT * FROM signal_positions WHERE symbol='GAP'").fetchone()
+    assert r["status"] == "loss" and abs(r["ret_pct"] - (-10.0)) < 1e-6  # (90-100)/100
+    conn.close()
+
+
+def test_heal_deletes_same_day_closures():
+    conn = _reset()
+    ed = "2026-07-01"
+    # artifact: closed on its entry day
+    _insert(conn, symbol="ART", side="SHORT", entry=100, stop=105, target=90,
+            entry_date=ed, status="loss", exit=105, exit_date=ed, ret_pct=-5.0)
+    # legit: closed on a later day — must survive
+    _insert(conn, symbol="REAL", side="LONG", entry=100, stop=95, target=110,
+            entry_date=ed, status="win", exit=110, exit_date="2026-07-03", ret_pct=10.0)
+    conn.commit()
+    removed = main._heal_intraday_closures(conn)
+    conn.commit()
+    assert removed == 1
+    survivors = {r["symbol"] for r in conn.execute("SELECT symbol FROM signal_positions")}
+    assert survivors == {"REAL"}
     conn.close()
 
 
