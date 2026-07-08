@@ -3995,6 +3995,27 @@ def _auth_db():
         k TEXT PRIMARY KEY,
         created_at TEXT NOT NULL
     )""")
+    # Model portfolio: each scored signal is paper-traded at its published entry,
+    # 10% of the book, first-come-first-served up to 10 concurrent positions.
+    conn.execute("""CREATE TABLE IF NOT EXISTS signal_positions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        market TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        side TEXT NOT NULL,
+        kind TEXT,
+        score REAL,
+        entry REAL NOT NULL,
+        stop REAL NOT NULL,
+        target REAL NOT NULL,
+        entry_date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        exit REAL,
+        exit_date TEXT,
+        ret_pct REAL,
+        last_price REAL,
+        updated_at TEXT
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sigpos_status ON signal_positions(status)")
     _purge_test_accounts(conn)
     return conn
 
@@ -4459,57 +4480,68 @@ def _push_send_one(sub_row, payload_json):
     return None
 
 def _broadcast_new_plans(plans, mkt, currency):
-    """Web-push scored plans that haven't been announced today.
-
-    Runs on every fresh signals compute. Idempotent via INSERT OR IGNORE claims
-    in push_sent (day|mkt|symbol — ONE notification per stock per day, users
-    flagged side/kind variants as spam); the first compute of a day/market
-    seeds silently (no blast of the whole morning list), mirroring the
-    frontend's seen-set behavior. Cross-instance duplicate sends are possible
-    on cold starts — the notification `tag` makes the phone tray dedupe them.
+    """Process a fresh batch of scored plans in ONE blob transaction:
+      1. Enter qualifying new plans into the model portfolio (FCFS, 10% each,
+         max 10 concurrent) — _enter_signal_positions.
+      2. Web-push the ones not yet announced today. Idempotent via INSERT OR
+         IGNORE claims in push_sent (day|mkt|symbol — ONE notification per stock
+         per day); the first compute of a day/market seeds silently. Cross-
+         instance duplicate sends are possible on cold starts — the notification
+         `tag` makes the phone tray dedupe them.
+    Sharing the transaction keeps this off the per-compute blob-op budget.
     """
-    if not (VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY) or not plans:
+    if not plans:
         return
-    day = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%d")
     try:
         # Fresh pull is load-bearing: this runs on warm instances whose snapshot
-        # can predate a device's push subscription — writing claims below would
-        # push that stale snapshot and silently ERASE the subscription (the
-        # "test notification says no devices right after enabling" bug).
+        # can predate a device's push subscription / another instance's position
+        # — writing on a stale snapshot would ERASE those (blob mirrors the whole
+        # DB). Both writes below ride this one pull + one conditional push.
         _blob_pull_db(force=True)
         conn = _auth_db()
     except Exception:
         return
+    changed = False
+    fresh = []
+    subs = []
     try:
-        prior = conn.execute("SELECT COUNT(*) FROM push_sent WHERE k LIKE ?", (f"{day}|{mkt}|%",)).fetchone()[0]
-        fresh = []
-        # Highest score first so when a stock has several plans in one batch,
-        # the best one is the single notification it gets today.
-        for p in sorted(plans, key=lambda p: -(p.get("score") or 0)):
-            if not (p.get("symbol") and p.get("side")):
-                continue
-            k = f"{day}|{mkt}|{p['symbol']}"
-            # The LIKE also matches legacy day|mkt|symbol|side|kind claims, so a
-            # mid-day deploy doesn't re-announce already-notified stocks.
-            if conn.execute("SELECT 1 FROM push_sent WHERE k = ? OR k LIKE ? LIMIT 1",
-                            (k, k + "|%")).fetchone():
-                continue
-            if conn.execute("INSERT OR IGNORE INTO push_sent (k, created_at) VALUES (?, ?)", (k, _utc_now())).rowcount:
-                fresh.append(p)
-        claimed = len(fresh)
-        conn.execute("DELETE FROM push_sent WHERE created_at < ?",
-                     ((datetime.now(timezone.utc) - timedelta(days=3)).isoformat(),))
+        # (1) Model-portfolio entry — independent of push config (VAPID keys).
+        try:
+            if _enter_signal_positions(conn, plans, mkt) > 0:
+                changed = True
+        except Exception:
+            pass
+        # (2) Push claims — only when push is configured.
+        if VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY:
+            day = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%d")
+            prior = conn.execute("SELECT COUNT(*) FROM push_sent WHERE k LIKE ?", (f"{day}|{mkt}|%",)).fetchone()[0]
+            # Highest score first so when a stock has several plans in one batch,
+            # the best one is the single notification it gets today.
+            for p in sorted(plans, key=lambda p: -(p.get("score") or 0)):
+                if not (p.get("symbol") and p.get("side")):
+                    continue
+                k = f"{day}|{mkt}|{p['symbol']}"
+                # The LIKE also matches legacy day|mkt|symbol|side|kind claims, so
+                # a mid-day deploy doesn't re-announce already-notified stocks.
+                if conn.execute("SELECT 1 FROM push_sent WHERE k = ? OR k LIKE ? LIMIT 1",
+                                (k, k + "|%")).fetchone():
+                    continue
+                if conn.execute("INSERT OR IGNORE INTO push_sent (k, created_at) VALUES (?, ?)", (k, _utc_now())).rowcount:
+                    fresh.append(p)
+            if fresh:
+                changed = True
+            conn.execute("DELETE FROM push_sent WHERE created_at < ?",
+                         ((datetime.now(timezone.utc) - timedelta(days=3)).isoformat(),))
+            if prior == 0:
+                fresh = []  # first sight of this day/market: seed quietly
         conn.commit()
-        if prior == 0:
-            fresh = []  # first sight of this day/market: seed quietly
         subs = conn.execute("SELECT endpoint, p256dh, auth FROM push_subs").fetchall() if fresh else []
     finally:
         conn.close()
-    if claimed:
-        # Persist claims to the blob store. Without this, every serverless
-        # cold start pulls a DB with no push_sent rows for today, prior==0
-        # re-seeds silently, and no notification is EVER sent (the bug that
-        # made push look dead in prod, found 2026-07-07).
+    if changed:
+        # Persist claims + new positions. Without this, every serverless cold
+        # start pulls a DB missing today's rows and re-seeds silently (the bug
+        # that made push look dead in prod, found 2026-07-07).
         try:
             _blob_push_db()
         except Exception:
@@ -4541,6 +4573,235 @@ def _broadcast_new_plans(plans, mkt, currency):
             _blob_push_db()
         except Exception:
             pass
+
+
+# --- Signal model portfolio: paper-trade every scored signal -----------------
+# Each new signal is entered at its published entry price as a 10%-of-book
+# position, first-come-first-served up to 10 concurrent slots. Positions close
+# when the day's high/low touches the target (win) or stop (loss), or after a
+# 30-day time stop. Track record = win rate + realized return over closed trades.
+SIGNAL_PF_SLOTS = 10          # max concurrent positions (10 × 10% = fully invested)
+SIGNAL_PF_WEIGHT = 0.10       # each position is 10% of the model book
+SIGNAL_PF_MAX_HOLD_DAYS = 30  # time stop: close a stagnant position after 30 days
+_last_pf_resolve = 0.0        # throttle the (network-heavy) resolver
+
+def _pf_yf_symbol(market, symbol):
+    return f"{symbol}.NS" if market == "IN" else symbol
+
+def _valid_plan_levels(p):
+    """Return (entry, stop, target, side) if the plan has a coherent trade, else
+    None. LONG needs stop < entry < target; SHORT needs target < entry < stop."""
+    side = (p.get("side") or "").upper()
+    if side not in ("LONG", "SHORT"):
+        return None
+    try:
+        e, s, t = float(p["entry"]), float(p["stop"]), float(p["target"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (e > 0 and s > 0 and t > 0):
+        return None
+    if side == "LONG" and not (s < e < t):
+        return None
+    if side == "SHORT" and not (t < e < s):
+        return None
+    return e, s, t, side
+
+def _enter_signal_positions(conn, plans, mkt):
+    """FCFS entry of new plans into the model portfolio. Skips symbols already
+    open (or closed today, to avoid same-day churn) and stops at the slot cap.
+    Highest score first so the best signals claim the scarce slots. Caller owns
+    the commit + blob push. Returns the number of positions opened."""
+    today = datetime.now(_IST).strftime("%Y-%m-%d")
+    open_syms = {r["symbol"] for r in conn.execute(
+        "SELECT symbol FROM signal_positions WHERE status='open' AND market=?", (mkt,))}
+    closed_today = {r["symbol"] for r in conn.execute(
+        "SELECT symbol FROM signal_positions WHERE status!='open' AND market=? AND substr(exit_date,1,10)=?",
+        (mkt, today))}
+    open_count = conn.execute("SELECT COUNT(*) FROM signal_positions WHERE status='open'").fetchone()[0]
+    added = 0
+    for p in sorted(plans, key=lambda p: -(p.get("score") or 0)):
+        if open_count >= SIGNAL_PF_SLOTS:
+            break
+        sym = p.get("symbol")
+        if not sym or sym in open_syms or sym in closed_today:
+            continue
+        lv = _valid_plan_levels(p)
+        if not lv:
+            continue
+        e, s, t, side = lv
+        conn.execute(
+            """INSERT INTO signal_positions
+               (market, symbol, side, kind, score, entry, stop, target, entry_date,
+                status, last_price, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?, 'open', ?, ?)""",
+            (mkt, sym, side, p.get("kind"), float(p.get("score") or 0), e, s, t, today, e, _utc_now()))
+        open_syms.add(sym)
+        open_count += 1
+        added += 1
+    return added
+
+def _resolve_one_position(r):
+    """Walk daily bars from entry onward; return (status, exit_price, exit_date)
+    once target/stop is touched or the time stop trips, else None. Network call."""
+    yf_sym = _pf_yf_symbol(r["market"], r["symbol"])
+    try:
+        hist = yf.Ticker(yf_sym).history(start=r["entry_date"], auto_adjust=True)
+    except Exception:
+        return None
+    if hist is None or hist.empty:
+        return None
+    entry, stop, target, side = float(r["entry"]), float(r["stop"]), float(r["target"]), r["side"]
+    for ts, bar in hist.iterrows():
+        d = ts.strftime("%Y-%m-%d")
+        if d < r["entry_date"]:
+            continue
+        hi, lo = float(bar["High"]), float(bar["Low"])
+        if side == "LONG":
+            hit_stop, hit_tgt = lo <= stop, hi >= target
+        else:
+            hit_stop, hit_tgt = hi >= stop, lo <= target
+        # If a single bar spans both, assume the stop filled first (conservative).
+        if hit_stop:
+            return "loss", stop, d
+        if hit_tgt:
+            return "win", target, d
+    # Time stop: close a position that has sat open past the max hold.
+    try:
+        entry_dt = datetime.strptime(r["entry_date"], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    if (datetime.now(_IST).date() - entry_dt).days >= SIGNAL_PF_MAX_HOLD_DAYS:
+        return "closed", round(float(hist["Close"].iloc[-1]), 2), datetime.now(_IST).strftime("%Y-%m-%d")
+    return None
+
+def _resolve_signal_positions(conn):
+    """Close any open positions whose target/stop was touched (or time-stopped).
+    Only status changes are written (mark-to-market is computed live in the
+    snapshot), so the blob push only fires when the book actually changes.
+    Returns the number of positions closed."""
+    rows = [dict(r) for r in conn.execute("SELECT * FROM signal_positions WHERE status='open'")]
+    closed = 0
+    for r in rows:
+        res = _resolve_one_position(r)
+        if not res:
+            continue
+        status, exit_price, exit_date = res
+        ret = (exit_price - r["entry"]) / r["entry"] * 100 * (1 if r["side"] == "LONG" else -1)
+        conn.execute(
+            """UPDATE signal_positions
+               SET status=?, exit=?, exit_date=?, ret_pct=?, last_price=?, updated_at=?
+               WHERE id=?""",
+            (status, round(exit_price, 2), exit_date, round(ret, 2), round(exit_price, 2), _utc_now(), r["id"]))
+        closed += 1
+    return closed
+
+def _signal_portfolio_snapshot(rows):
+    """Build the track-record payload from all position rows. Open positions are
+    marked to market with live quotes; stats + equity curve come from closed
+    trades. Each position is SIGNAL_PF_WEIGHT of the book."""
+    open_rows = [r for r in rows if r["status"] == "open"]
+    closed_rows = [r for r in rows if r["status"] != "open"]
+
+    # Live mark for open positions (batch quotes; fall back to entry).
+    quotes = {}
+    if open_rows:
+        uniq = {_pf_yf_symbol(r["market"], r["symbol"]) for r in open_rows}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(uniq))) as ex:
+            futs = {ex.submit(_yf_quote_change, s): s for s in uniq}
+            for fut in concurrent.futures.as_completed(futs):
+                q = fut.result()
+                if q:
+                    quotes[futs[fut]] = q
+
+    today = datetime.now(_IST).date()
+    open_out = []
+    open_unreal_contrib = 0.0
+    for r in open_rows:
+        q = quotes.get(_pf_yf_symbol(r["market"], r["symbol"]))
+        cur = q["last"] if q else r["entry"]
+        unreal = (cur - r["entry"]) / r["entry"] * 100 * (1 if r["side"] == "LONG" else -1)
+        try:
+            held = (today - datetime.strptime(r["entry_date"], "%Y-%m-%d").date()).days
+        except ValueError:
+            held = 0
+        open_unreal_contrib += SIGNAL_PF_WEIGHT * unreal
+        open_out.append({
+            "symbol": r["symbol"], "market": r["market"], "side": r["side"],
+            "kind": r["kind"], "score": r["score"], "entry": r["entry"],
+            "stop": r["stop"], "target": r["target"], "current": round(cur, 2),
+            "unreal_pct": round(unreal, 2), "entry_date": r["entry_date"],
+            "days_held": held, "weight_pct": round(SIGNAL_PF_WEIGHT * 100),
+        })
+    open_out.sort(key=lambda x: -x["unreal_pct"])
+
+    closed_sorted = sorted(closed_rows, key=lambda r: (r["exit_date"] or "", r.get("id", 0)))
+    wins = [r for r in closed_sorted if (r["ret_pct"] or 0) > 0]
+    losses = [r for r in closed_sorted if (r["ret_pct"] or 0) <= 0]
+    n_closed = len(closed_sorted)
+    realized_contrib = sum(SIGNAL_PF_WEIGHT * (r["ret_pct"] or 0) for r in closed_sorted)
+
+    # Cumulative realized model return over time (for the equity curve).
+    curve, cum = [], 0.0
+    for r in closed_sorted:
+        cum += SIGNAL_PF_WEIGHT * (r["ret_pct"] or 0)
+        curve.append({"date": (r["exit_date"] or "")[:10], "cum_pct": round(cum, 2)})
+
+    closed_out = [{
+        "symbol": r["symbol"], "market": r["market"], "side": r["side"],
+        "kind": r["kind"], "score": r["score"], "entry": r["entry"],
+        "exit": r["exit"], "ret_pct": r["ret_pct"], "result": r["status"],
+        "entry_date": r["entry_date"], "exit_date": (r["exit_date"] or "")[:10],
+    } for r in reversed(closed_sorted)]  # newest first
+
+    avg = lambda xs: round(sum(xs) / len(xs), 2) if xs else 0.0
+    stats = {
+        "win_rate": round(len(wins) / n_closed * 100, 1) if n_closed else None,
+        "closed": n_closed,
+        "wins": len(wins),
+        "losses": len(losses),
+        "open": len(open_out),
+        "slots": SIGNAL_PF_SLOTS,
+        "avg_win": avg([r["ret_pct"] for r in wins]),
+        "avg_loss": avg([r["ret_pct"] for r in losses]),
+        "avg_trade": avg([r["ret_pct"] or 0 for r in closed_sorted]),
+        "realized_pct": round(realized_contrib, 2),
+        "unrealized_pct": round(open_unreal_contrib, 2),
+        "total_pct": round(realized_contrib + open_unreal_contrib, 2),
+        "best": max((r["ret_pct"] for r in closed_sorted), default=None),
+        "worst": min((r["ret_pct"] for r in closed_sorted), default=None),
+    }
+    return {"stats": stats, "open": open_out, "closed": closed_out[:50],
+            "equity_curve": curve, "as_of": datetime.now(_IST).strftime("%Y-%m-%d %H:%M IST")}
+
+@app.get("/api/signals/portfolio")
+async def get_signal_portfolio():
+    """The model portfolio's live holdings + track record. Resolution (network-
+    heavy) is throttled; the snapshot itself is cached briefly."""
+    cache_key = "signal_portfolio"
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < 60:
+        return API_CACHE[cache_key]['data']
+
+    def work():
+        global _last_pf_resolve
+        _blob_pull_db(force=True)
+        conn = _auth_db()
+        try:
+            if time.time() - _last_pf_resolve > 900:
+                _last_pf_resolve = time.time()
+                try:
+                    if _resolve_signal_positions(conn) > 0:
+                        conn.commit()
+                        _blob_push_db()
+                except Exception:
+                    pass
+            rows = [dict(r) for r in conn.execute("SELECT * FROM signal_positions ORDER BY id")]
+        finally:
+            conn.close()
+        return _signal_portfolio_snapshot(rows)
+
+    data = _json_safe(await asyncio.to_thread(work))
+    API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+    return data
 
 
 # --- Daily Nifty call: streak + leaderboard (Phase 2A) ---

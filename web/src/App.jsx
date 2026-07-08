@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 're
 import {
   LayoutGrid, Star, Zap, Rocket, Newspaper,
   LineChart, Bird, Search, Landmark, Calculator, BarChart3, Sparkles, Scale, Link2,
-  Trophy, Gamepad2, GraduationCap, Settings, Menu, Compass, ArrowLeftRight,
+  Trophy, Gamepad2, GraduationCap, Settings, Menu, Compass, ArrowLeftRight, Gauge,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
 import { WatchlistProvider } from './WatchlistContext';
@@ -29,6 +29,7 @@ const routeImporters = {
   '/news': () => import('./pages/News'),
   '/option-chain': () => import('./pages/OptionChain'),
   '/signals': () => import('./pages/MarketSignals'),
+  '/track-record': () => import('./pages/TrackRecord'),
   '/sectors': () => import('./pages/SectorRotation'),
   '/deals': () => import('./pages/Deals'),
   '/learn': () => import('./pages/Learn'),
@@ -59,6 +60,7 @@ const Fundamentals = lazy(routeImporters['/fundamentals']);
 const News = lazy(routeImporters['/news']);
 const OptionChain = lazy(routeImporters['/option-chain']);
 const MarketSignals = lazy(routeImporters['/signals']);
+const TrackRecord = lazy(routeImporters['/track-record']);
 const SectorRotation = lazy(routeImporters['/sectors']);
 const Deals = lazy(routeImporters['/deals']);
 const Learn = lazy(routeImporters['/learn']);
@@ -75,6 +77,7 @@ const NAV_SECTIONS = [
       { to: '/dashboard', label: 'Dashboard', Icon: LayoutGrid },
       { to: '/watchlist', label: 'Watchlist', Icon: Star },
       { to: '/signals', label: 'Market Signals', Icon: Zap },
+      { to: '/track-record', label: 'Signal Track Record', Icon: Gauge },
       { to: '/sectors', label: 'Sector Rotation', Icon: Compass },
       { to: '/momentum', label: 'Momentum Leaders', Icon: Rocket },
       { to: '/news', label: 'News', Icon: Newspaper },
@@ -243,6 +246,7 @@ const AppLayout = () => {
           <Route path="/news" element={<News />} />
           <Route path="/option-chain" element={<OptionChain />} />
           <Route path="/signals" element={<MarketSignals />} />
+          <Route path="/track-record" element={<TrackRecord />} />
           <Route path="/sectors" element={<SectorRotation />} />
           <Route path="/deals" element={<Deals />} />
           <Route path="/learn" element={<Learn />} />
