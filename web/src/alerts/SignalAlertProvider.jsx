@@ -10,7 +10,8 @@ const PREF_KEY = 'alphanova_browser_notifs';
 // on the next visit until the user actually enables (free platform: every
 // account should end up push-subscribed).
 const NUDGE_KEY = 'alphanova_notif_nudge_dismissed';
-const POLL_MS = 120000;      // matches server signals cache TTL
+const POLL_MS = 120000;      // foreground: near-live, matches server signals TTL
+const POLL_HIDDEN_MS = 600000; // background: 10 min — still drives push, ~5x fewer calls
 const FETCH_TIMEOUT_MS = 20000;
 const TOAST_TTL_MS = 10000;
 const MAX_TOASTS = 4;
@@ -52,6 +53,41 @@ const urlB64ToU8 = (s) => {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 };
 
+// Compare a subscription's stored applicationServerKey (an ArrayBuffer) against
+// the current server key. Returns false when it can't be confirmed equal, so
+// callers err toward re-subscribing.
+const sameAppKey = (existing, want) => {
+  if (!existing) return false;
+  const a = new Uint8Array(existing);
+  if (a.length !== want.length) return false;
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== want[i]) return false;
+  return true;
+};
+
+// Subscribe this device, reusing an existing subscription only when it was
+// created with the CURRENT server VAPID key. A subscription left over from an
+// older key makes pushManager.subscribe() throw
+// "A subscription with a different applicationServerKey already exists" — the
+// #1 reason "could not register device" appears after VAPID keys are rotated.
+// So: drop any mismatched/stale subscription first, and if subscribe() still
+// throws (older browsers don't expose options.applicationServerKey), force-clear
+// and retry exactly once.
+const subscribeWithKey = async (reg, appKey) => {
+  let sub = await reg.pushManager.getSubscription();
+  if (sub && !sameAppKey(sub.options && sub.options.applicationServerKey, appKey)) {
+    try { await sub.unsubscribe(); } catch { /* noop */ }
+    sub = null;
+  }
+  if (sub) return sub;
+  try {
+    return await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
+  } catch {
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) { try { await existing.unsubscribe(); } catch { /* noop */ } }
+    return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
+  }
+};
+
 // Resolve an ACTIVE service-worker registration, waiting up to `ms` for one to
 // activate. getRegistration() can hand back a registration whose worker isn't
 // active yet; pushManager.subscribe needs an active worker, so we prefer
@@ -84,18 +120,23 @@ const subscribePush = async () => {
     const res = await fetch('/api/push/vapid');
     if (!res.ok) return 'no-vapid';
     const { key } = await res.json();
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlB64ToU8(key),
-    });
+    let sub;
+    try {
+      sub = await subscribeWithKey(reg, urlB64ToU8(key));
+    } catch (err) {
+      // Carry the browser's actual reason out (e.g. AbortError = the push
+      // service itself is unreachable/blocked) so the UI can explain instead
+      // of a generic "couldn't register".
+      return `error:${(err && (err.name || err.message)) || 'subscribe failed'}`;
+    }
     const post = await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify(sub.toJSON()),
     });
-    return post.ok ? 'ok' : 'error';
-  } catch {
-    return 'error';
+    return post.ok ? 'ok' : `error:server ${post.status}`;
+  } catch (err) {
+    return `error:${(err && (err.name || err.message)) || 'unknown'}`;
   }
 };
 
@@ -221,11 +262,27 @@ const SignalAlertProvider = ({ children }) => {
     }
   }, [detect]);
 
-  // Poll the signals engine on mount + every 2 min, regardless of tab visibility
+  // Poll cadence follows tab visibility: full-speed while the user is looking
+  // (live toasts), slow in the background — a backgrounded/abandoned tab is the
+  // main source of wasted serverless invocations. Returning to the tab triggers
+  // an immediate catch-up poll so the user never sees stale data.
   useEffect(() => {
+    let id;
+    const schedule = () => {
+      clearInterval(id);
+      id = setInterval(runPoll, document.hidden ? POLL_HIDDEN_MS : POLL_MS);
+    };
+    const onVisibility = () => {
+      if (!document.hidden) runPoll();
+      schedule();
+    };
     runPoll();
-    const id = setInterval(runPoll, POLL_MS);
-    return () => clearInterval(id);
+    schedule();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [runPoll]);
 
   // Dev/demo hooks: fire a synthetic signal, or force one real poll cycle

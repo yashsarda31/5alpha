@@ -59,7 +59,13 @@ const PushTest = () => {
       return;
     }
     if (sub !== 'ok') {
-      setStatus('Couldn’t register this device for push. Please retry in a moment.');
+      const reason = typeof sub === 'string' && sub.startsWith('error:') ? sub.slice(6) : '';
+      // AbortError from pushManager.subscribe = the browser can't reach its
+      // push service — classic in Brave (Google push messaging off) or with
+      // blocked Google services; not something a retry fixes.
+      setStatus(/abort|push service/i.test(reason)
+        ? 'Your browser blocked its push service. In Brave: Settings → Privacy → enable "Use Google services for push messaging", then retry.'
+        : `Couldn’t register this device for push${reason ? ` (${reason})` : ''}. Please retry in a moment.`);
       setBusy(false);
       return;
     }
@@ -68,12 +74,16 @@ const PushTest = () => {
     setStatus('Sending…');
     try {
       const token = localStorage.getItem('alphanova_auth_token');
-      const res = await axios.post('/api/push/test', null, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const d = res.data;
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      let d = (await axios.post('/api/push/test', null, { headers })).data;
+      if (d.subs === 0) {
+        // The subscribe write may land a beat before another instance can see
+        // it — give the store a moment and retry once before bothering the user.
+        await new Promise((r) => setTimeout(r, 1500));
+        d = (await axios.post('/api/push/test', null, { headers })).data;
+      }
       setStatus(d.subs === 0
-        ? 'Device registered but the server sees no subscription yet — reload and tap once more.'
+        ? 'Device registered but the server can’t see it yet — wait a few seconds and tap again.'
         : `Sent to ${d.sent} of ${d.subs} device(s). Check your notification tray.`);
     } catch (err) {
       setStatus(`Failed: ${err.response?.data?.detail || err.message}`);

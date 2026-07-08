@@ -1285,6 +1285,211 @@ async def get_momentum(market: str = "us"):
     API_CACHE[cache_key] = {'time': time.time(), 'data': response_data}
     return response_data
 
+
+# --- Sector Rotation ---------------------------------------------------------
+# Tracks how India's sector indices rotate around the Nifty 50 benchmark using
+# the institutional Relative Rotation Graph (RRG) model plus multi-timeframe
+# relative strength, and ranks each sector's near-term (next-week) tailwind vs
+# headwind. Historical closes come from yfinance (verified reliable for the
+# ^CNX* sector tickers); the live daily move is overlaid from NSE allIndices.
+# display name -> (yahoo ticker for history, NSE allIndices name for live %)
+SECTOR_INDICES = {
+    "Nifty Bank": ("^NSEBANK", "NIFTY BANK"),
+    "Nifty IT": ("^CNXIT", "NIFTY IT"),
+    "Nifty Auto": ("^CNXAUTO", "NIFTY AUTO"),
+    "Nifty Pharma": ("^CNXPHARMA", "NIFTY PHARMA"),
+    "Nifty FMCG": ("^CNXFMCG", "NIFTY FMCG"),
+    "Nifty Metal": ("^CNXMETAL", "NIFTY METAL"),
+    "Nifty Realty": ("^CNXREALTY", "NIFTY REALTY"),
+    "Nifty Energy": ("^CNXENERGY", "NIFTY ENERGY"),
+    "Nifty Media": ("^CNXMEDIA", "NIFTY MEDIA"),
+    "Nifty PSU Bank": ("^CNXPSUBANK", "NIFTY PSU BANK"),
+    "Nifty Fin Services": ("NIFTY_FIN_SERVICE.NS", "NIFTY FINANCIAL SERVICES"),
+    "Nifty Infra": ("^CNXINFRA", "NIFTY INFRASTRUCTURE"),
+}
+SECTOR_BENCHMARK = ("^NSEI", "NIFTY 50")
+RRG_TAIL_WEEKS = 6          # length of the trajectory tail on the RRG chart
+RRG_NORM_WINDOW = 10        # rolling window for the RS z-score normalization
+
+def _rrg_quadrant(rs_ratio, rs_mom):
+    if rs_ratio >= 100 and rs_mom >= 100:
+        return "Leading"
+    if rs_ratio >= 100 and rs_mom < 100:
+        return "Weakening"
+    if rs_ratio < 100 and rs_mom < 100:
+        return "Lagging"
+    return "Improving"
+
+def _pct_return(closes, lookback):
+    """Simple % return over `lookback` sessions; None if not enough history."""
+    if len(closes) <= lookback:
+        return None
+    prev = float(closes.iloc[-1 - lookback])
+    return (float(closes.iloc[-1]) / prev - 1) * 100 if prev else None
+
+def _squash(x, scale):
+    """Map a signed value into 0-100 with 50 = neutral, saturating at ±scale."""
+    if x is None or not np.isfinite(x):
+        return 50.0
+    return 50.0 + max(-50.0, min(50.0, (x / scale) * 50.0))
+
+def _compute_sector_rotation():
+    import pandas as pd
+    bench_tk = SECTOR_BENCHMARK[0]
+    tickers = [t[0] for t in SECTOR_INDICES.values()] + [bench_tk]
+    try:
+        df = yf.download(" ".join(tickers), period="9mo", group_by="ticker",
+                         threads=True, progress=False, auto_adjust=True)
+    except Exception:
+        return None
+
+    def weekly_closes(tk):
+        try:
+            c = df[tk]["Close"].dropna()
+        except Exception:
+            return None
+        if len(c) < 40:
+            return None
+        return c
+
+    bench = weekly_closes(bench_tk)
+    if bench is None:
+        return None
+    bench_w = bench.resample("W-FRI").last().dropna()
+
+    # Live daily % change per sector (best-effort; missing -> None)
+    live = {}
+    try:
+        idx = nse_get("/api/allIndices")
+        for row in (idx or {}).get("data", []):
+            live[row.get("index", "")] = row.get("percentChange")
+    except Exception:
+        pass
+
+    rows = []
+    for name, (tk, nse_name) in SECTOR_INDICES.items():
+        c = weekly_closes(tk)
+        if c is None:
+            continue
+        c_w = c.resample("W-FRI").last().dropna()
+        aligned = pd.concat([c_w, bench_w], axis=1, join="inner").dropna()
+        if len(aligned) < RRG_NORM_WINDOW + RRG_TAIL_WEEKS + 2:
+            continue
+        sec_w, bmk_w = aligned.iloc[:, 0], aligned.iloc[:, 1]
+
+        # RRG: normalized relative strength (RS-Ratio) and its momentum (RS-Mom)
+        rs = 100.0 * (sec_w / bmk_w)
+        rs_ratio = 100.0 + (rs - rs.rolling(RRG_NORM_WINDOW).mean()) / rs.rolling(RRG_NORM_WINDOW).std()
+        roc = rs_ratio.diff()
+        rs_mom = 100.0 + (roc - roc.rolling(RRG_NORM_WINDOW).mean()) / roc.rolling(RRG_NORM_WINDOW).std()
+        traj = pd.concat([rs_ratio, rs_mom], axis=1).dropna()
+        if len(traj) < 2:
+            continue
+        tail = traj.tail(RRG_TAIL_WEEKS)
+        cur_ratio, cur_mom = float(tail.iloc[-1, 0]), float(tail.iloc[-1, 1])
+
+        # Multi-timeframe returns (daily closes) and relative-to-benchmark
+        r1w, r1m, r3m = _pct_return(c, 5), _pct_return(c, 21), _pct_return(c, 63)
+        b1w, b1m, b3m = _pct_return(bench, 5), _pct_return(bench, 21), _pct_return(bench, 63)
+        rel1w = None if (r1w is None or b1w is None) else r1w - b1w
+        rel1m = None if (r1m is None or b1m is None) else r1m - b1m
+        rel3m = None if (r3m is None or b3m is None) else r3m - b3m
+
+        sma50 = float(c.tail(50).mean()) if len(c) >= 50 else None
+        trend = (float(c.iloc[-1]) / sma50 - 1) * 100 if sma50 else None
+
+        # Composite near-term rotation score (0-100). Weighted toward the
+        # short-horizon relative strength that a "next week" read cares about,
+        # with the RRG momentum trajectory and the medium trend as context.
+        score = (
+            0.32 * _squash(rel1w, 4.0) +
+            0.24 * _squash(rel1m, 8.0) +
+            0.24 * _squash(cur_mom - 100.0, 2.0) +
+            0.20 * _squash(trend, 8.0)
+        )
+        score = round(max(0.0, min(100.0, score)), 1)
+        outlook = "Favored" if score >= 58 else ("Headwind" if score <= 42 else "Neutral")
+
+        rows.append({
+            "name": name,
+            "quadrant": _rrg_quadrant(cur_ratio, cur_mom),
+            "rs_ratio": round(cur_ratio, 2),
+            "rs_momentum": round(cur_mom, 2),
+            "tail": [{"x": round(float(a), 2), "y": round(float(b), 2)} for a, b in tail.values],
+            "ret_1w": None if r1w is None else round(r1w, 2),
+            "ret_1m": None if r1m is None else round(r1m, 2),
+            "ret_3m": None if r3m is None else round(r3m, 2),
+            "rel_1w": None if rel1w is None else round(rel1w, 2),
+            "rel_1m": None if rel1m is None else round(rel1m, 2),
+            "rel_3m": None if rel3m is None else round(rel3m, 2),
+            "trend_50d": None if trend is None else round(trend, 2),
+            "live_pct": live.get(nse_name),
+            "score": score,
+            "outlook": outlook,
+        })
+
+    if not rows:
+        return None
+    rows.sort(key=lambda r: r["score"], reverse=True)
+    b1w = _pct_return(bench, 5)
+    quad_counts = {q: sum(1 for r in rows if r["quadrant"] == q)
+                   for q in ("Leading", "Weakening", "Lagging", "Improving")}
+    return {
+        "sectors": rows,
+        "benchmark": {"name": SECTOR_BENCHMARK[1],
+                      "ret_1w": None if b1w is None else round(b1w, 2),
+                      "ret_1m": round(_pct_return(bench, 21), 2) if _pct_return(bench, 21) is not None else None},
+        "quadrant_counts": quad_counts,
+        "leaders": [r["name"] for r in rows if r["outlook"] == "Favored"][:5],
+        "laggards": [r["name"] for r in reversed(rows) if r["outlook"] == "Headwind"][:5],
+        "as_of": datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%d %H:%M IST"),
+    }
+
+@app.get("/api/sectors")
+async def get_sector_rotation():
+    cache_key = "sector_rotation"
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < 1800:
+        return API_CACHE[cache_key]['data']
+    data = await asyncio.to_thread(_compute_sector_rotation)
+    if not data:
+        raise HTTPException(status_code=503, detail="Sector data is temporarily unavailable. Please retry shortly.")
+    API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+    return data
+
+class AISectorRequest(BaseModel):
+    sector_data: dict
+    apiKey: str
+
+@app.post("/api/ai/sectors")
+def ai_sector_summary(req: AISectorRequest):
+    if not req.apiKey:
+        return {"report": "API Key Required."}
+    client = _genai_client(req.apiKey)
+    prompt = f"""
+    You are a market strategist explaining SECTOR ROTATION to an Indian equity trader.
+    The data below is derived from a Relative Rotation Graph (RRG) versus the Nifty 50
+    plus multi-timeframe relative strength. Quadrants: Leading (strong & strengthening),
+    Weakening (strong but fading), Lagging (weak & weakening), Improving (weak but turning up).
+    Rotation typically flows clockwise: Improving -> Leading -> Weakening -> Lagging.
+
+    Write a concise markdown brief (bullet points, no preamble):
+    - Which 2-3 sectors have the strongest near-term tailwind and WHY (cite quadrant + relative strength).
+    - Which 2-3 sectors face a headwind and WHY.
+    - One line on what the overall rotation says about market posture (risk-on vs defensive).
+    Be objective and educational. Do NOT give buy/sell advice or price targets. Note that momentum can reverse.
+
+    Sector rotation data:
+    {req.sector_data}
+    """
+    try:
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-lite',
+            contents=prompt,
+        )
+        return {"report": response.text}
+    except Exception as e:
+        return _ai_error_report(e)
+
 @app.get("/api/fundamentals/{ticker}")
 async def get_fundamentals(ticker: str):
     def fetch_fundamentals():
@@ -1400,42 +1605,236 @@ def _news_sentiment(text):
     label = "Bullish" if score >= 60 else "Bearish" if score <= 40 else "Neutral"
     return {"score": score, "label": label}
 
+# --- Multi-source news aggregation ------------------------------------------
+# Combines NewsAPI (optional key), Yahoo Finance, Google News and Investing.com
+# into one relevance-ranked feed. The keyless sources mean the tab now works
+# even without a NewsAPI key. Every source is fetched in parallel and bounded so
+# one slow/blocked feed can't stall the response; results are cached per ticker.
+import xml.etree.ElementTree as _ET
+from email.utils import parsedate_to_datetime as _parsedate
+
+NEWS_CACHE_TTL = 600  # 10 min — headlines don't move faster than this
+_NEWS_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+_CORP_SUFFIXES = (" ltd", " limited", " inc", " inc.", " corp", " corporation",
+                  " plc", " co", " company", " sa", " ag", " nv", " lt", " serv")
+# per-source base weight: ticker-queried/associated sources outrank the general
+# Investing.com market feed (which only survives when it names the company).
+_NEWS_SOURCE_WEIGHT = {"Yahoo Finance": 2.5, "Google News": 2.2, "NewsAPI": 2.0, "Investing.com": 0.6}
+
+def _strip_html(s):
+    return re.sub(r"<[^>]+>", "", s or "").replace("&nbsp;", " ").replace("&#39;", "'").strip()
+
+def _clean_company_name(name):
+    n = (name or "").strip()
+    low = n.lower()
+    for suf in _CORP_SUFFIXES:
+        if low.endswith(suf):
+            n = n[:-len(suf)].strip()
+            low = n.lower()
+    return n
+
+def _news_context(ticker):
+    """Resolve a ticker to (query, yf_symbol, match_terms) via Yahoo search so
+    every source gets a good query and relevance can match the company name."""
+    raw = ticker.strip()
+    terms = {raw.lower()}
+    query, yf_symbol = raw, map_symbol_to_yfinance(raw)
+    try:
+        r = requests.get("https://query2.finance.yahoo.com/v1/finance/search?q=" + requests.utils.quote(raw),
+                         headers=_NEWS_UA, timeout=6)
+        quotes = r.json().get("quotes", []) if r.status_code == 200 else []
+        # Pick the intended listing, not just Yahoo's top hit: exact symbol
+        # (US tickers like AAPL), else the NSE/BSE listing (so "TCS" resolves to
+        # Tata Consultancy, not an unrelated foreign "TCS"), else any equity.
+        up = raw.upper()
+        eq = None
+        for want in (up, up + ".NS", up + ".BO"):
+            eq = next((q for q in quotes if (q.get("symbol") or "").upper() == want), None)
+            if eq:
+                break
+        if not eq:
+            eq = next((q for q in quotes if q.get("quoteType") == "EQUITY" and q.get("symbol")), None)
+        if not eq:
+            eq = next((q for q in quotes if q.get("symbol")), None)
+        if eq:
+            yf_symbol = eq.get("symbol") or yf_symbol
+            name = _clean_company_name(eq.get("shortname") or eq.get("longname") or "")
+            if name:
+                query = name
+                terms.add(name.lower())
+                first = name.split()[0].lower()
+                if len(first) >= 4:
+                    terms.add(first)
+    except Exception:
+        pass
+    return query, yf_symbol, terms
+
+def _parse_news_dt(s):
+    """RFC822 / ISO / 'YYYY-MM-DD HH:MM:SS' -> aware UTC datetime, or None."""
+    if not s:
+        return None
+    s = s.strip()
+    for parser in (_parsedate,
+                   lambda x: datetime.fromisoformat(x.replace("Z", "+00:00")),
+                   lambda x: datetime.strptime(x, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)):
+        try:
+            dt = parser(s)
+            if dt:
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+    return None
+
+def _mk_article(title, url, desc, dt, source_name, provider):
+    return {"title": (title or "").strip(), "url": url or "",
+            "description": _strip_html(desc)[:400],
+            "publishedAt": dt.astimezone(timezone.utc).isoformat() if dt else None,
+            "source": {"name": source_name or provider}, "provider": provider}
+
+def _fetch_rss_items(url):
+    try:
+        r = requests.get(url, headers=_NEWS_UA, timeout=9)
+        return _ET.fromstring(r.content).findall(".//item") if r.status_code == 200 else []
+    except Exception:
+        return []
+
+def _news_from_newsapi(query, api_key):
+    if not api_key:
+        return []
+    try:
+        url = ("https://newsapi.org/v2/everything?q=" + requests.utils.quote(f'"{query}"')
+               + "&sortBy=publishedAt&language=en&pageSize=15&apiKey=" + api_key)
+        data = requests.get(url, timeout=9).json()
+        return [_mk_article(a.get("title"), a.get("url"), a.get("description"),
+                            _parse_news_dt(a.get("publishedAt")),
+                            (a.get("source") or {}).get("name"), "NewsAPI")
+                for a in (data.get("articles") or [])[:15]]
+    except Exception:
+        return []
+
+def _news_from_yfinance(yf_symbol):
+    try:
+        items = yf.Ticker(yf_symbol).news or []
+    except Exception:
+        return []
+    out = []
+    for it in items[:12]:
+        c = it.get("content") or it
+        url = (c.get("clickThroughUrl") or {}).get("url") or (c.get("canonicalUrl") or {}).get("url")
+        prov = (c.get("provider") or {}).get("displayName")
+        out.append(_mk_article(c.get("title"), url, c.get("summary") or c.get("description"),
+                               _parse_news_dt(c.get("pubDate") or c.get("displayTime")),
+                               prov, "Yahoo Finance"))
+    return out
+
+def _news_from_google(query):
+    url = "https://news.google.com/rss/search?q=" + requests.utils.quote(query) + "&hl=en-IN&gl=IN&ceid=IN:en"
+    out, boilerplate = [], {"google news", (query or "").lower() + " - google news"}
+    for it in _fetch_rss_items(url)[:18]:
+        title = it.findtext("title") or ""
+        if title.strip().lower() in boilerplate:
+            continue
+        src = it.find("source")
+        out.append(_mk_article(title, it.findtext("link"), it.findtext("description"),
+                               _parse_news_dt(it.findtext("pubDate")),
+                               src.text if src is not None else "Google News", "Google News"))
+    return out
+
+_INVESTING_FEEDS = ["https://www.investing.com/rss/news_25.rss",   # stock market
+                    "https://www.investing.com/rss/news_285.rss",  # economy
+                    "https://www.investing.com/rss/stock.rss"]
+def _news_from_investing(terms):
+    out, seen = [], set()
+    for feed in _INVESTING_FEEDS:
+        for it in _fetch_rss_items(feed):
+            title = it.findtext("title") or ""
+            blob = (title + " " + _strip_html(it.findtext("description"))).lower()
+            if not any(t in blob for t in terms):  # general feed → keep only on-topic items
+                continue
+            key = title.strip().lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(_mk_article(title, it.findtext("link"), it.findtext("description"),
+                                   _parse_news_dt(it.findtext("pubDate")), "Investing.com", "Investing.com"))
+    return out
+
+def _title_key(title):
+    return re.sub(r"[^a-z0-9]", "", (title or "").lower())[:80]
+
+def _news_relevance(art, terms, now):
+    title = (art.get("title") or "").lower()
+    desc = (art.get("description") or "").lower()
+    score = _NEWS_SOURCE_WEIGHT.get(art.get("provider"), 1.0)
+    for t in terms:
+        if t and t in title:
+            score += 3.0
+        elif t and t in desc:
+            score += 1.2
+    dt = _parse_news_dt(art.get("publishedAt"))
+    if dt:
+        age_h = max(0.0, (now - dt).total_seconds() / 3600.0)
+        score += max(0.0, 4.0 - age_h / 24.0)  # <1d old ~ +4, decaying over ~4 days
+    return round(score, 3)
+
 @app.get("/api/news/{ticker}")
 async def get_news(ticker: str, apiKey: str = None):
+    cache_key = f"news_{ticker.upper()}"
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < NEWS_CACHE_TTL:
+        return API_CACHE[cache_key]['data']
+
     api_key_to_use = apiKey or os.environ.get("NEWS_API_KEY")
-    if not api_key_to_use:
-        raise HTTPException(status_code=401, detail="NEWS_API_KEY not configured on server")
-    try:
-        # NewsAPI requires a query. We will use the ticker symbol.
-        url = f"https://newsapi.org/v2/everything?q={ticker}&sortBy=publishedAt&language=en&apiKey={api_key_to_use}"
-        response = requests.get(url)
-        data = response.json()
+    query, yf_symbol, terms = await asyncio.to_thread(_news_context, ticker)
 
-        if data.get("status") == "error":
-            raise HTTPException(status_code=400, detail=data.get("message", "Error fetching news"))
+    fetched = await asyncio.gather(
+        _bounded(asyncio.to_thread(_news_from_newsapi, query, api_key_to_use), 10),
+        _bounded(asyncio.to_thread(_news_from_yfinance, yf_symbol), 10),
+        _bounded(asyncio.to_thread(_news_from_google, query), 10),
+        _bounded(asyncio.to_thread(_news_from_investing, terms), 10),
+        return_exceptions=True,
+    )
+    articles = []
+    for res in fetched:
+        if isinstance(res, list):
+            articles.extend(res)
 
-        articles = data.get("articles", [])[:10] # Top 10 latest articles
-        for a in articles:
-            s = _news_sentiment(f"{a.get('title') or ''}. {a.get('description') or ''}")
-            if s:
-                a["sentiment"] = s
-        scored = [a["sentiment"] for a in articles if a.get("sentiment")]
-        summary = None
-        if scored:
-            avg = int(round(sum(s["score"] for s in scored) / len(scored)))
-            summary = {
-                "score": avg,
-                "label": "Bullish" if avg >= 60 else "Bearish" if avg <= 40 else "Neutral",
-                "positive": sum(1 for s in scored if s["label"] == "Bullish"),
-                "neutral": sum(1 for s in scored if s["label"] == "Neutral"),
-                "negative": sum(1 for s in scored if s["label"] == "Bearish"),
-                "n": len(scored),
-            }
-        return {"articles": articles, "sentiment_summary": summary}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Rank by relevance, then dedupe by headline keeping the highest-ranked copy.
+    now = datetime.now(timezone.utc)
+    for a in articles:
+        a["relevance"] = _news_relevance(a, terms, now)
+    articles.sort(key=lambda a: a["relevance"], reverse=True)
+    top, seen = [], set()
+    for a in articles:
+        k = _title_key(a["title"])
+        if not k or k in seen or not a.get("url"):
+            continue
+        seen.add(k)
+        top.append(a)
+        if len(top) >= 24:
+            break
+
+    for a in top:
+        s = _news_sentiment(f"{a.get('title') or ''}. {a.get('description') or ''}")
+        if s:
+            a["sentiment"] = s
+    scored = [a["sentiment"] for a in top if a.get("sentiment")]
+    summary = None
+    if scored:
+        avg = int(round(sum(s["score"] for s in scored) / len(scored)))
+        summary = {
+            "score": avg,
+            "label": "Bullish" if avg >= 60 else "Bearish" if avg <= 40 else "Neutral",
+            "positive": sum(1 for s in scored if s["label"] == "Bullish"),
+            "neutral": sum(1 for s in scored if s["label"] == "Neutral"),
+            "negative": sum(1 for s in scored if s["label"] == "Bearish"),
+            "n": len(scored),
+        }
+    if not top:
+        raise HTTPException(status_code=404, detail=f"No news found for '{ticker}'. Try a different ticker or company name.")
+    result = {"articles": top, "sentiment_summary": summary,
+              "sources": sorted({a["provider"] for a in top}), "query": query}
+    API_CACHE[cache_key] = {'time': time.time(), 'data': result}
+    return result
 
 
 def map_symbol_to_yfinance(symbol: str) -> str:
@@ -1731,6 +2130,19 @@ def iso_to_nse_expiry(iso: str):
     except Exception:
         return None
 
+def _nse_expiry_is_live(exp: str) -> bool:
+    """True if an NSE-format expiry ('07-Jul-2026') is today or later in IST.
+    NSE keeps the just-expired weekly in expiryDates (and OI-spurt rows) until
+    the next session starts, so pre-open the raw [0] is a dead contract."""
+    try:
+        ist = timezone(timedelta(hours=5, minutes=30))
+        return datetime.strptime(exp, "%d-%b-%Y").date() >= datetime.now(ist).date()
+    except Exception:
+        return True
+
+def _first_live_nse_expiry(expiries):
+    return next((e for e in expiries if _nse_expiry_is_live(e)), expiries[0] if expiries else None)
+
 def fetch_nse_expiries(symbol: str):
     from urllib.parse import quote
     sym = symbol.upper().strip()
@@ -1813,7 +2225,7 @@ def fetch_nse_v3_chain(symbol: str, expiry_iso: str = ""):
         expiries = (info or {}).get("expiryDates") or []
         if not expiries:
             return None
-        nse_expiry = expiries[0]
+        nse_expiry = _first_live_nse_expiry(expiries)
 
     opt_type = "Indices" if sym in NSE_INDEX_SYMBOLS else "Equity"
     j = nse_get(f"/api/option-chain-v3?type={opt_type}&symbol={quote(sym)}&expiry={quote(nse_expiry)}")
@@ -2201,7 +2613,11 @@ def _yf_quote_change(ticker):
 async def get_dashboard():
     movers_market = _dashboard_movers_market()
     cache_key = f"dashboard_{movers_market}"
-    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < 300:
+    # Live TTL during the active session; 30 min when both markets are shut and
+    # the movers/indices are frozen (the polled dashboard tab stops recomputing).
+    dash_live = _is_indian_market_open() or movers_market == "US"
+    dash_ttl = 300 if dash_live else 1800
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < dash_ttl:
         data = dict(API_CACHE[cache_key]['data'])
         data["market_open"] = _is_indian_market_open()
         return data
@@ -2266,6 +2682,17 @@ async def get_dashboard():
 # futures-radar trade plans with entry/stop/target).
 
 SIGNALS_CACHE_TTL = 120  # seconds — near-live without hammering NSE
+# When the market is closed the underlying feeds are frozen until the next open,
+# so recomputing every 2 min just burns serverless duration + NSE calls for an
+# identical payload. Serve the last snapshot far longer while closed; it still
+# refreshes the instant the market reopens (the live TTL takes over then).
+SIGNALS_CLOSED_TTL = 900  # 15 min
+
+def _signals_live(sig_market):
+    """Is the market that /api/signals is currently reporting on actually live?
+    We only route to the US engine inside the US session window, so US == live;
+    IN follows NSE hours."""
+    return True if sig_market == "US" else _signals_market_open()[0]
 
 def _signals_market_open():
     ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
@@ -2331,7 +2758,7 @@ def fetch_signal_chain_summary(symbol: str):
     expiries = (info or {}).get("expiryDates") or []
     if not expiries:
         return None
-    expiry = expiries[0]
+    expiry = _first_live_nse_expiry(expiries)
     j = nse_get(f"/api/option-chain-v3?type=Indices&symbol={quote(symbol)}&expiry={quote(expiry)}")
     rec = (j or {}).get("records") or {}
     rows = rec.get("data") or []
@@ -2414,7 +2841,11 @@ def fetch_signal_buildups():
             label_map["short_covering"] = key     # OI down, price up
         else:
             label_map["long_unwinding"] = key     # OI down, price down
-    return {lbl: cats.get(key, []) for lbl, key in label_map.items()}, j.get("timestamp", "")
+    # Pre-open NSE still lists yesterday's expired weeklies (LTP 0.05, -99.9%) —
+    # dead contracts, not tradeable flow.
+    def _live(contracts):
+        return [c for c in contracts if _nse_expiry_is_live(c.get("expiryDate") or "")]
+    return {lbl: _live(cats.get(key, [])) for lbl, key in label_map.items()}, j.get("timestamp", "")
 
 def _rank_contracts(contracts, n=8):
     return sorted(contracts, key=lambda c: abs(c.get("pChangeInOI", 0) or 0) *
@@ -2958,7 +3389,8 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
     # movers); ?market=IN|US overrides (Focus List pins IN).
     sig_market = market.upper() if market and market.upper() in ("IN", "US") else _dashboard_movers_market()
     cache_key = f"signals_{sig_market}_{int(capital)}_{risk_pct}"
-    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < SIGNALS_CACHE_TTL:
+    ttl = SIGNALS_CACHE_TTL if _signals_live(sig_market) else SIGNALS_CLOSED_TTL
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < ttl:
         return API_CACHE[cache_key]['data']
 
     if sig_market == "US":
@@ -3065,10 +3497,11 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         "currency": "₹",
     }
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
-    try:  # fan new scored setups out to phone push subscribers (best-effort)
-        await _bounded(asyncio.to_thread(_broadcast_new_plans, plans, "IN", "₹"), 12)
-    except Exception:
-        pass
+    if is_open:  # no new setups form after close — skip the broadcast's blob ops
+        try:  # fan new scored setups out to phone push subscribers (best-effort)
+            await _bounded(asyncio.to_thread(_broadcast_new_plans, plans, "IN", "₹"), 12)
+        except Exception:
+            pass
     return data
 
 
@@ -3690,6 +4123,7 @@ def push_subscribe(sub: PushSubscription, authorization: str = Header(None)):
     auth_key = (sub.keys or {}).get("auth")
     if not endpoint.startswith("https://") or not p256dh or not auth_key:
         raise HTTPException(status_code=400, detail="Invalid push subscription.")
+    _blob_pull_db(force=True)  # write on the newest snapshot, never clobber concurrent writes
     conn = _auth_db()
     try:
         row, conn = _require_user(conn, authorization)
@@ -3709,6 +4143,7 @@ class PushEndpoint(BaseModel):
 
 @app.post("/api/push/unsubscribe")
 def push_unsubscribe(body: PushEndpoint, authorization: str = Header(None)):
+    _blob_pull_db(force=True)
     conn = _auth_db()
     try:
         row, conn = _require_user(conn, authorization)
@@ -3726,6 +4161,10 @@ def push_test(all: int = 0, key: str = "", authorization: str = Header(None)):
     so 'is push working?' is answerable without waiting for a fresh signal."""
     if not (VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY):
         raise HTTPException(status_code=503, detail="Push notifications are not configured on this server.")
+    # Fresh pull: the subscribe that just ran may have landed on another
+    # instance — without this the test reports "no devices" seconds after a
+    # successful registration.
+    _blob_pull_db(force=True)
     conn = _auth_db()
     try:
         if all:
@@ -3757,6 +4196,7 @@ def push_test(all: int = 0, key: str = "", authorization: str = Header(None)):
                 errors += 1
     if dead:
         try:
+            _blob_pull_db(force=True)  # never push a stale snapshot over newer writes
             conn = _auth_db()
             conn.executemany("DELETE FROM push_subs WHERE endpoint = ?", [(e,) for e in dead])
             conn.commit()
@@ -3819,6 +4259,11 @@ def _broadcast_new_plans(plans, mkt, currency):
         return
     day = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%d")
     try:
+        # Fresh pull is load-bearing: this runs on warm instances whose snapshot
+        # can predate a device's push subscription — writing claims below would
+        # push that stale snapshot and silently ERASE the subscription (the
+        # "test notification says no devices right after enabling" bug).
+        _blob_pull_db(force=True)
         conn = _auth_db()
     except Exception:
         return
@@ -3868,6 +4313,7 @@ def _broadcast_new_plans(plans, mkt, currency):
                 dead.add(fut.result())
     if dead:
         try:
+            _blob_pull_db(force=True)  # never push a stale snapshot over newer writes
             conn = _auth_db()
             conn.executemany("DELETE FROM push_subs WHERE endpoint = ?", [(e,) for e in dead])
             conn.commit()
@@ -4342,6 +4788,10 @@ def _ensure_delivery_fresh(max_fetch=3, force=False):
         if not force and time.time() - _DELIVERY_CHECKED_AT < 3600:
             return {"added": 0, "skipped": "recently checked"}
         expected = _delivery_expected_day()
+        # Same SQLite file as auth/push_subs: pull fresh so the push after
+        # ingesting can't overwrite newer writes (e.g. a push subscription)
+        # with this instance's stale snapshot. At most hourly per instance.
+        _blob_pull_db(force=True)
         conn = _delivery_db()
         try:
             latest = conn.execute("SELECT MAX(trade_date) FROM delivery_daily").fetchone()[0]

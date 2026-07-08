@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 're
 import {
   LayoutGrid, Star, Zap, Rocket, Newspaper, Target,
   LineChart, Bird, Search, Landmark, Calculator, BarChart3, Sparkles, Scale, Link2,
-  Trophy, Gamepad2, GraduationCap, Settings, Menu,
+  Trophy, Gamepad2, GraduationCap, Settings, Menu, Compass,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
 import { WatchlistProvider } from './WatchlistContext';
@@ -29,6 +29,7 @@ const routeImporters = {
   '/news': () => import('./pages/News'),
   '/option-chain': () => import('./pages/OptionChain'),
   '/signals': () => import('./pages/MarketSignals'),
+  '/sectors': () => import('./pages/SectorRotation'),
   '/focus': () => import('./pages/FocusList'),
   '/learn': () => import('./pages/Learn'),
   '/druck-minervini': () => import('./pages/DruckMinervini'),
@@ -58,6 +59,7 @@ const Fundamentals = lazy(routeImporters['/fundamentals']);
 const News = lazy(routeImporters['/news']);
 const OptionChain = lazy(routeImporters['/option-chain']);
 const MarketSignals = lazy(routeImporters['/signals']);
+const SectorRotation = lazy(routeImporters['/sectors']);
 const FocusList = lazy(routeImporters['/focus']);
 const Learn = lazy(routeImporters['/learn']);
 const DruckMinervini = lazy(routeImporters['/druck-minervini']);
@@ -73,6 +75,7 @@ const NAV_SECTIONS = [
       { to: '/dashboard', label: 'Dashboard', Icon: LayoutGrid },
       { to: '/watchlist', label: 'Watchlist', Icon: Star },
       { to: '/signals', label: 'Market Signals', Icon: Zap },
+      { to: '/sectors', label: 'Sector Rotation', Icon: Compass },
       { to: '/momentum', label: 'Momentum Leaders', Icon: Rocket },
       { to: '/news', label: 'News', Icon: Newspaper },
       { to: '/focus', label: 'Focus List', Icon: Target },
@@ -240,6 +243,7 @@ const AppLayout = () => {
           <Route path="/news" element={<News />} />
           <Route path="/option-chain" element={<OptionChain />} />
           <Route path="/signals" element={<MarketSignals />} />
+          <Route path="/sectors" element={<SectorRotation />} />
           <Route path="/focus" element={<FocusList />} />
           <Route path="/learn" element={<Learn />} />
           <Route path="/trading-game" element={<TradingGame />} />

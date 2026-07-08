@@ -22,6 +22,13 @@ const OptionChain = () => {
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const refreshIntervalRef = useRef(null);
+  const atmRowRef = useRef(null);
+
+  useEffect(() => {
+    if (atmRowRef.current) {
+      atmRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [chainData]);
 
   // Formatting helpers
   const formatNum = (val) => {
@@ -37,6 +44,21 @@ const OptionChain = () => {
   const getColorClass = (val) => {
     if (val > 0) return 'text-green';
     if (val < 0) return 'text-red';
+    return 'text-neutral';
+  };
+
+  const getBuildupLabel = (buildup, type) => {
+    if (!buildup) return '';
+    if (buildup === 'Long Buildup') return type === 'call' ? 'Call Buying' : 'Put Buying';
+    if (buildup === 'Short Buildup') return type === 'call' ? 'Call Selling' : 'Put Selling';
+    return buildup;
+  };
+
+  const getBuildupColorClass = (buildup) => {
+    if (buildup === 'Long Buildup') return 'text-green';
+    if (buildup === 'Short Buildup') return 'text-red';
+    if (buildup === 'Short Covering') return 'text-green';
+    if (buildup === 'Long Unwinding') return 'text-red';
     return 'text-neutral';
   };
 
@@ -267,11 +289,12 @@ const OptionChain = () => {
           <table className="oc-table">
             <thead>
               <tr>
-                <th colSpan="6" style={{ textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.1)' }}>CALLS (Resistance)</th>
+                <th colSpan="7" style={{ textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.1)' }}>CALLS (Resistance)</th>
                 <th style={{ textAlign: 'center', background: 'rgba(255,255,255,0.02)' }}>STRIKE</th>
-                <th colSpan="6" style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>PUTS (Support)</th>
+                <th colSpan="7" style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>PUTS (Support)</th>
               </tr>
               <tr>
+                <th>Build-up</th>
                 <th>OI</th>
                 <th>Chg OI</th>
                 <th>Volume</th>
@@ -285,14 +308,18 @@ const OptionChain = () => {
                 <th>Volume</th>
                 <th>Chg OI</th>
                 <th>OI</th>
+                <th>Build-up</th>
               </tr>
             </thead>
             <tbody>
               {chainData.opDatas.map((row, idx) => {
                 const isAtm = row.strike_price === atmStrike;
                 return (
-                  <tr key={idx} className={isAtm ? 'atm-row' : ''}>
+                  <tr key={idx} className={isAtm ? 'atm-row' : ''} ref={isAtm ? atmRowRef : null}>
                     {/* Calls */}
+                    <td className={`calls-section ${getBuildupColorClass(row.calls_builtup)}`} style={{ fontWeight: 600, fontSize: '12px' }}>
+                      {getBuildupLabel(row.calls_builtup, 'call')}
+                    </td>
                     <td className="calls-section">{formatNum(row.calls_oi)}</td>
                     <td className={`calls-section ${getColorClass(row.calls_change_oi)}`}>{formatNum(row.calls_change_oi)}</td>
                     <td className="calls-section">{formatNum(row.calls_volume)}</td>
@@ -314,6 +341,9 @@ const OptionChain = () => {
                     <td className="puts-section">{formatNum(row.puts_volume)}</td>
                     <td className={`puts-section ${getColorClass(row.puts_change_oi)}`}>{formatNum(row.puts_change_oi)}</td>
                     <td className="puts-section">{formatNum(row.puts_oi)}</td>
+                    <td className={`puts-section ${getBuildupColorClass(row.puts_builtup)}`} style={{ fontWeight: 600, fontSize: '12px' }}>
+                      {getBuildupLabel(row.puts_builtup, 'put')}
+                    </td>
                   </tr>
                 );
               })}

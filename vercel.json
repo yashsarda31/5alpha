@@ -51,8 +51,8 @@
       "dest": "/web/sw.js"
     },
     {
-      "src": "/apple-touch-icon\\.png",
-      "dest": "/web/apple-touch-icon.png"
+      "src": "/apple-touch-icon-v2\\.png",
+      "dest": "/web/apple-touch-icon-v2.png"
     },
     {
       "src": "/icons/(.*)",

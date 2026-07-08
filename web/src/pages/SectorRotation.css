@@ -1,0 +1,96 @@
+.sr-container { max-width: 1100px; margin: 0 auto; padding-bottom: 48px; }
+
+.sr-refresh { width: auto; padding: 8px 16px; font-size: 12px; }
+
+/* Outlook summary */
+.sr-outlook-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;
+}
+.sr-outlook { padding: 16px 18px; }
+.sr-outlook-head {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-secondary); margin-bottom: 12px;
+}
+.sr-outlook-fav { border-top: 2px solid var(--green-gain); }
+.sr-outlook-head-wind { border-top: 2px solid var(--red-loss); }
+.sr-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.sr-chip {
+  font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+.sr-chip-up { background: rgba(50,215,75,0.12); color: var(--green-gain); border-color: rgba(50,215,75,0.3); }
+.sr-chip-down { background: rgba(255,69,58,0.12); color: var(--red-loss); border-color: rgba(255,69,58,0.3); }
+.sr-empty { font-size: 13px; color: var(--text-secondary); }
+
+/* Posture strip */
+.sr-posture {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px;
+  padding: 12px 18px; margin-bottom: 16px;
+}
+.sr-posture-label {
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+.sr-posture-value { font-size: 14px; font-weight: 600; color: var(--primary-gold); }
+.sr-posture-counts { font-size: 12px; color: var(--text-secondary); margin-left: auto; }
+
+/* Cards */
+.sr-chart-card, .sr-table-card, .sr-ai-card { padding: 18px; margin-bottom: 16px; }
+.sr-card-title {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px;
+}
+.sr-card-title .secondary { width: auto; padding: 7px 14px; font-size: 12px; }
+.sr-asof { font-size: 11px; font-weight: 500; color: var(--text-secondary); }
+
+/* RRG legend + notes */
+.sr-legend {
+  display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px;
+  padding-top: 12px; border-top: 1px solid var(--border-hairline);
+}
+.sr-legend-item { font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+.sr-legend-item b { color: var(--text-primary); font-weight: 600; }
+.sr-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.sr-note { font-size: 11.5px; line-height: 1.6; color: var(--text-secondary); margin-top: 12px; }
+
+/* Table */
+.sr-table-scroll { overflow-x: auto; }
+.sr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sr-table th {
+  text-align: left; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-secondary); padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color); white-space: nowrap;
+}
+.sr-table td { padding: 10px; border-bottom: 1px solid var(--border-hairline); white-space: nowrap; }
+.sr-table tbody tr:hover { background: var(--bg-panel-hover); }
+.sr-num { text-align: right; font-variant-numeric: tabular-nums; }
+.sr-rank { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.sr-name { font-weight: 600; color: var(--text-primary); }
+.tone-green { color: var(--green-gain); }
+.tone-red { color: var(--red-loss); }
+.tone-dim { color: var(--text-secondary); }
+
+.sr-badge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 6px; white-space: nowrap; }
+.sr-quad { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+
+.sr-score-cell { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 110px; }
+.sr-score-bar {
+  flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08);
+  overflow: hidden; max-width: 70px;
+}
+.sr-score-bar > span { display: block; height: 100%; border-radius: 3px; }
+.sr-score-cell b { min-width: 34px; text-align: right; color: var(--text-primary); }
+
+/* AI */
+.sr-ai-body { font-size: 13.5px; line-height: 1.7; color: var(--text-primary); }
+.sr-ai-body ul { padding-left: 20px; }
+.sr-ai-body li { margin-bottom: 6px; }
+
+.sr-error { padding: 24px; text-align: center; }
+.sr-error p { color: var(--text-secondary); margin-bottom: 16px; }
+.sr-error .secondary { width: auto; padding: 8px 20px; margin: 0 auto; }
+
+@media (max-width: 720px) {
+  .sr-outlook-grid { grid-template-columns: 1fr; }
+  .sr-legend { gap: 10px; }
+}

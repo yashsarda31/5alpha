@@ -29,6 +29,13 @@
       "port": 5173
     },
     {
+      "name": "web-dist-alt3",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "preview", "--outDir", "dist", "--port", "4182", "--strictPort"],
+      "cwd": "web",
+      "port": 4182
+    },
+    {
       "name": "adserver",
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "4180"],
