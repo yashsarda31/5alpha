@@ -82,13 +82,15 @@ class AIFundamentalsRequest(BaseModel):
 
 class ScreenerRequest(BaseModel):
     tickers: str = "AAPL, MSFT, NVDA, RELIANCE.NS, TCS.NS, HDFCBANK.NS"
-    universe: str = None  # named preset ('nifty100', 'nifty200', 'sp100', 'nasdaq100')
-    max_pe: float = None
-    min_div_yield: float = None
-    min_roe: float = None
-    min_eps_growth: float = None
-    min_momentum: float = None      # composite (1m+6m+12m)/3 return %; needs price history
-    min_alpha_score: float = None   # Alpha Nova Score 0-100
+    # `X | None` (not bare `X`) — pydantic v2 422s on an explicit JSON null
+    # for a non-Optional field (the Android push-subscribe bug class)
+    universe: str | None = None  # named preset ('nifty100', 'nifty200', 'sp100', 'nasdaq100')
+    max_pe: float | None = None
+    min_div_yield: float | None = None
+    min_roe: float | None = None
+    min_eps_growth: float | None = None
+    min_momentum: float | None = None      # composite (1m+6m+12m)/3 return %; needs price history
+    min_alpha_score: float | None = None   # Alpha Nova Score 0-100
 
 class MomentumRequest(BaseModel):
     market: str = "us" # 'us' or 'in'
@@ -3879,7 +3881,7 @@ def _require_user(conn, authorization: str):
 class AuthCredentials(BaseModel):
     email: str
     password: str
-    displayName: str = None
+    displayName: str | None = None  # explicit null must not 422 (pydantic v2)
 
 @app.post("/api/auth/signup")
 def auth_signup(req: AuthCredentials):
@@ -4114,7 +4116,10 @@ def push_vapid_key():
 class PushSubscription(BaseModel):
     endpoint: str
     keys: dict = {}
-    expirationTime: float = None  # browsers include it; we don't use it
+    # Chrome/Android's sub.toJSON() sends an explicit "expirationTime": null —
+    # a bare `float` annotation 422s on that under pydantic v2 (iOS Safari
+    # omits the field, which is why only Android hit it). We don't use it.
+    expirationTime: float | None = None
 
 @app.post("/api/push/subscribe")
 def push_subscribe(sub: PushSubscription, authorization: str = Header(None)):

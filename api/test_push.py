@@ -67,6 +67,24 @@ def test_subscribe_unsubscribe_roundtrip():
     assert rows == []
 
 
+def test_subscribe_accepts_android_payload():
+    """Chrome/Android sub.toJSON() carries an explicit "expirationTime": null —
+    this 422'd under pydantic v2 (bare `float` annotation), so no Android device
+    could ever register. iOS Safari omits the field and never hit it."""
+    h = _new_user()
+    ep = f"https://fcm.googleapis.com/fcm/send/{uuid.uuid4().hex}"
+    r = client.post("/api/push/subscribe",
+                    json={"endpoint": ep, "expirationTime": None,
+                          "keys": {"p256dh": "BKey", "auth": "AKey"}}, headers=h)
+    assert r.status_code == 200, r.text
+    # a numeric expirationTime (Chrome sends ms-epoch when the sub expires) is fine too
+    r = client.post("/api/push/subscribe",
+                    json={"endpoint": ep, "expirationTime": 1780000000000,
+                          "keys": {"p256dh": "BKey", "auth": "AKey"}}, headers=h)
+    assert r.status_code == 200, r.text
+    client.post("/api/push/unsubscribe", json={"endpoint": ep}, headers=h)
+
+
 def _plan(sym, side="LONG", score=70, kind="long_buildup"):
     return {"symbol": sym, "side": side, "score": score, "kind": kind,
             "entry": 100.0, "stop": 95.0, "target": 107.5}
