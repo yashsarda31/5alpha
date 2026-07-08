@@ -2784,9 +2784,21 @@ async def get_dashboard():
                 q = _yf_quote_change(yf_sym)
                 if q:
                     indices.append({"name": display, "last": q["last"], "change_pct": q["change_pct"]})
-        usdinr = _yf_quote_change("INR=X")
-        if usdinr:
-            indices.append({"name": "USD/INR", "last": usdinr["last"], "change_pct": usdinr["change_pct"]})
+        # Global macro row: rupee, gold, silver, US benchmark. All yfinance and
+        # USD-quoted (except the rupee); fetched in parallel so four quotes don't
+        # serialize into several seconds. Order is preserved below.
+        extras = [("INR=X", "USD/INR"), ("GC=F", "Gold ($/oz)"),
+                  ("SI=F", "Silver ($/oz)"), ("^GSPC", "S&P 500")]
+        got = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+            futs = {ex.submit(_yf_quote_change, sym): display for sym, display in extras}
+            for fut in concurrent.futures.as_completed(futs):
+                q = fut.result()
+                if q:
+                    got[futs[fut]] = q
+        for _sym, display in extras:
+            if display in got:
+                indices.append({"name": display, "last": got[display]["last"], "change_pct": got[display]["change_pct"]})
         return indices
 
     def fetch_movers():

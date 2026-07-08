@@ -120,15 +120,19 @@ const Arima = () => {
               }
             ]}
             layout={{
+              // autosize + width:100% below make Plotly track the container so
+              // the chart never renders at its fixed default width and overflow
+              // the page on mobile.
+              autosize: true,
               title: { text: `${ticker} SARIMAX Projection`, font: { color: '#F5F5F7' } },
               plot_bgcolor: "transparent",
               paper_bgcolor: "transparent",
               font: { color: '#A1A1AA', family: 'Inter' },
-              xaxis: { 
+              xaxis: {
                 gridcolor: 'rgba(255, 255, 255, 0.05)',
                 linecolor: 'rgba(255, 255, 255, 0.1)'
               },
-              yaxis: { 
+              yaxis: {
                 gridcolor: 'rgba(255, 255, 255, 0.05)',
                 linecolor: 'rgba(255, 255, 255, 0.1)',
                 tickprefix: currencyFor(ticker)
@@ -136,8 +140,9 @@ const Arima = () => {
               height: 450,
               margin: { l: 50, r: 20, b: 40, t: 60 }
             }}
-
-            config={{responsive: true}}
+            config={{responsive: true, displayModeBar: false}}
+            style={{ width: '100%' }}
+            useResizeHandler
           />
         </div>
       )}
