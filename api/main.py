@@ -672,130 +672,136 @@ async def get_dcf_data(ticker: str):
 
 @app.post("/api/arima")
 def forecast_sarimax(req: ARIMARequest):
-    _, df = _yf_resolve_history(req.ticker, "2y")
+    """SARIMAX price projection with honest out-of-sample validation.
+
+    Design (2026-07-09 rewrite):
+    - Fit on LOG prices: variance is stable and the exponentiated confidence
+      band is correctly asymmetric (the old raw-price fit could even dip below
+      zero on volatile names).
+    - No exogenous regressors: the previous version projected decayed guesses
+      of ATR/volatility into the future and fed them back as "known" exog —
+      noise at best, subtle leakage at worst.
+    - Model selection is OUT-OF-SAMPLE: each candidate order is fit on data
+      minus a holdout tail and scored on that unseen tail (RMSE in log space);
+      the winner is refit on the full series. AIC rewards in-sample fit only.
+    - Metrics reported to the user: holdout MAPE and a one-step-ahead direction
+      hit rate over the last ~60 sessions (Kalman-filter one-step predictions
+      at t use data through t-1 only, so this is genuinely predictive).
+    - Forecast dates are BUSINESS days (the old calendar-day dates put forecast
+      points on weekends the market never trades).
+    """
+    days = max(1, min(int(req.days or 10), 60))
+    resolved, df = _yf_resolve_history(req.ticker, "2y")
     if df.empty:
         raise HTTPException(status_code=404, detail="Data not found")
-        
-    df = df.ffill().bfill()
-    
-    # Feature Engineering
-    df['Log_Ret'] = np.log(df['Close'] / df['Close'].shift(1)).fillna(0)
-    df['Volatility'] = df['Log_Ret'].rolling(window=20).std().fillna(0)
-    
-    df['TR'] = np.maximum(df['High'] - df['Low'], 
-                          np.maximum(np.abs(df['High'] - df['Close'].shift(1)), 
-                                     np.abs(df['Low'] - df['Close'].shift(1)))).fillna(0)
-    df['ATR'] = df['TR'].rolling(window=14).mean().fillna(0)
-    
-    df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
-    df['Dist_50EMA'] = ((df['Close'] - df['EMA_50']) / df['EMA_50']).fillna(0)
 
-    # Lag features to prevent data leakage and allow forecasting
-    exog_cols = ['Log_Ret', 'Volatility', 'ATR', 'Dist_50EMA']
-    for col in exog_cols:
-        df[f'{col}_Lag1'] = df[col].shift(1)
-        
-    df = df.dropna()
-    
-    if len(df) < 252:
-        df_subset = df
-    else:
-        df_subset = df.tail(252)
-        
-    prices = df_subset['Close'].values
-    dates = df_subset.index.strftime('%Y-%m-%d').tolist()
-    
-    exog_lagged_cols = [f'{col}_Lag1' for col in exog_cols]
-    exog_train = df_subset[exog_lagged_cols].values
-    exog_train = np.nan_to_num(exog_train)
-    
-    # Build future exogenous variables safely
-    future_exog = []
-    last_known_features = df_subset[exog_cols].iloc[-1]
-    
-    current_log_ret = float(last_known_features['Log_Ret']) if not pd.isna(last_known_features['Log_Ret']) else 0.0
-    current_vol = float(last_known_features['Volatility']) if not pd.isna(last_known_features['Volatility']) else 0.0
-    current_atr = float(last_known_features['ATR']) if not pd.isna(last_known_features['ATR']) else 0.0
-    current_dist = float(last_known_features['Dist_50EMA']) if not pd.isna(last_known_features['Dist_50EMA']) else 0.0
-    
-    mean_log_ret = float(df_subset['Log_Ret'].mean()) if not pd.isna(df_subset['Log_Ret'].mean()) else 0.0
-    mean_vol = float(df_subset['Volatility'].mean()) if not pd.isna(df_subset['Volatility'].mean()) else 0.0
-    mean_atr = float(df_subset['ATR'].mean()) if not pd.isna(df_subset['ATR'].mean()) else 0.0
-    mean_dist = float(df_subset['Dist_50EMA'].mean()) if not pd.isna(df_subset['Dist_50EMA'].mean()) else 0.0
-
-    for i in range(req.days):
-        if i == 0:
-            future_exog.append([current_log_ret, current_vol, current_atr, current_dist])
-        else:
-            # Revert towards mean smoothly rather than unbounded decay
-            alpha = 0.8
-            proj_log_ret = alpha * current_log_ret + (1 - alpha) * mean_log_ret
-            proj_vol = alpha * current_vol + (1 - alpha) * mean_vol
-            proj_atr = alpha * current_atr + (1 - alpha) * mean_atr
-            proj_dist = alpha * current_dist + (1 - alpha) * mean_dist
-            
-            future_exog.append([proj_log_ret, proj_vol, proj_atr, proj_dist])
-            
-            current_log_ret, current_vol, current_atr, current_dist = proj_log_ret, proj_vol, proj_atr, proj_dist
-            
-    future_exog = np.nan_to_num(future_exog)
+    closes = df["Close"].ffill().dropna()
+    if len(closes) < 70:
+        raise HTTPException(status_code=400, detail="Not enough price history to fit a model (need ~3 months).")
+    closes = closes.tail(378)  # ~18 months of sessions: enough signal, still fast
+    y = np.log(closes.values)
+    dates = closes.index.strftime("%Y-%m-%d").tolist()
 
     import warnings
     from statsmodels.tsa.statespace.sarimax import SARIMAX
     from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
-    # SARIMAX Implementation with fallbacks
-    fit_model = None
-    configs = [
-        ((1, 1, 1), (1, 0, 1, 5)), # Primary complex model
-        ((1, 1, 0), (0, 0, 0, 0)), # Simpler ARIMA
-        ((0, 1, 0), (0, 0, 0, 0))  # Random walk with drift
-    ]
-    
+    def _fit(series, order):
+        m = SARIMAX(series, order=order, trend="c",
+                    enforce_stationarity=False, enforce_invertibility=False)
+        return m.fit(disp=False, method="lbfgs", maxiter=100)
+
+    # Candidate orders (all d=1 on log price = modelling returns). (0,1,0)+c is
+    # the random-walk-with-drift baseline every candidate must beat out-of-sample.
+    candidates = [(0, 1, 0), (1, 1, 0), (0, 1, 1), (1, 1, 1), (2, 1, 0), (1, 1, 2)]
+    H = min(max(days, 5), 15)          # holdout tail: at least a week, capped
+    train, hold = y[:-H], y[-H:]
+
+    best_order, best_rmse, best_mape = None, None, None
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ConvergenceWarning)
         warnings.simplefilter("ignore", UserWarning)
-        for order, seasonal_order in configs:
+        warnings.simplefilter("ignore", RuntimeWarning)
+        for order in candidates:
             try:
-                model = SARIMAX(
-                    prices, 
-                    exog=exog_train, 
-                    order=order, 
-                    seasonal_order=seasonal_order, 
-                    trend='c',
-                    enforce_stationarity=False,
-                    enforce_invertibility=False
-                ) 
-                fit_model = model.fit(disp=False, method='lbfgs', maxiter=50)
-                break
+                f = _fit(train, order)
+                pred = np.asarray(f.get_forecast(steps=H).predicted_mean)
+                rmse = float(np.sqrt(np.mean((pred - hold) ** 2)))
+                if not np.isfinite(rmse):
+                    continue
+                if best_rmse is None or rmse < best_rmse:
+                    best_order, best_rmse = order, rmse
+                    best_mape = float(np.mean(np.abs(np.exp(pred) - np.exp(hold)) / np.exp(hold)) * 100)
             except Exception:
                 continue
 
-    if fit_model is None:
-        raise HTTPException(status_code=400, detail="Failed to fit any SARIMAX model to the provided data.")
+        if best_order is None:
+            best_order = (0, 1, 0)  # drift baseline — always fits
+        try:
+            fit_model = _fit(y, best_order)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Failed to fit a SARIMAX model to the provided data.")
 
-    try:
-        forecast_res = fit_model.get_forecast(steps=req.days, exog=future_exog)
-        forecast = forecast_res.predicted_mean
-        conf_int = np.array(forecast_res.conf_int(alpha=0.32)) # 68% confidence interval
-        
-        lower_bound = conf_int[:, 0]
-        upper_bound = conf_int[:, 1]
-        
-        last_date = df_subset.index[-1]
-        future_dates = [(last_date + pd.Timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, req.days + 1)]
-        
-        return {
-            "historical": {"dates": dates, "prices": prices.tolist()},
-            "forecast": {
-                "dates": future_dates, 
-                "prices": forecast.tolist(),
-                "lower": lower_bound.tolist(),
-                "upper": upper_bound.tolist()
-            }
-        }
-    except Exception as e:
-         raise HTTPException(status_code=400, detail=f"Forecasting error: {str(e)}")
+        # One-step-ahead direction hit rate over the recent past (predictive, not
+        # in-sample smoothing: the filter's prediction at t only sees data < t).
+        direction_acc = None
+        try:
+            k = min(60, len(y) - 10)
+            pred_in = np.asarray(fit_model.get_prediction(start=len(y) - k).predicted_mean)
+            actual = y[-k:]
+            prev = y[-k - 1:-1]
+            hits = (np.sign(pred_in - prev) == np.sign(actual - prev)) & (np.sign(actual - prev) != 0)
+            valid = np.sign(actual - prev) != 0
+            if valid.sum() >= 20:
+                direction_acc = float(hits.sum() / valid.sum() * 100)
+        except Exception:
+            pass
+
+        try:
+            fc = fit_model.get_forecast(steps=days)
+            mean_log = np.asarray(fc.predicted_mean)
+            ci = np.asarray(fc.conf_int(alpha=0.32))  # 68% band ≈ ±1σ
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Forecasting error: {str(e)}")
+
+    forecast_prices = np.exp(mean_log)
+    lower, upper = np.exp(ci[:, 0]), np.exp(ci[:, 1])
+
+    # Business days only — the market doesn't trade the weekends the old
+    # calendar-day axis was drawing flat line segments across.
+    last_date = closes.index[-1]
+    future_dates = pd.bdate_range(start=last_date + pd.Timedelta(days=1), periods=days).strftime("%Y-%m-%d").tolist()
+
+    last_price = float(closes.iloc[-1])
+    end_price = float(forecast_prices[-1])
+    rnd = lambda arr: [round(float(v), 2) for v in arr]
+
+    return _json_safe({
+        "ticker": resolved,
+        "historical": {"dates": dates, "prices": rnd(closes.values)},
+        "forecast": {
+            "dates": future_dates,
+            "prices": rnd(forecast_prices),
+            "lower": rnd(lower),
+            "upper": rnd(upper),
+        },
+        "summary": {
+            "last_price": round(last_price, 2),
+            "end_price": round(end_price, 2),
+            "exp_change_pct": round((end_price / last_price - 1) * 100, 2),
+            "low_pct": round((float(lower[-1]) / last_price - 1) * 100, 2),
+            "high_pct": round((float(upper[-1]) / last_price - 1) * 100, 2),
+            "horizon_days": days,
+        },
+        "model": {
+            "order": list(best_order),
+            "trend": "drift",
+            "holdout_days": H,
+            "holdout_mape": None if best_mape is None else round(best_mape, 2),
+            "direction_acc": None if direction_acc is None else round(direction_acc, 1),
+            "n_obs": len(y),
+        },
+    })
 
 
 def _ai_error_report(e: Exception) -> dict:
