@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import uuid
@@ -98,6 +99,47 @@ def test_broadcast_seeds_first_call_then_sends(monkeypatch):
     main._broadcast_new_plans([_plan("AAA"), _plan("BBB"), _plan("CCC", score=88)], mkt, "₹")
     assert len(sent) == 1
     assert "CCC" in sent[0] and "88/100" in sent[0]
+
+
+def test_broadcast_one_notification_per_stock_per_day(monkeypatch):
+    """Side/kind variants of the same name were reported as notification spam —
+    a stock gets exactly one push per day, the best-scored plan of its first batch."""
+    monkeypatch.setattr(main, "VAPID_PUBLIC_KEY", "pub")
+    monkeypatch.setattr(main, "VAPID_PRIVATE_KEY", "priv")
+    sent = []
+    monkeypatch.setattr(main, "_push_send_one", lambda s, payload: sent.append(payload) or None)
+
+    h = _new_user()
+    ep = f"https://push.example/{uuid.uuid4().hex}"
+    client.post("/api/push/subscribe",
+                json={"endpoint": ep, "keys": {"p256dh": "BKey", "auth": "AKey"}}, headers=h)
+
+    mkt = f"T{uuid.uuid4().hex[:6]}"
+    main._broadcast_new_plans([_plan("AAA")], mkt, "₹")  # seed day/market
+
+    # Two plans for the same fresh stock in one batch → one notification (the
+    # best-scored plan). Earlier tests may leave extra subscribed devices, so
+    # count distinct payloads, not raw sends.
+    main._broadcast_new_plans(
+        [_plan("AAA"), _plan("DDD", side="LONG", score=60, kind="long_buildup"),
+         _plan("DDD", side="SHORT", score=90, kind="futures")], mkt, "₹")
+    assert {json.loads(p)["title"] for p in sent} == {"SHORT DDD · 90/100"}
+
+    # Later polls with new side/kind variants of the same stock stay silent
+    main._broadcast_new_plans([_plan("DDD", side="LONG", score=95, kind="short_covering")], mkt, "₹")
+    assert {json.loads(p)["title"] for p in sent} == {"SHORT DDD · 90/100"}
+
+    # Legacy-format claims (pre-deploy rows for today) also block a re-send
+    day = main.datetime.now(main.timezone(main.timedelta(hours=5, minutes=30))).strftime("%Y-%m-%d")
+    conn = main._auth_db()
+    conn.execute("INSERT OR IGNORE INTO push_sent (k, created_at) VALUES (?, ?)",
+                 (f"{day}|{mkt}|EEE|LONG|long_buildup", main._utc_now()))
+    conn.commit()
+    conn.close()
+    main._broadcast_new_plans([_plan("EEE")], mkt, "₹")
+    assert not any("EEE" in p for p in sent)
+
+    client.post("/api/push/unsubscribe", json={"endpoint": ep}, headers=h)
 
 
 def test_push_test_requires_auth(monkeypatch):

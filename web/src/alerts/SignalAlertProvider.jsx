@@ -23,7 +23,10 @@ const SignalAlertContext = createContext({
 export const useSignalAlerts = () => useContext(SignalAlertContext);
 
 const notifSupported = () => typeof window !== 'undefined' && 'Notification' in window;
-const keyOf = (p) => `${p.symbol}|${p.side}|${p.kind}`;
+// One alert per stock per day — side/kind variants of the same name were
+// reported as notification spam. (Older builds stored symbol|side|kind keys;
+// detect() normalizes stored keys back to the symbol.)
+const keyOf = (p) => p.symbol;
 
 const authHeader = () => {
   const t = localStorage.getItem('alphanova_auth_token');
@@ -231,8 +234,16 @@ const SignalAlertProvider = ({ children }) => {
       saveSeen({ date: dateKey, mkt, keys: current.map((c) => c.k) });
       return;
     }
-    const seenSet = new Set(seen.keys);
-    const fresh = current.filter((c) => !seenSet.has(c.k));
+    // Stored keys may be legacy symbol|side|kind — reduce them to the symbol.
+    const seenSet = new Set((seen.keys || []).map((k) => String(k).split('|')[0]));
+    // One batch can carry several plans for the same name — keep the best one.
+    const bestPerKey = new Map();
+    current.forEach((c) => {
+      if (seenSet.has(c.k)) return;
+      const held = bestPerKey.get(c.k);
+      if (!held || (c.p.score || 0) > (held.p.score || 0)) bestPerKey.set(c.k, c);
+    });
+    const fresh = [...bestPerKey.values()];
     if (fresh.length) {
       fresh.forEach((c) => notify(c.p));
       saveSeen({ date: dateKey, mkt, keys: Array.from(new Set([...seen.keys, ...current.map((c) => c.k)])) });

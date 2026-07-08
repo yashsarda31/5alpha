@@ -4250,7 +4250,8 @@ def _broadcast_new_plans(plans, mkt, currency):
     """Web-push scored plans that haven't been announced today.
 
     Runs on every fresh signals compute. Idempotent via INSERT OR IGNORE claims
-    in push_sent (day|mkt|symbol|side|kind); the first compute of a day/market
+    in push_sent (day|mkt|symbol — ONE notification per stock per day, users
+    flagged side/kind variants as spam); the first compute of a day/market
     seeds silently (no blast of the whole morning list), mirroring the
     frontend's seen-set behavior. Cross-instance duplicate sends are possible
     on cold starts — the notification `tag` makes the phone tray dedupe them.
@@ -4270,10 +4271,17 @@ def _broadcast_new_plans(plans, mkt, currency):
     try:
         prior = conn.execute("SELECT COUNT(*) FROM push_sent WHERE k LIKE ?", (f"{day}|{mkt}|%",)).fetchone()[0]
         fresh = []
-        for p in plans:
+        # Highest score first so when a stock has several plans in one batch,
+        # the best one is the single notification it gets today.
+        for p in sorted(plans, key=lambda p: -(p.get("score") or 0)):
             if not (p.get("symbol") and p.get("side")):
                 continue
-            k = f"{day}|{mkt}|{p['symbol']}|{p['side']}|{p.get('kind')}"
+            k = f"{day}|{mkt}|{p['symbol']}"
+            # The LIKE also matches legacy day|mkt|symbol|side|kind claims, so a
+            # mid-day deploy doesn't re-announce already-notified stocks.
+            if conn.execute("SELECT 1 FROM push_sent WHERE k = ? OR k LIKE ? LIMIT 1",
+                            (k, k + "|%")).fetchone():
+                continue
             if conn.execute("INSERT OR IGNORE INTO push_sent (k, created_at) VALUES (?, ?)", (k, _utc_now())).rowcount:
                 fresh.append(p)
         claimed = len(fresh)
