@@ -2573,6 +2573,147 @@ async def get_fiidii():
     return res
 
 
+# --- Block / bulk deals + insider trades (NSE) ---
+# Big-money footprints: block & bulk deals (institutional/HNI trades printed by
+# NSE) plus PIT insider filings (promoters/directors buying or selling their own
+# stock). All pulled from nseindia.com via the proven cookie-warmed nse_get.
+
+def _deal_int(v):
+    try:
+        return int(float(str(v).replace(",", "").strip()))
+    except (TypeError, ValueError):
+        return 0
+
+def _deal_float(v):
+    try:
+        return round(float(str(v).replace(",", "").strip()), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+def _parse_nse_date(s):
+    """NSE dates come as '08-Jul-2026' or '02-May-2026 16:46'. Returns a
+    datetime for sorting; unparseable → datetime.min so it sinks to the bottom."""
+    s = (s or "").strip()
+    for fmt in ("%d-%b-%Y %H:%M", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(s[:len(fmt) + 6].strip(), fmt)
+        except ValueError:
+            continue
+    return datetime.min
+
+def _norm_large_deal(d):
+    qty = _deal_int(d.get("qty"))
+    price = _deal_float(d.get("watp"))
+    return {
+        "symbol": (d.get("symbol") or "").strip(),
+        "name": (d.get("name") or "").strip(),
+        "client": (d.get("clientName") or "").strip() or "—",
+        "side": (d.get("buySell") or "").strip().upper(),  # BUY / SELL / ""
+        "qty": qty,
+        "price": price,
+        "value": round(qty * price, 2),
+        "date": (d.get("date") or "").strip(),
+    }
+
+def fetch_large_deals():
+    """Block & bulk deals for the latest session from NSE's large-deal snapshot."""
+    j = nse_get("/api/snapshot-capital-market-largedeal")
+    if not j:
+        return {"as_on": "", "bulk": [], "block": []}
+
+    def rows(key, cap):
+        out = [_norm_large_deal(d) for d in (j.get(key) or []) if d.get("symbol")]
+        out.sort(key=lambda r: (_parse_nse_date(r["date"]), r["value"]), reverse=True)
+        return out[:cap]
+
+    return {
+        "as_on": (j.get("as_on_date") or "").strip(),
+        "bulk": rows("BULK_DEALS_DATA", 150),
+        "block": rows("BLOCK_DEALS_DATA", 100),
+    }
+
+def _shares_num(v):
+    """Parse an NSE share count. 'Nil'/'-'/'' → 0; unparseable → None (unknown)."""
+    s = str(v or "").replace(",", "").strip().lower()
+    if s in ("", "-", "nil", "na"):
+        return 0.0
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+def _insider_direction(d):
+    """BUY / SELL / (PLEDGE etc.). NSE's acqMode is mislabeled on ~12% of rows
+    (e.g. 'Market Sale' on a filing where the holding actually rose), so the
+    authoritative signal is the change in the person's shareholding; the
+    declared type is only a fallback. Pledges/encumbrances aren't buys or sells."""
+    typ = (d.get("tdpTransactionType") or "").strip()
+    tl = typ.lower()
+    if any(k in tl for k in ("pledge", "encumb", "invoke", "revok")):
+        return typ.upper()
+    bef = _shares_num(d.get("befAcqSharesNo"))
+    aft = _shares_num(d.get("afterAcqSharesNo"))
+    if bef is not None and aft is not None and aft != bef:
+        return "BUY" if aft > bef else "SELL"
+    if tl.startswith("buy"):
+        return "BUY"
+    if tl.startswith("sell"):
+        return "SELL"
+    return typ.upper() or "—"
+
+def _norm_insider(d):
+    return {
+        "symbol": (d.get("symbol") or "").strip(),
+        "company": (d.get("company") or "").strip(),
+        "person": (d.get("acqName") or "").strip(),
+        "category": (d.get("personCategory") or "").strip() or "—",
+        "mode": (d.get("acqMode") or "").strip() or "—",
+        "type": _insider_direction(d),  # BUY / SELL / PLEDGE… from holding change
+        "qty": _deal_int(d.get("secAcq")),
+        "value": _deal_float(d.get("secVal")),
+        "date": (d.get("date") or d.get("intimDt") or "").strip(),
+    }
+
+def fetch_insider_trades(days=90, limit=75):
+    """Recent PIT (Prohibition of Insider Trading) filings, newest first. NSE's
+    insider feed lags real-time by weeks, so a wide window is needed to surface
+    anything; we sort by intimation date and keep the most recent."""
+    ist = timezone(timedelta(hours=5, minutes=30))
+    to_d = datetime.now(ist)
+    from_d = to_d - timedelta(days=days)
+    fmt = lambda d: d.strftime("%d-%m-%Y")
+    j = nse_get(f"/api/corporates-pit?index=equities&from_date={fmt(from_d)}&to_date={fmt(to_d)}")
+    rows = [_norm_insider(d) for d in ((j or {}).get("data") or [])
+            if d.get("symbol") and d.get("acqName")]
+    rows.sort(key=lambda r: _parse_nse_date(r["date"]), reverse=True)
+    return rows[:limit]
+
+@app.get("/api/deals")
+async def get_deals():
+    """Block/bulk deals + insider trades for Indian equities. Cached 15 min
+    (this data refreshes a few times a day, mostly post-close)."""
+    cache_key = "deals_all"
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < CACHE_TTL:
+        return API_CACHE[cache_key]['data']
+
+    large, insider = await asyncio.gather(
+        _bounded(asyncio.to_thread(fetch_large_deals), 14),
+        _bounded(asyncio.to_thread(fetch_insider_trades), 16),
+    )
+    large = large or {"as_on": "", "bulk": [], "block": []}
+    data = {
+        "as_on": large.get("as_on", ""),
+        "bulk": large.get("bulk", []),
+        "block": large.get("block", []),
+        "insider": insider or [],
+    }
+    # Only cache a non-empty result, so a transient NSE block/timeout doesn't
+    # pin an empty payload for the full TTL.
+    if data["bulk"] or data["block"] or data["insider"]:
+        API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+    return data
+
+
 # TMPV = Tata Motors Passenger Vehicles (post-Oct-2025 demerger; TATAMOTORS is delisted on Yahoo)
 DASHBOARD_MOVERS = ["RELIANCE.NS", "HDFCBANK.NS", "TCS.NS", "INFY.NS", "ICICIBANK.NS",
                     "SBIN.NS", "BHARTIARTL.NS", "LT.NS", "ITC.NS", "TMPV.NS"]
@@ -3385,6 +3526,20 @@ async def _us_market_signals(capital, risk_pct):
         "currency": "$",
     }
 
+def _json_safe(o):
+    """Recursively replace NaN/±Inf floats with None. yfinance/NSE data can yield
+    a non-finite float (a missing bar, a 0/0 ratio, an unbounded IV solve); the
+    stdlib JSON encoder FastAPI uses then raises 'Out of range float values are
+    not JSON compliant' and 500s the ENTIRE endpoint. One bad number shouldn't
+    take down Market Signals (and its app-wide alert poll)."""
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    return o
+
 @app.get("/api/signals")
 async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, market: str = None):
     # 20:00–02:00 IST → the US engine takes over (same window as dashboard
@@ -3396,7 +3551,7 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         return API_CACHE[cache_key]['data']
 
     if sig_market == "US":
-        data = await _us_market_signals(capital, risk_pct)
+        data = _json_safe(await _us_market_signals(capital, risk_pct))
         API_CACHE[cache_key] = {'time': time.time(), 'data': data}
         try:  # fan new scored setups out to phone push subscribers (best-effort)
             await _bounded(asyncio.to_thread(
@@ -3498,6 +3653,7 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         "signals_market": "IN",
         "currency": "₹",
     }
+    data = _json_safe(data)
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
     if is_open:  # no new setups form after close — skip the broadcast's blob ops
         try:  # fan new scored setups out to phone push subscribers (best-effort)
@@ -3608,6 +3764,7 @@ async def get_focus_list():
         },
         "stocks": ranked,
     }
+    data = _json_safe(data)
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
     return data
 
