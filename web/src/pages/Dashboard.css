@@ -206,6 +206,207 @@ a.dash-mover:hover {
 .tc-badge.down { color: var(--red-loss); }
 .tc-badge.locked { color: var(--primary-gold); }
 
+/* Market pulse strip: lead indices + movers breadth, one glance */
+.dash-pulse {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.dash-pulse-tile,
+.dash-pulse-breadth {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-grad), var(--surface-tile);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-tile);
+  box-shadow: var(--inset-hl);
+  padding: 12px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.dash-pulse-tile.up { border-color: rgba(50, 215, 75, 0.22); }
+.dash-pulse-tile.down { border-color: rgba(255, 69, 58, 0.22); }
+
+.dash-pulse-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.dash-pulse-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 10px;
+  flex-wrap: wrap;
+}
+
+.dash-pulse-value {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dash-breadth-bar {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 69, 58, 0.35);
+  overflow: hidden;
+  margin-top: 4px;
+}
+.dash-breadth-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--green-gain);
+  border-radius: 999px;
+}
+
+/* Sparkline footer inside price tiles — quiet layer under the numbers */
+.dash-mover-spark,
+.dash-pulse-tile .dash-mover-spark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 26px;
+  opacity: 0.4;
+  pointer-events: none;
+}
+.dash-mover { padding-bottom: 22px; }
+
+/* Macro tiles (right column) */
+.dash-macro-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 10px;
+}
+
+.dash-macro-tile {
+  background: var(--surface-tile);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-tile);
+  padding: 11px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dash-macro-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Live setups teaser (signals cache — zero extra requests) */
+.dash-teaser { margin-bottom: 24px; }
+
+.dash-teaser-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 10px;
+}
+
+.dash-teaser-card {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface-grad), var(--surface-tile);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-tile);
+  box-shadow: var(--inset-hl);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+.dash-teaser-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary-accent-border, rgba(232, 196, 124, 0.5));
+}
+
+.dash-teaser-side {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.dash-teaser-side.long { color: var(--green-gain); }
+.dash-teaser-side.short { color: var(--red-loss); }
+
+.dash-teaser-sym { font-weight: 700; color: var(--text-primary); font-size: 14px; }
+.dash-teaser-score { color: var(--primary-gold); font-weight: 700; font-size: 12px; }
+.dash-teaser-entry {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.dash-teaser-asof {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* Today's Call community split */
+.tc-community {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tc-community-bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 69, 58, 0.3);
+  overflow: hidden;
+}
+.tc-community-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--green-gain);
+  border-radius: 999px;
+}
+.tc-community-label { font-size: 12px; color: var(--text-secondary); }
+
+/* live-count chip on the Signals module card */
+.dash-nav-icon-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dash-nav-live {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--green-gain);
+  border: 1px solid rgba(50, 215, 75, 0.35);
+  background: rgba(50, 215, 75, 0.1);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
 @media (max-width: 850px) {
   .dash-grid { grid-template-columns: 1fr; }
 }
