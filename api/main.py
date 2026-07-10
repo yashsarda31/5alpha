@@ -29,10 +29,15 @@ CACHE_TTL = 900 # 15 minutes
 
 app = FastAPI(title="Alpha Nova API V2", description="Institutional Analytics API")
 
-# Connect React Frontend
+# Connect React Frontend. The app is same-origin in prod (Vercel serves both),
+# so CORS only matters for the local vite dev/preview proxies and Vercel preview
+# deploys — allow those explicitly instead of every site on the internet
+# (a blanket "*" let any third-party page freeload the API from visitors'
+# browsers and probe authed endpoints).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://5alphav2.vercel.app"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://[a-z0-9-]+\.vercel\.app$",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -89,6 +94,11 @@ def _edge_cache_ttl(path, query_market):
 @app.middleware("http")
 async def _edge_cache_headers(request: Request, call_next):
     response = await call_next(request)
+    # Baseline security headers on every API response (the static site's HTML
+    # gets its own set via vercel.json routes).
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     if (
         request.method == "GET"
         and response.status_code == 200
@@ -106,6 +116,19 @@ async def _edge_cache_headers(request: Request, call_next):
             )
     return response
 
+
+# Ticker path params are embedded into outbound NSE/Yahoo URLs — reject anything
+# outside the charset real listings use (letters/digits plus . _ ^ = & - and
+# space) so a crafted "ticker" can't smuggle query params or paths upstream.
+# Legit examples that must pass: RELIANCE.NS, ^NSEI, INR=X, M&M.NS, BRK-B,
+# NIFTY_FIN_SERVICE.NS, GC=F.
+_TICKER_PATH_RE = re.compile(r"^[A-Za-z0-9._^=&\- ]{1,25}$")
+
+def _validate_symbol(sym: str) -> str:
+    s = (sym or "").strip()
+    if not _TICKER_PATH_RE.match(s):
+        raise HTTPException(status_code=400, detail="Invalid ticker symbol.")
+    return s
 
 # --- Models ---
 class DCFRequest(BaseModel):
@@ -469,6 +492,7 @@ def _yf_resolve_info(ticker: str):
 
 @app.get("/api/chart/{ticker}")
 async def get_chart(ticker: str):
+    ticker = _validate_symbol(ticker)
     def fetch_data():
         # Fetch 2y to ensure 200-day MA and 52-week high/low have enough data
         return _yf_resolve_history(ticker, "2y")
@@ -626,6 +650,7 @@ async def calculate_dcf(req: DCFRequest):
 
 @app.get("/api/dcf/data/{ticker}")
 async def get_dcf_data(ticker: str):
+    ticker = _validate_symbol(ticker)
     def fetch_data():
         try:
             resolved, stock, info = _yf_resolve_info(ticker)
@@ -771,7 +796,7 @@ def forecast_sarimax(req: ARIMARequest):
       points on weekends the market never trades).
     """
     days = max(1, min(int(req.days or 10), 60))
-    resolved, df = _yf_resolve_history(req.ticker, "2y")
+    resolved, df = _yf_resolve_history(_validate_symbol(req.ticker), "2y")
     if df.empty:
         raise HTTPException(status_code=404, detail="Data not found")
 
@@ -1004,6 +1029,7 @@ def _flcl_engine(df, swing_window: int = 5, atr_mult: float = 1.5):
 
 @app.post("/api/flcl")
 def flcl_analysis(req: FLCLRequest):
+    req.ticker = _validate_symbol(req.ticker)
     days = max(60, min(int(req.days or 252), 756))
     w = max(2, min(int(req.swing_window or 5), 15))
     mult = max(0.5, min(float(req.atr_mult or 1.5), 4.0))
@@ -2100,6 +2126,7 @@ def ai_sector_summary(req: AISectorRequest):
 
 @app.get("/api/fundamentals/{ticker}")
 async def get_fundamentals(ticker: str):
+    ticker = _validate_symbol(ticker)
     def fetch_fundamentals():
         try:
             resolved, stock, info = _yf_resolve_info(ticker)
@@ -2387,6 +2414,7 @@ def _news_relevance(art, terms, now):
 
 @app.get("/api/news/{ticker}")
 async def get_news(ticker: str, apiKey: str = None):
+    ticker = _validate_symbol(ticker)
     cache_key = f"news_{ticker.upper()}"
     if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < NEWS_CACHE_TTL:
         return API_CACHE[cache_key]['data']
@@ -2862,6 +2890,7 @@ async def _bounded(coro, timeout_s):
 
 @app.get("/api/option-chain/expiries/{symbol}")
 async def get_option_chain_expiries(symbol: str):
+    symbol = _validate_symbol(symbol)
     nse_data, nt_data = await asyncio.gather(
         _bounded(asyncio.to_thread(fetch_nse_expiries, symbol), 12),
         _bounded(asyncio.to_thread(fetch_niftytrader_expiries, symbol), 14)
@@ -2980,6 +3009,7 @@ def fetch_nse_v3_chain(symbol: str, expiry_iso: str = ""):
 
 @app.get("/api/option-chain/data/{symbol}")
 async def get_option_chain_data(symbol: str, expiryDate: str = ""):
+    symbol = _validate_symbol(symbol)
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": "https://www.niftytrader.in/nse-option-chain"
@@ -4953,13 +4983,55 @@ def _optional_user(conn, authorization: str):
     except HTTPException:
         return None, _auth_db()
 
+# --- Rate limiting (abuse-prone endpoints) -----------------------------------
+# Per-instance sliding window keyed by client IP. Serverless instances each keep
+# their own window, so the effective ceiling is limit × live instances — still
+# enough to blunt credential stuffing / signup floods, at zero infra cost.
+# Enabled only on Vercel (the offline test suite churns through dozens of
+# signups/logins from one fake IP); tests force it on via monkeypatch.
+from collections import deque
+
+_RL_ENABLED = bool(os.environ.get("VERCEL"))
+_RL_BUCKETS: dict = {}
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+def _require_cron(authorization: str):
+    """Opt-in cron protection: when CRON_SECRET is set in the environment,
+    Vercel sends it as `Authorization: Bearer <secret>` on cron invocations and
+    outside callers get 403. Without the env var the endpoints stay open
+    (idempotent anyway) — setting the secret is free hardening."""
+    secret = os.environ.get("CRON_SECRET")
+    if secret and not hmac.compare_digest(authorization or "", f"Bearer {secret}"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+def _rate_limit(request: Request, bucket: str, limit: int, window_s: int):
+    """Raise 429 when `limit` calls from this IP land inside `window_s`."""
+    if not _RL_ENABLED:
+        return
+    now = time.time()
+    key = f"{bucket}:{_client_ip(request)}"
+    q = _RL_BUCKETS.setdefault(key, deque())
+    while q and q[0] <= now - window_s:
+        q.popleft()
+    if len(q) >= limit:
+        raise HTTPException(status_code=429, detail="Too many attempts — please wait a bit and try again.")
+    q.append(now)
+    if len(_RL_BUCKETS) > 5000:  # bound memory on long-lived instances
+        _RL_BUCKETS.clear()
+
 class AuthCredentials(BaseModel):
     email: str
     password: str
     displayName: str | None = None  # explicit null must not 422 (pydantic v2)
 
 @app.post("/api/auth/signup")
-def auth_signup(req: AuthCredentials):
+def auth_signup(req: AuthCredentials, request: Request):
+    _rate_limit(request, "signup", limit=12, window_s=3600)
     email = req.email.strip().lower()
     if "@" not in email or "." not in email.split("@")[-1]:
         raise HTTPException(status_code=400, detail="Please enter a valid email address.")
@@ -4995,7 +5067,8 @@ def auth_signup(req: AuthCredentials):
         conn.close()
 
 @app.post("/api/auth/login")
-def auth_login(req: AuthCredentials):
+def auth_login(req: AuthCredentials, request: Request):
+    _rate_limit(request, "login", limit=20, window_s=300)
     email = req.email.strip().lower()
     # Fresh pull so recent signups/password changes on other instances are seen,
     # and so the blob push below can't overwrite them with a stale snapshot.
@@ -6183,9 +6256,10 @@ def predict_hide(req: HideFlag, authorization: str = Header(None)):
         conn.close()
 
 @app.get("/api/predict/resolve")
-def predict_resolve():
+def predict_resolve(authorization: str = Header(None)):
     """Cron resolver (vercel.json: 30 10 * * 1-5). Ensures recent weekday question
     rows exist, resolves pending past days, voids stale holiday days. Idempotent."""
+    _require_cron(authorization)
     _blob_pull_db(force=True)
     conn = _auth_db()
     try:
@@ -6498,7 +6572,8 @@ def _delivery_score(dlv, side):
     return max(0.0, min(10.0, min(dlv["spurt"] / 1.3, 1.0) * c01 * 10))
 
 @app.get("/api/delivery/refresh")
-def delivery_refresh():
+def delivery_refresh(authorization: str = Header(None)):
+    _require_cron(authorization)
     try:
         result = _ensure_delivery_fresh(max_fetch=35, force=True)
     except Exception as e:

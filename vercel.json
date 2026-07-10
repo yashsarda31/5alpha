@@ -29,20 +29,28 @@
     },
     {
       "src": "/assets/(.*)",
-      "headers": { "cache-control": "public, max-age=31536000, immutable" },
+      "headers": {
+        "cache-control": "public, max-age=31536000, immutable",
+        "x-content-type-options": "nosniff"
+      },
       "dest": "/web/assets/$1"
     },
     {
       "src": "/favicon.svg",
+      "headers": { "cache-control": "public, max-age=86400" },
       "dest": "/web/favicon.svg"
     },
     {
       "src": "/robots.txt",
+      "headers": { "cache-control": "public, max-age=86400" },
       "dest": "/web/robots.txt"
     },
     {
       "src": "/manifest.webmanifest",
-      "headers": { "content-type": "application/manifest+json" },
+      "headers": {
+        "content-type": "application/manifest+json",
+        "cache-control": "public, max-age=3600"
+      },
       "dest": "/web/manifest.webmanifest"
     },
     {
@@ -52,14 +60,17 @@
     },
     {
       "src": "/apple-touch-icon-v2\\.png",
+      "headers": { "cache-control": "public, max-age=31536000, immutable" },
       "dest": "/web/apple-touch-icon-v2.png"
     },
     {
       "src": "/apple-touch-icon-v3\\.png",
+      "headers": { "cache-control": "public, max-age=31536000, immutable" },
       "dest": "/web/apple-touch-icon-v3.png"
     },
     {
       "src": "/apple-touch-icon-v4\\.png",
+      "headers": { "cache-control": "public, max-age=31536000, immutable" },
       "dest": "/web/apple-touch-icon-v4.png"
     },
     {
@@ -69,7 +80,7 @@
     },
     {
       "src": "/icons/(.*)",
-      "headers": { "cache-control": "public, max-age=86400" },
+      "headers": { "cache-control": "public, max-age=31536000, immutable" },
       "dest": "/web/icons/$1"
     },
     {
@@ -82,6 +93,13 @@
     },
     {
       "src": "/(.*)",
+      "headers": {
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "strict-transport-security": "max-age=63072000; includeSubDomains"
+      },
       "dest": "/web/index.html"
     }
   ]

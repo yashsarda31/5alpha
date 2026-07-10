@@ -90,3 +90,48 @@ def test_input_length_limits():
     r = client.post("/api/auth/signup", json={"email": _unique_email(), "password": "secret123", "displayName": "D" * 5000})
     assert r.status_code == 200
     assert len(r.json()["user"]["displayName"]) <= 80
+
+
+def test_rate_limit_login(monkeypatch):
+    """With the limiter forced on, repeated failed logins from one IP hit 429."""
+    import main
+    monkeypatch.setattr(main, "_RL_ENABLED", True)
+    monkeypatch.setattr(main, "_RL_BUCKETS", {})
+    email = _unique_email()
+    got_429 = False
+    for _ in range(25):  # limit is 20/5min
+        r = client.post("/api/auth/login", json={"email": email, "password": "wrong-pass"})
+        if r.status_code == 429:
+            got_429 = True
+            break
+        assert r.status_code == 401
+    assert got_429
+
+
+def test_rate_limit_off_by_default():
+    """Locally (no VERCEL env) the limiter must not interfere."""
+    import main
+    assert not main._RL_ENABLED
+    email = _unique_email()
+    for _ in range(25):
+        r = client.post("/api/auth/login", json={"email": email, "password": "wrong-pass"})
+        assert r.status_code == 401
+
+
+def test_symbol_validation():
+    """Ticker path params reject URL-structural junk, accept real listings."""
+    for bad in ["FOO?x=y", "A/B", "a%2Fb", "<script>", "X" * 30]:
+        r = client.get(f"/api/chart/{bad}")
+        assert r.status_code in (400, 404), bad  # 404 = path didn't match ("/")
+    import main
+    for good in ["RELIANCE.NS", "^NSEI", "INR=X", "M&M.NS", "BRK-B", "NIFTY_FIN_SERVICE.NS"]:
+        assert main._validate_symbol(good) == good
+
+
+def test_cron_secret_guard(monkeypatch):
+    """With CRON_SECRET set, cron endpoints demand the matching Bearer header."""
+    monkeypatch.setenv("CRON_SECRET", "s3cret")
+    r = client.get("/api/predict/resolve")
+    assert r.status_code == 403
+    r = client.get("/api/delivery/refresh", headers={"Authorization": "Bearer wrong"})
+    assert r.status_code == 403
