@@ -17,6 +17,11 @@ import time
 import io
 import re
 
+try:
+    from .cockpit_engine import build_cockpit
+except ImportError:  # direct `python api/main.py` compatibility
+    from cockpit_engine import build_cockpit
+
 # statsmodels (scipy chain), google.genai and PIL are imported lazily inside the
 # endpoints that need them — importing them at module level adds seconds to every
 # serverless cold start, including the auth check that gates app startup.
@@ -4396,6 +4401,33 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         except Exception:
             pass
     return data
+
+
+# --- Alpha Cockpit V3: one decision contract over the proven V2 engines ---
+@app.get("/api/cockpit")
+async def get_cockpit(capital: float = 10_000_000, risk_pct: float = 0.75, market: str = None):
+    if not 100_000 <= capital <= 1_000_000_000:
+        raise HTTPException(status_code=400, detail="Capital must be between ₹1 lakh and ₹100 crore.")
+    if not 0.1 <= risk_pct <= 2.0:
+        raise HTTPException(status_code=400, detail="Risk per idea must be between 0.1% and 2.0%.")
+
+    signal_result, dashboard_result = await asyncio.gather(
+        get_market_signals(capital=capital, risk_pct=risk_pct, market=market),
+        get_dashboard(),
+        return_exceptions=True,
+    )
+    signal_error = str(signal_result) if isinstance(signal_result, Exception) else None
+    dashboard_error = str(dashboard_result) if isinstance(dashboard_result, Exception) else None
+    signals = None if signal_error else signal_result
+    dashboard = None if dashboard_error else dashboard_result
+    return _json_safe(build_cockpit(
+        signals,
+        dashboard,
+        capital=capital,
+        risk_pct=risk_pct,
+        signal_error=signal_error,
+        dashboard_error=dashboard_error,
+    ))
 
 
 # --- Focus List: today's stocks worth watching, aggregated from the engines ---

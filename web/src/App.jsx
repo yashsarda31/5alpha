@@ -1,10 +1,8 @@
 import React, { useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigationType } from 'react-router-dom';
 import {
-  LayoutGrid, Star, Zap, Rocket, Newspaper,
-  LineChart, Bird, Search, Landmark, Calculator, BarChart3, Sparkles, Scale, Link2,
-  Trophy, Gamepad2, GraduationCap, Settings, Menu, Compass, ArrowLeftRight, Gauge,
-  ChevronsUpDown,
+  LayoutGrid, Star, Zap, Search, BarChart3, Scale,
+  Trophy, Gamepad2, Settings, Menu, Gauge,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
 import AppLogo from './components/AppLogo';
@@ -18,6 +16,8 @@ import SignalAlertProvider from './alerts/SignalAlertProvider';
 // One importer map feeds both lazy() and hover-prefetch: pointing at a nav
 // link starts downloading that page's chunk, so the click lands on warm code.
 const routeImporters = {
+  '/cockpit': () => import('./pages/Cockpit'),
+  '/research': () => import('./pages/Research'),
   '/dashboard': () => import('./pages/Dashboard'),
   '/watchlist': () => import('./pages/Watchlist'),
   '/leaderboard': () => import('./pages/Leaderboard'),
@@ -50,6 +50,8 @@ const prefetchRoute = (path) => {
 
 // Every page is lazy-loaded so the initial bundle carries only the shell;
 // heavy dependencies (Plotly ~1.4 MB) download only when a chart page opens.
+const Cockpit = lazy(routeImporters['/cockpit']);
+const Research = lazy(routeImporters['/research']);
 const Dashboard = lazy(routeImporters['/dashboard']);
 const Watchlist = lazy(routeImporters['/watchlist']);
 const Leaderboard = lazy(routeImporters['/leaderboard']);
@@ -72,53 +74,36 @@ const DruckMinervini = lazy(routeImporters['/druck-minervini']);
 const TradingGame = lazy(routeImporters['/trading-game']);
 const FiiDii = lazy(routeImporters['/fiidii']);
 
-// Progressive disclosure: what matters right now up top, deep research in the
-// middle, gamified extras at the bottom (order per user preference).
+// Alpha Cockpit V3 keeps the decision loop primary. The broad V2 toolset remains
+// available through the Research hub and all existing deep links still work.
 const NAV_SECTIONS = [
   {
-    title: 'Today',
+    title: 'Alpha Cockpit',
     items: [
-      { to: '/dashboard', label: 'Dashboard', Icon: LayoutGrid },
+      { to: '/cockpit', label: 'Cockpit', Icon: LayoutGrid },
+      { to: '/signals', label: 'Opportunities', Icon: Zap },
+      { to: '/position-sizing', label: 'Portfolio Lab', Icon: Scale },
+      { to: '/research', label: 'Research', Icon: Search },
+      { to: '/track-record', label: 'Track Record', Icon: Gauge },
+    ],
+  },
+  {
+    title: 'Personal',
+    items: [
       { to: '/watchlist', label: 'Watchlist', Icon: Star },
-      { to: '/signals', label: 'Market Signals', Icon: Zap },
-      { to: '/track-record', label: 'Signal Track Record', Icon: Gauge },
-      { to: '/sectors', label: 'Sector Rotation', Icon: Compass },
-      { to: '/momentum', label: 'Momentum Leaders', Icon: Rocket },
-      { to: '/news', label: 'News', Icon: Newspaper },
-    ],
-  },
-  {
-    title: 'Research',
-    items: [
-      { to: '/chart', label: 'Chart Analyser', Icon: LineChart },
-      { to: '/flcl', label: 'FLCL Analysis', Icon: ChevronsUpDown },
-      { to: '/druck-minervini', label: 'Druck & Minervini', Icon: Bird },
-      { to: '/screener', label: 'Quant Screener', Icon: Search },
-      { to: '/fiidii', label: 'FII / DII Activity', Icon: Landmark },
-      { to: '/deals', label: 'Block & Insider Deals', Icon: ArrowLeftRight },
-      { to: '/dcf', label: 'DCF Calculator', Icon: Calculator },
-      { to: '/fundamentals', label: 'Fundamentals', Icon: BarChart3 },
-      { to: '/arima', label: 'SARIMAX Forecaster', Icon: Sparkles },
-      { to: '/position-sizing', label: 'Position Sizing', Icon: Scale },
-      { to: '/option-chain', label: 'Option Chain', Icon: Link2 },
-    ],
-  },
-  {
-    title: 'Play & Learn',
-    items: [
+      { to: '/dashboard', label: 'Market Dashboard', Icon: BarChart3 },
       { to: '/leaderboard', label: 'Nifty Leaderboard', Icon: Trophy },
       { to: '/trading-game', label: 'Discipline Arena', Icon: Gamepad2 },
-      { to: '/learn', label: 'Learn', Icon: GraduationCap },
     ],
   },
 ];
 
 // Thumb-reach destinations for the installed/mobile experience
 const TAB_ITEMS = [
-  { to: '/dashboard', label: 'Dashboard', Icon: LayoutGrid },
-  { to: '/signals', label: 'Signals', Icon: Zap },
-  { to: '/watchlist', label: 'Watchlist', Icon: Star },
-  { to: '/momentum', label: 'Momentum', Icon: Rocket },
+  { to: '/cockpit', label: 'Cockpit', Icon: LayoutGrid },
+  { to: '/signals', label: 'Ideas', Icon: Zap },
+  { to: '/position-sizing', label: 'Portfolio', Icon: Scale },
+  { to: '/research', label: 'Research', Icon: Search },
 ];
 
 // Layout-shaped skeleton instead of a bare "Loading…" word — the page keeps
@@ -237,16 +222,16 @@ const AppLayout = () => {
         <button className="hamburger-btn" onClick={() => setMenuOpen(true)} aria-label="Open navigation menu">☰</button>
         <span className="mobile-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <AppLogo size={20} />
-          <span><span style={{ color: 'var(--primary-gold)' }}>Alpha</span> Nova</span>
+          <span><span style={{ color: 'var(--primary-accent)' }}>Alpha</span> Nova</span>
         </span>
       </div>
       {menuOpen && <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />}
       <div className={`sidebar ${menuOpen ? 'open' : ''}`}>
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
           <AppLogo size={24} />
-          <span><span style={{ color: 'var(--primary-gold)' }}>Alpha</span> Nova</span>
+          <span><span style={{ color: 'var(--primary-accent)' }}>Alpha</span> Nova</span>
         </h2>
-        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '20px' }}>Pro Edition V3</div>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '20px' }}>Alpha Cockpit · V3</div>
 
         <nav>
           {NAV_SECTIONS.map((section) => (
@@ -275,6 +260,8 @@ const AppLayout = () => {
         <Disclaimer />
         <Suspense fallback={<PageLoader />}>
         <Routes>
+          <Route path="/cockpit" element={<Cockpit />} />
+          <Route path="/research" element={<Research />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/watchlist" element={<Watchlist />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
@@ -297,7 +284,7 @@ const AppLayout = () => {
           <Route path="/deals" element={<Deals />} />
           <Route path="/learn" element={<Learn />} />
           <Route path="/trading-game" element={<TradingGame />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/cockpit" replace />} />
         </Routes>
         </Suspense>
       </div>
