@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, DataTable, StatusPill, EmptyState } from '../components/ui';
 import TickerSearch from '../components/TickerSearch';
+import Sparkline from '../components/Sparkline';
 import { useWatchlist } from '../WatchlistContext';
 import { useAuth } from '../AuthContext';
+import { getCached, subscribe } from '../lib/swrCache';
 import './Watchlist.css';
 
 const TOKEN_KEY = 'alphanova_auth_token';
@@ -14,6 +16,21 @@ const authHeader = () => {
 };
 
 const fmtPrice = (n) => (n === null || n === undefined ? '—' : Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
+// Symbols with a scored setup in the app-wide signals snapshot (already polled
+// by SignalAlertProvider — no request of our own). market keeps IN plans off
+// US rows that happen to share a ticker string.
+const useLiveSetupSymbols = () => {
+  const [entry, setEntry] = useState(() => getCached('signals'));
+  useEffect(() => subscribe('signals', setEntry), []);
+  const data = entry ? entry.data : null;
+  return useMemo(() => {
+    const plans = (data && data.setups && data.setups.plans) || [];
+    const mkt = (data && data.signals_market) || 'IN';
+    const set = new Set(plans.filter((p) => p && p.symbol).map((p) => p.symbol.toUpperCase()));
+    return { symbols: set, market: mkt };
+  }, [data]);
+};
 
 const AddBox = ({ onAdd, error, onClearError }) => {
   const [value, setValue] = useState('');
@@ -61,11 +78,63 @@ const AddBox = ({ onAdd, error, onClearError }) => {
   );
 };
 
+// Where today's last sits between day low and high — a quick "bought the dip
+// or closing at highs" read. Renders a dash when the quote has no range yet.
+const DayRange = ({ low, high, last }) => {
+  if (low === null || low === undefined || high === null || high === undefined
+      || last === null || last === undefined || !(high > low)) return <span>—</span>;
+  const pos = Math.max(0, Math.min(1, (last - low) / (high - low)));
+  return (
+    <span className="wl-range" title={`Day ${fmtPrice(low)} – ${fmtPrice(high)}`}>
+      <span className="wl-range-track">
+        <span className="wl-range-dot" style={{ left: `${pos * 100}%` }} />
+      </span>
+    </span>
+  );
+};
+
+// Summary strip: how the whole list is doing, at a glance.
+const SummaryBar = ({ rows }) => {
+  const quoted = rows.filter((r) => r.change_pct !== null && r.change_pct !== undefined);
+  if (!quoted.length) return null;
+  const avg = quoted.reduce((a, r) => a + r.change_pct, 0) / quoted.length;
+  const up = quoted.filter((r) => r.change_pct > 0).length;
+  const down = quoted.filter((r) => r.change_pct < 0).length;
+  const best = quoted.reduce((a, r) => (r.change_pct > a.change_pct ? r : a));
+  const worst = quoted.reduce((a, r) => (r.change_pct < a.change_pct ? r : a));
+  const fmt = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+  return (
+    <div className="wl-summary">
+      <span className="wl-summary-item">
+        <span className="wl-summary-label">Avg move</span>
+        <span className={`tnum ${avg >= 0 ? 'tone-gain' : 'tone-loss'}`}>{fmt(avg)}</span>
+      </span>
+      <span className="wl-summary-item">
+        <span className="wl-summary-label">Breadth</span>
+        <span className="tnum"><span className="tone-gain">{up}↑</span> <span className="tone-loss">{down}↓</span></span>
+      </span>
+      <span className="wl-summary-item">
+        <span className="wl-summary-label">Best</span>
+        <span>{best.symbol} <span className="tone-gain tnum">{fmt(best.change_pct)}</span></span>
+      </span>
+      {worst.symbol !== best.symbol && (
+        <span className="wl-summary-item">
+          <span className="wl-summary-label">Worst</span>
+          <span>{worst.symbol} <span className="tone-loss tnum">{fmt(worst.change_pct)}</span></span>
+        </span>
+      )}
+    </div>
+  );
+};
+
 const Watchlist = () => {
   const { currentUser } = useAuth();
   const { items, symbols, loading, error, add, remove, clearError } = useWatchlist();
-  const [quotes, setQuotes] = useState({}); // symbol -> {last, change_pct}
+  const [quotes, setQuotes] = useState({}); // symbol -> {last, change_pct, day_low, day_high, spark}
   const [marketOpen, setMarketOpen] = useState(null);
+  const [sortKey, setSortKey] = useState(null); // null = user's saved order
+  const [sortDir, setSortDir] = useState('desc');
+  const liveSetups = useLiveSetupSymbols();
 
   const symbolsKey = symbols.join(',');
 
@@ -91,29 +160,69 @@ const Watchlist = () => {
     return () => clearInterval(id);
   }, [fetchQuotes]);
 
-  const rows = items.map((it) => ({
-    symbol: it.symbol,
-    market: it.market || 'IN',
-    last: quotes[it.symbol]?.last,
-    change_pct: quotes[it.symbol]?.change_pct,
-  }));
+  const rows = items.map((it) => {
+    const q = quotes[it.symbol] || {};
+    return {
+      symbol: it.symbol,
+      market: it.market || 'IN',
+      last: q.last,
+      change_pct: q.change_pct,
+      day_low: q.day_low,
+      day_high: q.day_high,
+      spark: q.spark,
+    };
+  });
+
+  const onSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'symbol' ? 'asc' : 'desc');
+    }
+  };
+
+  // Nulls sink to the bottom in BOTH directions (Screener convention).
+  const sortRows = (list) => {
+    if (!sortKey) return list;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) => {
+      const av = a[sortKey]; const bv = b[sortKey];
+      const aNull = av === null || av === undefined || (typeof av === 'number' && Number.isNaN(av));
+      const bNull = bv === null || bv === undefined || (typeof bv === 'number' && Number.isNaN(bv));
+      if (aNull && bNull) return 0;
+      if (aNull) return 1;
+      if (bNull) return -1;
+      if (typeof av === 'string') return av.localeCompare(bv) * dir;
+      return (av - bv) * dir;
+    });
+  };
 
   const chartSym = (r) => `${r.symbol}${r.market === 'US' ? '' : '.NS'}`;
+  const hasSetup = (r) => liveSetups.symbols.has(r.symbol) && liveSetups.market === r.market;
 
   const columns = [
     {
       key: 'symbol',
       label: 'Symbol',
+      sortable: true,
       render: (r) => (
-        <Link to={`/chart?symbol=${chartSym(r)}`} className="wl-sym-link" title={`Open ${r.symbol} in Chart Analyser`}>
-          {r.symbol}
-          {r.market === 'US' && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-secondary)', border: '1px solid var(--glass-border, rgba(255,255,255,0.15))', borderRadius: 4, padding: '1px 4px' }}>US</span>}
-        </Link>
+        <span className="wl-sym-cell">
+          <Link to={`/chart?symbol=${chartSym(r)}`} className="wl-sym-link" title={`Open ${r.symbol} in Chart Analyser`}>
+            {r.symbol}
+          </Link>
+          {r.market === 'US' && <span className="wl-market-chip">US</span>}
+          {hasSetup(r) && (
+            <Link to="/signals" className="wl-setup-badge" title={`${r.symbol} has a scored setup on Market Signals right now`}>
+              SETUP LIVE
+            </Link>
+          )}
+        </span>
       ),
     },
-    { key: 'last', label: 'LTP', align: 'right', render: (r) => (r.last === null || r.last === undefined ? '—' : `${r.market === 'US' ? '$' : '₹'}${fmtPrice(r.last)}`) },
+    { key: 'last', label: 'LTP', align: 'right', sortable: true, render: (r) => (r.last === null || r.last === undefined ? '—' : `${r.market === 'US' ? '$' : '₹'}${fmtPrice(r.last)}`) },
     {
-      key: 'change_pct', label: 'Chg%', align: 'right',
+      key: 'change_pct', label: 'Chg%', align: 'right', sortable: true,
       render: (r) => (
         r.change_pct === null || r.change_pct === undefined
           ? '—'
@@ -123,11 +232,24 @@ const Watchlist = () => {
       ),
     },
     {
-      key: 'actions', label: '', align: 'right',
+      key: 'range', label: 'Day range', align: 'center', mono: false,
+      render: (r) => <DayRange low={r.day_low} high={r.day_high} last={r.last} />,
+    },
+    {
+      key: 'trend', label: '30d', align: 'center', mono: false,
+      render: (r) => (
+        r.spark && r.spark.length > 1
+          ? <span className="wl-spark-cell"><Sparkline values={r.spark} fixed width={92} height={26} /></span>
+          : '—'
+      ),
+    },
+    {
+      key: 'actions', label: '', align: 'right', mono: false,
       render: (r) => (
         <span className="wl-actions">
           <Link to={`/chart?symbol=${chartSym(r)}`} title="Chart Analyser">Chart</Link>
           <Link to={`/fundamentals?symbol=${chartSym(r)}`} title="Fundamentals">Fund.</Link>
+          <Link to={`/news?symbol=${chartSym(r)}`} title="News & sentiment">News</Link>
           <button
             type="button"
             className="wl-remove"
@@ -163,6 +285,17 @@ const Watchlist = () => {
     );
   }
 
+  const inRows = sortRows(rows.filter((r) => r.market !== 'US'));
+  const usRows = sortRows(rows.filter((r) => r.market === 'US'));
+  const mixed = inRows.length > 0 && usRows.length > 0;
+  const tableProps = { columns, rowKey: (r) => r.symbol, sortKey, sortDir, onSort };
+  const empty = (
+    <EmptyState title="Your watchlist is empty">
+      Track your stocks: tap the ☆ on any Chart, Screener result, Momentum leader,
+      or a mover on your Dashboard — or add one by symbol above.
+    </EmptyState>
+  );
+
   return (
     <div className="fade-in">
       <PageHeader
@@ -176,18 +309,23 @@ const Watchlist = () => {
         <AddBox onAdd={add} error={error} onClearError={clearError} />
       </div>
 
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(r) => r.symbol}
-        loading={loading}
-        empty={
-          <EmptyState title="Your watchlist is empty">
-            Track your stocks: tap the ☆ on any Chart, Screener result, Momentum leader,
-            or a mover on your Dashboard — or add one by symbol above.
-          </EmptyState>
-        }
-      />
+      <SummaryBar rows={rows} />
+
+      {mixed ? (
+        <>
+          <div className="wl-group-head">NSE</div>
+          <DataTable {...tableProps} rows={inRows} loading={loading} />
+          <div className="wl-group-head" style={{ marginTop: 20 }}>US</div>
+          <DataTable {...tableProps} rows={usRows} loading={false} />
+        </>
+      ) : (
+        <DataTable
+          {...tableProps}
+          rows={inRows.length ? inRows : usRows}
+          loading={loading}
+          empty={empty}
+        />
+      )}
     </div>
   );
 };

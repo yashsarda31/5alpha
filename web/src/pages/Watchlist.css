@@ -61,3 +61,100 @@
   opacity: 1;
   color: var(--red-loss, #FF453A);
 }
+
+/* Summary strip above the table */
+.wl-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: var(--surface-grad, none), var(--surface-tile, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--r-tile, 12px);
+  box-shadow: var(--inset-hl, none);
+  font-size: 13px;
+}
+
+.wl-summary-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wl-summary-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* symbol cell: link + chips on one line */
+.wl-sym-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.wl-market-chip {
+  font-size: 10px;
+  color: var(--text-secondary);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.15));
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.wl-setup-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: var(--green-gain, #32D74B);
+  border: 1px solid rgba(50, 215, 75, 0.4);
+  background: rgba(50, 215, 75, 0.1);
+  border-radius: 999px;
+  padding: 2px 7px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.wl-setup-badge:hover { background: rgba(50, 215, 75, 0.2); }
+
+/* Day-range mini bar: dot = last, track = today's low→high */
+.wl-range { display: inline-flex; align-items: center; }
+.wl-range-track {
+  position: relative;
+  display: inline-block;
+  width: 72px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 69, 58, 0.45), rgba(161, 161, 170, 0.3), rgba(50, 215, 75, 0.45));
+}
+.wl-range-dot {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-primary, #F5F5F7);
+  border: 1.5px solid rgba(0, 0, 0, 0.6);
+  transform: translate(-50%, -50%);
+}
+
+/* fixed-width wrapper: the table wrap scrolls horizontally, so cell charts
+   keep their natural size instead of the fluid-SVG treatment */
+.wl-spark-cell {
+  display: inline-block;
+  width: 92px;
+  height: 26px;
+}
+
+.wl-group-head {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0 2px 8px;
+}
