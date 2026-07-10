@@ -212,8 +212,8 @@ const SignalAlertProvider = ({ children }) => {
       showNative(`${plan.side} ${plan.symbol} · ${plan.score}/100`, {
         body: `entry ${cur}${plan.entry} · stop ${cur}${plan.stop} · target ${cur}${plan.target}`,
         tag: keyOf(plan),
-        icon: '/icons/icon-192-v3.png',
-        badge: '/icons/icon-192-v3.png',
+        icon: '/icons/icon-192-v4.png',
+        badge: '/icons/icon-192-v4.png',
         data: { url: '/signals' },
       });
     }

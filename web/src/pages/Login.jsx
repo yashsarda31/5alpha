@@ -37,7 +37,7 @@ const Login = () => {
     <div className="login-container fade-in">
       <div className="login-card card">
         <div className="login-header">
-          <div className="logo-icon"><AppLogo size={44} /></div>
+          <div className="logo-icon"><AppLogo size={76} /></div>
           <h1>Alpha Nova Pro</h1>
           <p>{isLogin ? 'Institutional Access' : 'Create Intelligence Account'}</p>
         </div>
