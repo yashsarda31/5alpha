@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PageHeader } from '../components/ui';
+import Sparkline from '../components/Sparkline';
+import { usePrediction } from '../PredictionContext';
+import './TradingGame.css';
+
+const SIZED_KEY = 'alphanova_sized_today'; // stamped by the Position Sizing page
 
 // Daily Bosses definition
 const BOSSES = [
@@ -55,8 +60,10 @@ const DEFAULT_STATE = {
     journal: false,
     noOvertrade: false,
     noRevenge: false,
-    calmness: false
+    calmness: false,
+    dailyCall: false
   },
+  questHistory: {}, // 'YYYY-MM-DD' -> quests completed that day (heatmap)
   bossHp: 100,
   bossDefeated: false,
   inventory: [], // IDs of items
@@ -74,6 +81,42 @@ const DEFAULT_STATE = {
   }
 };
 
+// GitHub-style calendar of quests completed per day (last 12 weeks).
+// History accrues from the day this shipped — no fabricated backfill.
+const QuestHeatmap = ({ history }) => {
+  const days = [];
+  const now = new Date();
+  for (let i = 83; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    const key = d.toISOString().split('T')[0];
+    const count = (history || {})[key] || 0;
+    days.push({ key, count });
+  }
+  const level = (c) => (c >= 4 ? 'h3' : c >= 2 ? 'h2' : c >= 1 ? 'h1' : '');
+  return (
+    <div>
+      <div className="arena-heatmap" aria-label="Daily quest completion heatmap">
+        {days.map((d) => (
+          <span
+            key={d.key}
+            className={`arena-heat-cell ${level(d.count)}`}
+            title={`${d.key}: ${d.count} quest${d.count === 1 ? '' : 's'}`}
+          />
+        ))}
+      </div>
+      <div className="arena-heat-legend">
+        <span>Less</span>
+        <span className="arena-heat-cell" />
+        <span className="arena-heat-cell h1" />
+        <span className="arena-heat-cell h2" />
+        <span className="arena-heat-cell h3" />
+        <span>More</span>
+      </div>
+    </div>
+  );
+};
+
 // Reset daily quests, boss, and streak when a new calendar day starts
 const applyDailyReset = (state) => {
   const today = new Date().toISOString().split('T')[0];
@@ -86,7 +129,8 @@ const applyDailyReset = (state) => {
     journal: false,
     noOvertrade: false,
     noRevenge: false,
-    calmness: false
+    calmness: false,
+    dailyCall: false
   };
   const dayBoss = BOSSES[new Date(today).getDate() % BOSSES.length];
   updated.bossHp = dayBoss.maxHp;
@@ -131,8 +175,14 @@ const TradingGame = () => {
   const [isBossShaking, setIsBossShaking] = useState(false);
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [lootNotification, setLootNotification] = useState(null); // { name, emoji }
+  const [moodMsg, setMoodMsg] = useState('');       // inline, no alert()
+  const [importMsg, setImportMsg] = useState(null); // { ok, text }
+  const [confirmReset, setConfirmReset] = useState(false); // two-step reset
+  const [journalFilter, setJournalFilter] = useState('all');
+  const { today: predictionToday } = usePrediction();
 
   const bossRef = useRef(null);
+  const resetTimerRef = useRef(null);
 
   // Sync state to LocalStorage
   useEffect(() => {
@@ -264,6 +314,10 @@ const TradingGame = () => {
         lastQuestCompletedDate = today;
       }
 
+      // Consistency heatmap: quests completed per calendar day
+      const questHistory = { ...(prev.questHistory || {}) };
+      questHistory[today] = Math.max(0, (questHistory[today] || 0) + (isChecking ? 1 : -1));
+
       // Update stat categories
       const statMap = {
         sizing: 'sizing',
@@ -281,6 +335,7 @@ const TradingGame = () => {
       let nextState = {
         ...prev,
         completedQuests: updatedQuests,
+        questHistory,
         bossHp: newBossHp,
         bossDefeated: newlyDefeated,
         streak,
@@ -300,14 +355,40 @@ const TradingGame = () => {
     });
   };
 
+  // --- Auto-verified quests: the app checks what it can see itself. ---
+  // These only ever CHECK a quest (never un-check), and route through the
+  // normal handleQuestToggle XP/damage path.
+  const questsRef = useRef(gameState.completedQuests);
+  questsRef.current = gameState.completedQuests;
+
+  // Made today's market call (PredictionContext knows)
+  useEffect(() => {
+    if (predictionToday?.your_choice && !questsRef.current.dailyCall) {
+      handleQuestToggle('dailyCall', 20, 10);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [predictionToday?.your_choice]);
+
+  // Planned a trade in the Position Sizing calculator today
+  useEffect(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    let stamped = null;
+    try { stamped = localStorage.getItem(SIZED_KEY); } catch { /* private mode */ }
+    if (stamped === todayStr && !questsRef.current.sizing) {
+      handleQuestToggle('sizing', 20, 20);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleLogMood = (e) => {
     e.preventDefault();
     const today = new Date().toISOString().split('T')[0];
-    
+
     if (gameState.lastMoodDate === today) {
-      alert("You have already logged your mood for today. Keep maintaining discipline!");
+      setMoodMsg('Already logged today — keep maintaining discipline!');
       return;
     }
+    setMoodMsg('');
 
     setGameState(prev => {
       const moodLogs = [...prev.moodLogs, { date: today, mood: moodInput, note: moodNote }];
@@ -400,6 +481,11 @@ const TradingGame = () => {
 
     setJournalInput("");
     setJournalTags({ sizing: false, overtrade: false, revenge: false, setup: false });
+
+    // Writing a real entry IS the journal quest — auto-check it (verified).
+    if (!gameState.completedQuests.journal) {
+      handleQuestToggle('journal', 20, 20);
+    }
   };
 
   const handleEquipItem = (itemId) => {
@@ -430,25 +516,33 @@ const TradingGame = () => {
       try {
         const parsed = JSON.parse(event.target.result);
         if (parsed.level && parsed.xp !== undefined) {
-          setGameState(parsed);
-          alert("Discipline state imported successfully!");
+          setGameState(applyDailyReset({ ...DEFAULT_STATE, ...parsed }));
+          setImportMsg({ ok: true, text: 'Discipline state imported successfully.' });
         } else {
-          alert("Invalid state file structure!");
+          setImportMsg({ ok: false, text: 'Invalid state file structure.' });
         }
       } catch {
-        alert("Failed to parse file. Ensure it is a valid JSON file exported from the Discipline Arena.");
+        setImportMsg({ ok: false, text: 'Could not parse that file — use a JSON backup exported from the Discipline Arena.' });
       }
+      setTimeout(() => setImportMsg(null), 6000);
     };
     if (e.target.files[0]) {
       fileReader.readAsText(e.target.files[0]);
     }
   };
 
+  // Two-step inline confirm (no native confirm() — it blocks and can't be styled)
   const resetState = () => {
-    if (window.confirm("Are you sure you want to reset your discipline achievements, level, items, and streak? This action is permanent!")) {
-      setGameState(DEFAULT_STATE);
-      localStorage.removeItem('alphanova_trading_game_state');
+    if (!confirmReset) {
+      setConfirmReset(true);
+      clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = setTimeout(() => setConfirmReset(false), 5000);
+      return;
     }
+    clearTimeout(resetTimerRef.current);
+    setConfirmReset(false);
+    setGameState(applyDailyReset({ ...DEFAULT_STATE }));
+    localStorage.removeItem('alphanova_trading_game_state');
   };
 
   // Get active item details
@@ -470,243 +564,7 @@ const TradingGame = () => {
 
   return (
     <div className="game-container" style={{ paddingBottom: '60px' }}>
-      {/* CSS Stylesheet embedded locally for precise keyframes and transitions */}
-      <style>{`
-        .game-grid {
-          display: grid;
-          grid-template-columns: 1fr 1.3fr 1fr;
-          gap: 24px;
-        }
-        @media (max-width: 1100px) {
-          .game-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-        .xp-bar-container {
-          background: rgba(255, 255, 255, 0.05);
-          border-radius: 20px;
-          height: 14px;
-          border: 1px solid var(--border-color);
-          overflow: hidden;
-          position: relative;
-          margin: 12px 0;
-        }
-        .xp-bar-fill {
-          background: linear-gradient(90deg, #b5952f 0%, #D4AF37 50%, #f7df8a 100%);
-          height: 100%;
-          border-radius: 20px;
-          transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-          box-shadow: 0 0 10px rgba(212, 175, 55, 0.3);
-        }
-        .boss-card {
-          position: relative;
-          text-align: center;
-          padding: 30px;
-          border-radius: 20px;
-          background: rgba(18, 18, 18, 0.7);
-          border: 1px solid var(--border-color);
-          transition: all 0.3s ease;
-          overflow: hidden;
-        }
-        .boss-card.shake {
-          animation: bossShake 0.4s ease-in-out;
-          border-color: #FF453A !important;
-          box-shadow: 0 0 20px rgba(255, 69, 58, 0.3);
-        }
-        @keyframes bossShake {
-          0%, 100% { transform: translateX(0); }
-          20%, 60% { transform: translateX(-8px); }
-          40%, 80% { transform: translateX(8px); }
-        }
-        .boss-emoji {
-          font-size: 80px;
-          line-height: 1;
-          margin: 15px 0;
-          display: inline-block;
-          transition: transform 0.2s;
-          filter: drop-shadow(0 0 15px rgba(255, 255, 255, 0.15));
-        }
-        .boss-emoji:hover {
-          transform: scale(1.1);
-        }
-        .boss-hp-bar {
-          background: rgba(255, 255, 255, 0.05);
-          height: 20px;
-          border-radius: 10px;
-          border: 1px solid var(--border-color);
-          overflow: hidden;
-          margin: 15px 0;
-          position: relative;
-        }
-        .boss-hp-fill {
-          background: linear-gradient(90deg, #9e2b25, #FF453A);
-          height: 100%;
-          transition: width 0.3s cubic-bezier(0.1, 0.8, 0.3, 1);
-        }
-        .quest-btn {
-          display: flex;
-          align-items: center;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid var(--border-color);
-          border-radius: 12px;
-          padding: 14px 18px;
-          margin-bottom: 12px;
-          width: 100%;
-          text-align: left;
-          color: var(--text-primary);
-          cursor: pointer;
-          transition: all 0.2s ease;
-          position: relative;
-        }
-        .quest-btn:hover {
-          background: rgba(255, 255, 255, 0.07);
-          border-color: rgba(255,255,255,0.2);
-          transform: translateY(-2px);
-        }
-        .quest-btn.checked {
-          background: rgba(50, 215, 75, 0.08);
-          border-color: var(--green-gain);
-          box-shadow: 0 0 12px rgba(50, 215, 75, 0.1);
-        }
-        .quest-checkbox {
-          width: 20px;
-          height: 20px;
-          border: 2px solid var(--text-secondary);
-          border-radius: 6px;
-          margin-right: 14px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.2s;
-        }
-        .quest-btn.checked .quest-checkbox {
-          border-color: var(--green-gain);
-          background: var(--green-gain);
-        }
-        .quest-checkbox::after {
-          content: '✓';
-          color: #000;
-          font-weight: 700;
-          font-size: 13px;
-          display: none;
-        }
-        .quest-btn.checked .quest-checkbox::after {
-          display: block;
-        }
-        .equipped-glow {
-          box-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
-          border-color: var(--primary-gold) !important;
-        }
-        .floating-indicator {
-          position: fixed;
-          pointer-events: none;
-          font-weight: 800;
-          font-size: 20px;
-          z-index: 9999;
-          animation: floatUp 1.2s forwards cubic-bezier(0.1, 0.8, 0.3, 1);
-        }
-        @keyframes floatUp {
-          0% { transform: translateY(0); opacity: 1; scale: 0.8; }
-          100% { transform: translateY(-80px); opacity: 0; scale: 1.2; }
-        }
-        .stat-prog-bar {
-          background: rgba(255,255,255,0.05);
-          height: 6px;
-          border-radius: 4px;
-          overflow: hidden;
-          margin-top: 6px;
-        }
-        .stat-prog-fill {
-          height: 100%;
-          background: var(--primary-accent);
-          border-radius: 4px;
-          transition: width 0.3s;
-        }
-        .level-up-modal {
-          position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0,0,0,0.85);
-          backdrop-filter: blur(10px);
-          z-index: 10000;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          animation: fadeIn 0.4s forwards;
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        .level-up-box {
-          text-align: center;
-          background: rgba(30, 30, 30, 0.8);
-          border: 2px solid var(--primary-gold);
-          border-radius: 24px;
-          padding: 50px 40px;
-          max-width: 450px;
-          box-shadow: 0 0 40px rgba(212, 175, 55, 0.4);
-          animation: scaleIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-        @keyframes scaleIn {
-          from { transform: scale(0.7); opacity: 0; }
-          to { transform: scale(1); opacity: 1; }
-        }
-        .loot-notification {
-          position: fixed;
-          bottom: 24px;
-          right: 24px;
-          background: rgba(28, 28, 30, 0.95);
-          border: 1px solid var(--primary-gold);
-          box-shadow: 0 8px 30px rgba(212, 175, 55, 0.2);
-          border-radius: 16px;
-          padding: 16px 20px;
-          display: flex;
-          align-items: center;
-          gap: 14px;
-          z-index: 9999;
-          animation: slideInUp 0.4s cubic-bezier(0.1, 0.8, 0.3, 1);
-        }
-        @keyframes slideInUp {
-          from { transform: translateY(40px); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
-        }
-        .streak-badge {
-          background: rgba(50, 215, 75, 0.1);
-          border: 1px solid var(--green-gain);
-          color: var(--green-gain);
-          padding: 4px 10px;
-          border-radius: 20px;
-          font-size: 13px;
-          font-weight: 700;
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          animation: pulseGreen 2s infinite;
-        }
-        @keyframes pulseGreen {
-          0% { box-shadow: 0 0 0 0 rgba(50, 215, 75, 0.4); }
-          70% { box-shadow: 0 0 0 8px rgba(50, 215, 75, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(50, 215, 75, 0); }
-        }
-        .tag-pill {
-          background: rgba(255,255,255,0.05);
-          border: 1px solid var(--border-color);
-          padding: 6px 12px;
-          border-radius: 20px;
-          font-size: 12px;
-          cursor: pointer;
-          transition: all 0.2s;
-          display: inline-block;
-          margin-right: 6px;
-          user-select: none;
-        }
-        .tag-pill.active {
-          background: rgba(62, 230, 255, 0.15);
-          border-color: var(--primary-accent);
-          color: var(--text-primary);
-        }
-      `}</style>
-
+      
       {/* Floating Texts Container */}
       {floatingTexts.map(t => (
         <div 
@@ -764,12 +622,16 @@ const TradingGame = () => {
             Restore
             <input type="file" accept=".json" onChange={importState} style={{ display: 'none' }} />
           </label>
-          <button className="secondary" style={{ width: 'auto', padding: '10px 16px', fontSize: '13px', borderColor: 'rgba(255,69,58,0.2)', color: 'var(--red-loss)' }} onClick={resetState}>
-            Reset
+          <button className="secondary" style={{ width: 'auto', padding: '10px 16px', fontSize: '13px', borderColor: confirmReset ? 'var(--red-loss)' : 'rgba(255,69,58,0.2)', color: 'var(--red-loss)' }} onClick={resetState}>
+            {confirmReset ? 'Tap again to wipe' : 'Reset'}
           </button>
         </div>
         }
       />
+
+      {importMsg && (
+        <div className={`arena-msg ${importMsg.ok ? 'ok' : 'err'}`} style={{ marginBottom: 16 }}>{importMsg.text}</div>
+      )}
 
       <div className="game-grid">
         {/* ================= LEFT COLUMN: HERO PANEL ================= */}
@@ -1012,8 +874,8 @@ const TradingGame = () => {
             >
               <div className="quest-checkbox"></div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '14px', fontWeight: 600 }}>Strict Position Sizing</div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Risked ≤ 1-2% capital per trade. No oversized gambling.</div>
+                <div style={{ fontSize: '14px', fontWeight: 600 }}>Strict Position Sizing<span className="quest-auto" title="Auto-verifies when you plan a trade in the Position Sizing calculator">AUTO ✓</span></div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Risked ≤ 1-2% capital per trade — checks itself when you use the sizing calculator.</div>
               </div>
               <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-gold)' }}>+20 XP</div>
             </button>
@@ -1024,8 +886,8 @@ const TradingGame = () => {
             >
               <div className="quest-checkbox"></div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '14px', fontWeight: 600 }}>All Trades Journaled</div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Logged entries describing parameters, triggers, and plan.</div>
+                <div style={{ fontSize: '14px', fontWeight: 600 }}>All Trades Journaled<span className="quest-auto" title="Auto-verifies when you save a journal entry below">AUTO ✓</span></div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Checks itself when you save a real entry in the Discipline Journal.</div>
               </div>
               <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-gold)' }}>+20 XP</div>
             </button>
@@ -1054,7 +916,7 @@ const TradingGame = () => {
               <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-gold)' }}>+25 XP</div>
             </button>
 
-            <button 
+            <button
               className={`quest-btn ${gameState.completedQuests.calmness ? 'checked' : ''}`}
               onClick={() => handleQuestToggle('calmness', 10, 10)}
             >
@@ -1065,6 +927,27 @@ const TradingGame = () => {
               </div>
               <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-gold)' }}>+10 XP</div>
             </button>
+
+            <button
+              className={`quest-btn ${gameState.completedQuests.dailyCall ? 'checked' : ''}`}
+              onClick={() => handleQuestToggle('dailyCall', 20, 10)}
+            >
+              <div className="quest-checkbox"></div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '14px', fontWeight: 600 }}>Made Today's Market Call<span className="quest-auto" title="Auto-verifies when you call NIFTY green/red on the Dashboard">AUTO ✓</span></div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Commit to a view before the open — checks itself when you play Today's Call.</div>
+              </div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-gold)' }}>+20 XP</div>
+            </button>
+          </div>
+
+          {/* Consistency heatmap */}
+          <div className="card">
+            <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>Consistency</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }}>
+              Quests completed per day, last 12 weeks. Discipline is the streak you can see.
+            </p>
+            <QuestHeatmap history={gameState.questHistory} />
           </div>
         </div>
 
@@ -1108,14 +991,34 @@ const TradingGame = () => {
                 style={{ padding: '10px 12px', fontSize: '13px', marginBottom: '14px' }}
               />
 
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 disabled={gameState.lastMoodDate === new Date().toISOString().split('T')[0]}
                 style={{ fontSize: '13px', padding: '10px' }}
               >
                 {gameState.lastMoodDate === new Date().toISOString().split('T')[0] ? "Mood Logged Today" : "Log Mood & Deal 10 Damage"}
               </button>
+              {moodMsg && <div className="arena-msg ok">{moodMsg}</div>}
             </form>
+
+            {gameState.moodLogs.length > 1 && (
+              <div className="arena-mood-trend">
+                <span className="arena-mood-trend-label">
+                  Mood trend · avg {(
+                    gameState.moodLogs.slice(-30).reduce((a, m) => a + (m.mood || 0), 0)
+                    / gameState.moodLogs.slice(-30).length
+                  ).toFixed(1)}/5
+                </span>
+                <span className="arena-mood-trend-chart">
+                  <Sparkline
+                    values={gameState.moodLogs.slice(-30).map((m) => m.mood)}
+                    stroke="#F5DC8C"
+                    width={180}
+                    height={30}
+                  />
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Discipline Journal Card */}
@@ -1186,7 +1089,30 @@ const TradingGame = () => {
       {/* ================= BOTTOM ROW: HISTORY FEED ================= */}
       <div className="card" style={{ marginTop: '24px' }}>
         <h3 style={{ fontSize: '18px', marginBottom: '4px' }}>Discipline Logs History</h3>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '20px' }}>A historical feed of your mental state and trading notes.</p>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }}>A historical feed of your mental state and trading notes.</p>
+
+        {gameState.journalLogs.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            {['all', 'sizing', 'overtrade', 'revenge', 'setup'].map((tag) => {
+              const count = tag === 'all'
+                ? gameState.journalLogs.length
+                : gameState.journalLogs.filter((l) => (l.tags || []).includes(tag)).length;
+              if (tag !== 'all' && count === 0) return null;
+              return (
+                <span
+                  key={tag}
+                  className={`tag-pill ${journalFilter === tag ? 'active' : ''}`}
+                  onClick={() => setJournalFilter(tag)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setJournalFilter(tag); }}
+                >
+                  {tag === 'all' ? 'All' : `#${tag}`} ({count})
+                </span>
+              );
+            })}
+          </div>
+        )}
 
         {gameState.journalLogs.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', border: '1px dashed var(--border-color)', borderRadius: '12px' }}>
@@ -1194,7 +1120,10 @@ const TradingGame = () => {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '400px', overflowY: 'auto', paddingRight: '6px' }}>
-            {gameState.journalLogs.map(log => (
+            {(journalFilter === 'all'
+              ? gameState.journalLogs
+              : gameState.journalLogs.filter((l) => (l.tags || []).includes(journalFilter))
+            ).map(log => (
               <div 
                 key={log.id}
                 style={{
