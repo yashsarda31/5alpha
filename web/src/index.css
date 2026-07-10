@@ -1,8 +1,8 @@
 :root {
   /* Alpha Nova Dark Theme — Electric Ice Blue x Light Golden */
-  --bg-main: #09090B;
-  --bg-panel: rgba(28, 28, 30, 0.78);
-  --bg-panel-hover: rgba(44, 44, 46, 0.9);
+  --bg-main: #000000;
+  --bg-panel: rgba(28, 28, 30, 0.65);
+  --bg-panel-hover: rgba(44, 44, 46, 0.8);
 
   /* Text roles — WCAG-AA on the dark glass. No dark-on-dark, ever. */
   --text-primary: #F5F5F7;   /* ~19:1 — titles, values */
@@ -12,10 +12,10 @@
   --border-color: rgba(255, 255, 255, 0.1);
   --border-highlight: rgba(255, 255, 255, 0.2);
 
-  --primary-accent: #0A84FF; /* restrained cobalt — selection and actions */
-  --primary-accent-soft: rgba(10, 132, 255, 0.13);
-  --primary-accent-border: rgba(10, 132, 255, 0.4);
-  --primary-accent-glow: rgba(10, 132, 255, 0.22);
+  --primary-accent: #3EE6FF; /* Electric Ice Blue — labels / interactive */
+  --primary-accent-soft: rgba(62, 230, 255, 0.12);
+  --primary-accent-border: rgba(62, 230, 255, 0.35);
+  --primary-accent-glow: rgba(62, 230, 255, 0.25);
   --primary-gold: #F5DC8C; /* Light Golden — key figures */
   --primary-gold-dark: #E3C566;
   --primary-gold-hover: #FAE7AC;
@@ -80,20 +80,20 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background-image:
-    radial-gradient(circle at 8% 10%, rgba(10, 132, 255, 0.085) 0%, transparent 38%),
-    radial-gradient(circle at 88% 28%, rgba(100, 210, 255, 0.045) 0%, transparent 42%);
+    radial-gradient(circle at 15% 50%, rgba(245, 220, 140, 0.06) 0%, transparent 50%),
+    radial-gradient(circle at 85% 30%, rgba(62, 230, 255, 0.06) 0%, transparent 50%);
 }
 
 /* Themed text selection */
 ::selection {
-  background: rgba(10, 132, 255, 0.4);
+  background: rgba(62, 230, 255, 0.35);
   color: #fff;
 }
 
 /* Themed scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(10, 132, 255, 0.28) transparent;
+  scrollbar-color: rgba(62, 230, 255, 0.25) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -106,12 +106,12 @@ body::before {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(10, 132, 255, 0.22);
+  background: rgba(62, 230, 255, 0.2);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(10, 132, 255, 0.42);
+  background: rgba(62, 230, 255, 0.4);
 }
 
 /* Visible keyboard focus for accessibility */
@@ -140,12 +140,12 @@ h2 {
 
 /* UI Structure */
 .sidebar {
-  width: 252px;
+  width: 280px;
   background: var(--bg-panel);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
   border-right: 1px solid var(--border-color);
-  padding: 28px 18px;
+  padding: 32px 24px;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -156,9 +156,9 @@ h2 {
 
 .content {
   flex: 1;
-  padding: 32px clamp(24px, 3.2vw, 52px);
+  padding: 40px;
   overflow-y: auto;
-  max-width: none;
+  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
 }

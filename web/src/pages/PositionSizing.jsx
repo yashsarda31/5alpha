@@ -6,10 +6,10 @@ import { PageHeader } from '../components/ui';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
 
 const PositionSizing = () => {
-  const [capital, setCapital] = useState(10000000);
-  const [riskPercent, setRiskPercent] = useState(0.75);
-  const [entryPrice, setEntryPrice] = useState(3000);
-  const [stopLoss, setStopLoss] = useState(2940);
+  const [capital, setCapital] = useState(10000);
+  const [riskPercent, setRiskPercent] = useState(1);
+  const [entryPrice, setEntryPrice] = useState(100);
+  const [stopLoss, setStopLoss] = useState(95);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReport, setAiReport] = useState("");
 
@@ -52,15 +52,15 @@ const PositionSizing = () => {
     <div className="fade-in">
       <PageHeader
         code="SIZE"
-        title="Portfolio Lab"
-        subtitle="Turn a validated setup into a disciplined allocation for your ₹1 crore reference portfolio."
+        title="Position Sizing Calculator"
+        subtitle="Calculate institutional-grade position sizes based on capital risk and stop-loss levels."
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: '30px' }}>
         <div className="card">
           <h3 style={{ fontSize: '18px', marginBottom: '20px' }}>Trade Parameters</h3>
           
-          <label>Reference Portfolio Capital (₹)</label>
+          <label>Total Account Capital ($)</label>
           <input 
             type="number" 
             value={capital} 
@@ -77,7 +77,7 @@ const PositionSizing = () => {
             placeholder="e.g. 1"
           />
 
-          <label>Entry Price (₹)</label>
+          <label>Entry Price ($)</label>
           <input 
             type="number" 
             value={entryPrice} 
@@ -85,7 +85,7 @@ const PositionSizing = () => {
             placeholder="e.g. 100"
           />
 
-          <label>Invalidation Price (₹)</label>
+          <label>Stop Loss Price ($)</label>
           <input 
             type="number" 
             value={stopLoss} 
@@ -100,11 +100,11 @@ const PositionSizing = () => {
           <div className="stats-grid">
             <div className="stat-box">
               <div className="stat-label">Risk Amount</div>
-              <div className="stat-value" style={{ color: 'var(--red-loss)' }}>₹{riskAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</div>
+              <div className="stat-value" style={{ color: 'var(--red-loss)' }}>${riskAmount.toFixed(2)}</div>
             </div>
             <div className="stat-box">
               <div className="stat-label">Risk Per Share</div>
-              <div className="stat-value">₹{riskPerShare.toFixed(2)}</div>
+              <div className="stat-value">${riskPerShare.toFixed(2)}</div>
             </div>
             <div className="stat-box" style={{ gridColumn: 'span 2', background: 'rgba(226, 176, 66, 0.05)', border: '1px solid rgba(226, 176, 66, 0.1)' }}>
               <div className="stat-label" style={{ color: 'var(--primary-gold)' }}>Quantity to Buy</div>
@@ -112,7 +112,7 @@ const PositionSizing = () => {
             </div>
             <div className="stat-box">
               <div className="stat-label">Total Position</div>
-              <div className="stat-value">₹{positionSize.toLocaleString('en-IN')}</div>
+              <div className="stat-value">${positionSize.toLocaleString()}</div>
             </div>
             <div className="stat-box">
               <div className="stat-label">% of Capital</div>
