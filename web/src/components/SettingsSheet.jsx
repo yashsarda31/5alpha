@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { Link } from 'react-router-dom';
 import { X, Bell, BellOff, Trophy, EyeOff, Send } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { useSignalAlerts } from '../alerts/SignalAlertProvider';
@@ -157,23 +158,41 @@ const SettingsSheet = ({ open, onClose }) => {
 
         <div className="settings-section">
           <div className="settings-section-title">Account</div>
-          <div className="settings-account">
-            <div>
-              <div className="settings-account-label">Signed in as</div>
-              <div className="settings-account-email">{currentUser?.email}</div>
+          {currentUser ? (
+            <div className="settings-account">
+              <div>
+                <div className="settings-account-label">Signed in as</div>
+                <div className="settings-account-email">{currentUser?.email}</div>
+              </div>
+              <button onClick={logout} className="secondary" style={{ width: 'auto', padding: '8px 16px', fontSize: '12px' }}>
+                Sign Out
+              </button>
             </div>
-            <button onClick={logout} className="secondary" style={{ width: 'auto', padding: '8px 16px', fontSize: '12px' }}>
-              Sign Out
-            </button>
-          </div>
+          ) : (
+            <div className="settings-account">
+              <div>
+                <div className="settings-account-label">Browsing as guest</div>
+                <div className="settings-account-email">A free account adds watchlist, alerts &amp; the daily call</div>
+              </div>
+              <Link to="/login?mode=signup" style={{ textDecoration: 'none' }} onClick={onClose}>
+                <button type="button" style={{ width: 'auto', padding: '8px 16px', fontSize: '12px' }}>
+                  Sign up free
+                </button>
+              </Link>
+            </div>
+          )}
         </div>
 
-        <div className="settings-section">
-          <div className="settings-section-title">Notifications &amp; visibility</div>
-          <AlertBell />
-          <PushTest />
-          <LeaderboardOptOut />
-        </div>
+        {/* Alerts, push tests and leaderboard visibility all act on the signed-in
+            user's account — meaningless (and 401-prone) for guests. */}
+        {currentUser && (
+          <div className="settings-section">
+            <div className="settings-section-title">Notifications &amp; visibility</div>
+            <AlertBell />
+            <PushTest />
+            <LeaderboardOptOut />
+          </div>
+        )}
 
         <div className="settings-section">
           <div className="settings-section-title">App</div>

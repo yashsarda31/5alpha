@@ -1047,3 +1047,79 @@ tr:hover td {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---- Guest conversion surfaces (guest mode, 2026-07-10) ---- */
+.guest-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--primary-gold-glow);
+  border-radius: 12px;
+  background: rgba(245, 220, 140, 0.07);
+}
+.guest-banner-text {
+  flex: 1 1 260px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.guest-banner-cta {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--primary-gold);
+  color: #101014;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.guest-banner-cta:hover { background: var(--primary-gold-hover); }
+.guest-banner-close {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.guest-banner-close:hover { color: var(--text-primary); }
+
+.sidebar-signup-cta {
+  display: block;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--primary-gold);
+  color: #101014;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+.sidebar-signup-cta:hover { background: var(--primary-gold-hover); }
+
+.login-perks {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.login-perks li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.login-perk-check {
+  color: var(--primary-gold);
+  font-weight: 700;
+  flex: 0 0 auto;
+}

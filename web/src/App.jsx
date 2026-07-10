@@ -1,5 +1,5 @@
 import React, { useState, lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigationType } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Link, Navigate, useLocation, useNavigationType } from 'react-router-dom';
 import {
   LayoutGrid, Star, Zap, Rocket, Newspaper,
   LineChart, Bird, Search, Landmark, Calculator, BarChart3, Sparkles, Scale, Link2,
@@ -135,16 +135,29 @@ const PageLoader = () => (
   </div>
 );
 
-const ProtectedRoute = ({ children }) => {
+// Guests browse the live terminal freely (the market-data APIs are public);
+// this banner is the standing invitation to make it theirs. Dismiss lasts the
+// session — it should greet the next visit, not nag the current one.
+const GuestBanner = () => {
   const { currentUser, loading } = useAuth();
   const location = useLocation();
-
-  if (loading) return null;
-  if (!currentUser) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  return children;
+  const [dismissed, setDismissed] = useState(() => {
+    try { return !!sessionStorage.getItem('alphanova_guest_banner_dismissed'); } catch { return false; }
+  });
+  if (loading || currentUser || dismissed) return null;
+  const dismiss = () => {
+    try { sessionStorage.setItem('alphanova_guest_banner_dismissed', '1'); } catch { /* private mode */ }
+    setDismissed(true);
+  };
+  return (
+    <div className="guest-banner" role="note">
+      <span className="guest-banner-text">
+        You're exploring Alpha Nova as a guest — a free account saves your watchlist and unlocks live signal alerts.
+      </span>
+      <Link to="/login?mode=signup" state={{ from: location }} className="guest-banner-cta">Create free account</Link>
+      <button className="guest-banner-close" onClick={dismiss} aria-label="Dismiss guest banner">✕</button>
+    </div>
+  );
 };
 
 const NavItem = ({ to, label, onNavigate, ...rest }) => {
@@ -260,11 +273,16 @@ const AppLayout = () => {
         </nav>
 
         <div className="sidebar-footer">
+          {!currentUser && (
+            <Link to="/login?mode=signup" className="sidebar-signup-cta" onClick={() => setMenuOpen(false)}>
+              Create free account
+            </Link>
+          )}
           <button className="settings-btn" onClick={() => setSettingsOpen(true)}>
             <Settings size={16} aria-hidden="true" />
             <span className="settings-btn-label">
               <span>Settings</span>
-              <span className="settings-btn-email">{currentUser?.email}</span>
+              <span className="settings-btn-email">{currentUser ? currentUser.email : 'Browsing as guest'}</span>
             </span>
           </button>
         </div>
@@ -272,6 +290,7 @@ const AppLayout = () => {
 
       <div className="content">
         <ScrollToTop />
+        <GuestBanner />
         <Disclaimer />
         <Suspense fallback={<PageLoader />}>
         <Routes>
@@ -315,15 +334,10 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* No auth wall: guests land straight in the live terminal and are
+              converted at moments of intent (watchlist, alerts, Today's Call). */}
           <Route path="/login" element={<Login />} />
-          <Route
-            path="*"
-            element={
-              <ProtectedRoute>
-                <AppLayout />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="*" element={<AppLayout />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

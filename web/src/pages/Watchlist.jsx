@@ -4,6 +4,7 @@ import axios from 'axios';
 import { PageHeader, DataTable, StatusPill, EmptyState } from '../components/ui';
 import TickerSearch from '../components/TickerSearch';
 import { useWatchlist } from '../WatchlistContext';
+import { useAuth } from '../AuthContext';
 import './Watchlist.css';
 
 const TOKEN_KEY = 'alphanova_auth_token';
@@ -61,6 +62,7 @@ const AddBox = ({ onAdd, error, onClearError }) => {
 };
 
 const Watchlist = () => {
+  const { currentUser } = useAuth();
   const { items, symbols, loading, error, add, remove, clearError } = useWatchlist();
   const [quotes, setQuotes] = useState({}); // symbol -> {last, change_pct}
   const [marketOpen, setMarketOpen] = useState(null);
@@ -137,6 +139,29 @@ const Watchlist = () => {
       ),
     },
   ];
+
+  // Guests see what a watchlist is for and one obvious way to get it —
+  // not an add-form whose writes can only 401.
+  if (!currentUser) {
+    return (
+      <div className="fade-in">
+        <PageHeader
+          code="WL"
+          title="Watchlist"
+          subtitle="Your tracked stocks — live prices, one glance"
+        />
+        <EmptyState title="Your watchlist lives in your free account">
+          Track stocks across NSE &amp; US with live prices, and tap the ☆ anywhere in the
+          terminal to save one. Free account — no credit card.
+          <div style={{ marginTop: 18 }}>
+            <Link to="/login?mode=signup">
+              <button type="button" style={{ width: 'auto', padding: '10px 22px' }}>Create free account</button>
+            </Link>
+          </div>
+        </EmptyState>
+      </div>
+    );
+  }
 
   return (
     <div className="fade-in">

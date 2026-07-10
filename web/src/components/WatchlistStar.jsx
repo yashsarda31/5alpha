@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../AuthContext';
 import { useWatchlist } from '../WatchlistContext';
 import './WatchlistStar.css';
 
@@ -7,6 +9,9 @@ import './WatchlistStar.css';
 // surfaces an error if the write fails.
 const WatchlistStar = ({ symbol, market = 'IN', size = 18, className = '', stopPropagation = true }) => {
   const { has, add, remove } = useWatchlist();
+  const { currentUser } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [busy, setBusy] = useState(false);
   const on = has(symbol);
 
@@ -14,6 +19,12 @@ const WatchlistStar = ({ symbol, market = 'IN', size = 18, className = '', stopP
     if (stopPropagation) {
       e.preventDefault();
       e.stopPropagation();
+    }
+    // Saving a stock is the highest-intent guest action — route it to signup
+    // (and back here after) instead of firing a write that can only 401.
+    if (!currentUser) {
+      navigate('/login?mode=signup', { state: { from: location } });
+      return;
     }
     if (busy || !symbol) return;
     setBusy(true);

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../AuthContext';
 import ToastStack from './ToastStack';
 import { setCached } from '../lib/swrCache';
 import './alerts.css';
@@ -166,6 +167,10 @@ const saveSeen = (obj) => {
 
 const SignalAlertProvider = ({ children }) => {
   const navigate = useNavigate();
+  // Push subscription is per-account; guests still get live in-app toasts
+  // (they're a demo of the product) but no permission nudges or 401-bound
+  // subscribe calls.
+  const { currentUser } = useAuth();
   const [toasts, setToasts] = useState([]);
   const [permission, setPermission] = useState(notifSupported() ? Notification.permission : 'unsupported');
   // Default-ON: alerts are enabled unless the user explicitly turned them off.
@@ -352,14 +357,14 @@ const SignalAlertProvider = ({ children }) => {
   // subscription was cleared, and fresh logins. pushManager.subscribe returns
   // the existing subscription when one is already active, so this is cheap.
   useEffect(() => {
-    if (notifSupported() && Notification.permission === 'granted' &&
+    if (currentUser && notifSupported() && Notification.permission === 'granted' &&
         localStorage.getItem(PREF_KEY) !== 'off') {
       try { localStorage.setItem(PREF_KEY, 'on'); } catch { /* noop */ }
       setBrowserEnabled(true);
       subscribePush();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [currentUser]);
 
   // Nudge banner actions: Enable runs the same flow as the Settings bell
   // (permission prompt from a click gesture → subscribe); Later snoozes 7 days.
@@ -377,7 +382,7 @@ const SignalAlertProvider = ({ children }) => {
   return (
     <SignalAlertContext.Provider value={{ browserEnabled, toggleBrowser, ensureSubscribed, permission }}>
       {children}
-      {showNudge && (
+      {showNudge && currentUser && (
         <div className="notif-nudge" role="dialog" aria-label="Enable notifications">
           <div className="notif-nudge-text">
             <strong>Get trade alerts</strong>
