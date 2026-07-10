@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +36,72 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Edge CDN caching --------------------------------------------------------
+# Vercel's CDN honors s-maxage / stale-while-revalidate on function responses,
+# serving repeats from the visitor's nearest edge (bom1 for most users) instead
+# of round-tripping to the iad1 function. stale-while-revalidate means even the
+# request that expires a cached entry gets the stale copy instantly while the
+# recompute (7s+ on /api/momentum) runs in the background. Only anonymous,
+# successful GET reads of shared market data are listed — anything user-shaped
+# or Authorization-bearing bypasses the CDN entirely. Edge TTLs sit BELOW the
+# endpoints' internal API_CACHE TTLs: the CDN absorbs the request fan-in, the
+# internal cache still bounds actual recompute work.
+_EDGE_STATIC_RULES = {
+    "/api/momentum": (300, 900),
+    "/api/sectors": (600, 1800),
+    "/api/fiidii": (600, 1800),
+    "/api/deals": (600, 1800),
+    "/api/rv-forecast": (900, 3600),
+    "/api/symbol-search": (3600, 86400),
+    "/api/signals/portfolio": (60, 300),
+}
+_EDGE_PREFIX_RULES = (
+    ("/api/news/", 300, 900),
+    ("/api/fundamentals/", 600, 1800),
+    ("/api/chart/", 60, 300),
+    ("/api/dcf/data/", 300, 900),
+    ("/api/option-chain/expiries/", 300, 900),
+    ("/api/option-chain/data/", 25, 120),
+)
+
+def _edge_cache_ttl(path, query_market):
+    """(s-maxage, stale-while-revalidate) for a cacheable public path, else None."""
+    if path == "/api/dashboard":
+        live = _is_indian_market_open() or _dashboard_movers_market() == "US"
+        return (120, 600) if live else (900, 1800)
+    if path == "/api/signals":
+        mkt = query_market.upper() if query_market and query_market.upper() in ("IN", "US") \
+            else _dashboard_movers_market()
+        # short live TTL: client polls still reach the function often enough to
+        # drive _broadcast_new_plans (push has no cron behind it)
+        return (60, 300) if _signals_live(mkt) else (450, 1800)
+    if path in _EDGE_STATIC_RULES:
+        return _EDGE_STATIC_RULES[path]
+    for prefix, smax, swr in _EDGE_PREFIX_RULES:
+        if path.startswith(prefix):
+            return (smax, swr)
+    return None
+
+@app.middleware("http")
+async def _edge_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if (
+        request.method == "GET"
+        and response.status_code == 200
+        and "authorization" not in request.headers
+        and "cache-control" not in response.headers
+    ):
+        try:
+            ttl = _edge_cache_ttl(request.url.path, request.query_params.get("market"))
+        except Exception:
+            ttl = None  # a liveness helper blowing up must never break the response
+        if ttl:
+            smax, swr = ttl
+            response.headers["Cache-Control"] = (
+                f"public, max-age=0, s-maxage={smax}, stale-while-revalidate={swr}"
+            )
+    return response
 
 
 # --- Models ---

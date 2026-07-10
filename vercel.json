@@ -73,6 +73,11 @@
       "dest": "/web/icons/$1"
     },
     {
+      "src": "/fonts/(.*)",
+      "headers": { "cache-control": "public, max-age=31536000, immutable" },
+      "dest": "/web/fonts/$1"
+    },
+    {
       "handle": "filesystem"
     },
     {
