@@ -164,6 +164,26 @@ def test_test_accounts_excluded_from_board(monkeypatch):
     assert not any(e["is_you"] for e in board["top"])
 
 
+def test_community_counts(monkeypatch):
+    """/api/predict/today carries the day's aggregate UP/DOWN split."""
+    _unlock(monkeypatch, "2026-05-18")
+    h1, _ = _new_user()
+    h2, _ = _new_user()
+    h3, _ = _new_user()
+    client.post("/api/predict", json={"choice": "UP"}, headers=h1)
+    client.post("/api/predict", json={"choice": "UP"}, headers=h2)
+    client.post("/api/predict", json={"choice": "DOWN"}, headers=h3)
+    body = client.get("/api/predict/today", headers=h1).json()
+    assert body["community"] == {"up": 2, "down": 1}
+
+
+def test_community_zero_for_fresh_day(monkeypatch):
+    _unlock(monkeypatch, "2026-05-19")
+    h, _ = _new_user()
+    body = client.get("/api/predict/today", headers=h).json()
+    assert body["community"] == {"up": 0, "down": 0}
+
+
 def test_accuracy_min_sample(monkeypatch):
     h, _ = _new_user()
     # 1 correct call: below the 20-call gate -> not on the accuracy board

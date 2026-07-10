@@ -3480,9 +3480,50 @@ def _yf_quote_change(ticker):
         # NaN/inf would make the response non-JSON-compliant (500)
         if not (np.isfinite(last) and np.isfinite(chg_pct)):
             return None
-        return {"last": round(last, 2), "change_pct": round(chg_pct, 2)}
+        out = {"last": round(last, 2), "change_pct": round(chg_pct, 2)}
+        # Day range off the latest bar — optional (consumers .get() these)
+        try:
+            bar = hist.iloc[-1]
+            lo, hi = float(bar["Low"]), float(bar["High"])
+            if np.isfinite(lo) and np.isfinite(hi) and hi >= lo > 0:
+                out["day_low"] = round(lo, 2)
+                out["day_high"] = round(hi, 2)
+        except Exception:
+            pass
+        return out
     except Exception:
         return None
+
+def _spark_closes(tickers, points=30):
+    """One batched yf.download → {ticker: [~`points` recent daily closes]} for
+    sparklines. Failed/missing tickers are simply absent — every consumer treats
+    spark as a progressive enhancement, so an empty dict is a valid answer."""
+    tickers = [t for t in dict.fromkeys(tickers or []) if t]
+    out = {}
+    if not tickers:
+        return out
+    try:
+        df = yf.download(tickers, period="60d", interval="1d", progress=False,
+                         threads=True, group_by="ticker", auto_adjust=False)
+        if df is None or df.empty:
+            return out
+        for t in tickers:
+            try:
+                closes = (df["Close"] if len(tickers) == 1 else df[t]["Close"]).dropna()
+                vals = [round(float(v), 2) for v in closes.tolist() if np.isfinite(v)]
+                if len(vals) >= 2:
+                    out[t] = vals[-points:]
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+# indices rows are keyed by display name; sparklines need the Yahoo symbol
+_INDEX_SPARK_SYMBOLS = {
+    "NIFTY 50": "^NSEI", "BANKNIFTY": "^NSEBANK", "INDIA VIX": "^INDIAVIX",
+    "USD/INR": "INR=X", "Gold ($/oz)": "GC=F", "Silver ($/oz)": "SI=F", "S&P 500": "^GSPC",
+}
 
 @app.get("/api/dashboard")
 async def get_dashboard():
@@ -3551,12 +3592,28 @@ async def get_dashboard():
         _bounded(asyncio.to_thread(fetch_indices), 15),
         _bounded(asyncio.to_thread(fetch_movers), 15)
     )
+    indices, movers = indices or [], movers or []
 
-    data = {
-        "indices": indices or [],
-        "movers": movers or [],
+    # Sparklines: one batched download covering movers + index rows, attached
+    # only where data came back (the frontend treats spark as optional).
+    suffix = "" if movers_market == "US" else ".NS"
+    spark_syms = ([m["ticker"] + suffix for m in movers]
+                  + [_INDEX_SPARK_SYMBOLS[i["name"]] for i in indices if i["name"] in _INDEX_SPARK_SYMBOLS])
+    sparks = await _bounded(asyncio.to_thread(_spark_closes, spark_syms), 12) or {}
+    for m in movers:
+        sp = sparks.get(m["ticker"] + suffix)
+        if sp:
+            m["spark"] = sp
+    for i in indices:
+        sp = sparks.get(_INDEX_SPARK_SYMBOLS.get(i["name"]))
+        if sp:
+            i["spark"] = sp
+
+    data = _json_safe({
+        "indices": indices,
+        "movers": movers,
         "movers_market": movers_market,
-    }
+    })
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
     data = dict(data)
     data["market_open"] = _is_indian_market_open()
@@ -5094,10 +5151,15 @@ def watchlist_quotes(authorization: str = Header(None)):
         futs = {ex.submit(_yf_quote_change, s + ".NS" if m == "IN" else s): s for s, m in entries}
         for fut in concurrent.futures.as_completed(futs):
             quotes[futs[fut]] = fut.result()
+    sparks = _spark_closes([s + ".NS" if m == "IN" else s for s, m in entries])
     result = [{"symbol": s,
                "market": m,
                "last": (quotes.get(s) or {}).get("last"),
-               "change_pct": (quotes.get(s) or {}).get("change_pct")} for s, m in entries]
+               "change_pct": (quotes.get(s) or {}).get("change_pct"),
+               "day_low": (quotes.get(s) or {}).get("day_low"),
+               "day_high": (quotes.get(s) or {}).get("day_high"),
+               "spark": sparks.get(s + ".NS" if m == "IN" else s)} for s, m in entries]
+    result = _json_safe(result)
     API_CACHE[cache_key] = {'time': time.time(), 'data': result}
     return {"quotes": result, "market_open": _is_indian_market_open()}
 
@@ -5973,6 +6035,14 @@ def predict_today(authorization: str = Header(None)):
         conn.commit()
         pred = conn.execute("SELECT choice FROM predictions WHERE user_id=? AND qdate=?", (row["id"], qdate)).fetchone()
         q = conn.execute("SELECT outcome, change_pct FROM daily_questions WHERE qdate=?", (qdate,)).fetchone()
+        # Community split for the day — frontend reveals it only post-lock /
+        # post-call so it can't anchor an open vote.
+        community = {"up": 0, "down": 0}
+        for c in conn.execute("SELECT choice, COUNT(*) AS n FROM predictions WHERE qdate=? GROUP BY choice", (qdate,)).fetchall():
+            if c["choice"] == "UP":
+                community["up"] = c["n"]
+            elif c["choice"] == "DOWN":
+                community["down"] = c["n"]
         return {
             "qdate": qdate,
             "symbol": "NIFTY 50",
@@ -5981,6 +6051,7 @@ def predict_today(authorization: str = Header(None)):
             "your_choice": pred["choice"] if pred else None,
             "outcome": q["outcome"] if q else None,
             "change_pct": q["change_pct"] if q else None,
+            "community": community,
             "market_open": _is_indian_market_open(),
         }
     finally:

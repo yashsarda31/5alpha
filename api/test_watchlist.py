@@ -99,8 +99,9 @@ def test_quotes_shape(monkeypatch):
     h = _new_user()
     for s in ["RELIANCE", "TCS"]:
         client.post("/api/watchlist", json={"symbol": s}, headers=h)
-    # Avoid network: stub the quote primitive
+    # Avoid network: stub the quote + spark primitives
     monkeypatch.setattr(main, "_yf_quote_change", lambda t: {"last": 100.0, "change_pct": 1.5})
+    monkeypatch.setattr(main, "_spark_closes", lambda syms, points=30: {})
     r = client.get("/api/watchlist/quotes", headers=h)
     assert r.status_code == 200
     quotes = r.json()["quotes"]
@@ -157,6 +158,7 @@ def test_quotes_use_market_for_yahoo_symbol(monkeypatch):
     asked = []
     monkeypatch.setattr(main, "_yf_quote_change",
                         lambda t: asked.append(t) or {"last": 1.0, "change_pct": 0.5})
+    monkeypatch.setattr(main, "_spark_closes", lambda syms, points=30: {})
     r = client.get("/api/watchlist/quotes", headers=h)
     assert r.status_code == 200
     # NSE gets .NS appended; US goes to Yahoo bare.
@@ -164,3 +166,36 @@ def test_quotes_use_market_for_yahoo_symbol(monkeypatch):
     by_sym = {q["symbol"]: q for q in r.json()["quotes"]}
     assert by_sym["NVDA"]["market"] == "US"
     assert by_sym["RELIANCE"]["market"] == "IN"
+
+
+# --- Quote enrichment: spark + day range (2026-07-10) ---
+
+def test_quotes_enriched_fields(monkeypatch):
+    h = _new_user()
+    client.post("/api/watchlist", json={"symbol": "HDFCBANK"}, headers=h)
+    client.post("/api/watchlist", json={"symbol": "AMD", "market": "US"}, headers=h)
+    monkeypatch.setattr(main, "_yf_quote_change",
+                        lambda t: {"last": 200.0, "change_pct": -0.8, "day_low": 195.0, "day_high": 204.0})
+    monkeypatch.setattr(main, "_spark_closes",
+                        lambda syms, points=30: {s: [1.0, 2.0, 3.0] for s in syms})
+    r = client.get("/api/watchlist/quotes", headers=h)
+    assert r.status_code == 200
+    by_sym = {q["symbol"]: q for q in r.json()["quotes"]}
+    for sym in ("HDFCBANK", "AMD"):
+        q = by_sym[sym]
+        assert q["day_low"] == 195.0 and q["day_high"] == 204.0
+        assert q["spark"] == [1.0, 2.0, 3.0]
+
+
+def test_quotes_enrichment_is_optional(monkeypatch):
+    """Old-shape quote stubs (no day range) and an empty spark batch must not
+    break the response — enrichment fields just come back None."""
+    h = _new_user()
+    client.post("/api/watchlist", json={"symbol": "WIPRO"}, headers=h)
+    monkeypatch.setattr(main, "_yf_quote_change", lambda t: {"last": 50.0, "change_pct": 0.1})
+    monkeypatch.setattr(main, "_spark_closes", lambda syms, points=30: {})
+    r = client.get("/api/watchlist/quotes", headers=h)
+    assert r.status_code == 200
+    q = r.json()["quotes"][0]
+    assert q["last"] == 50.0
+    assert q["day_low"] is None and q["day_high"] is None and q["spark"] is None
