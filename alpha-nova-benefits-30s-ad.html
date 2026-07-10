@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alpha Nova — Benefits</title>
+  <style>
+    :root {
+      --bg: #000000;
+      --ink: #f5f5f7;
+      --muted: #86868b;
+      --gold: #f5dc8c;
+      --green: #32d74b;
+      --red: #ff453a;
+      --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; background: var(--bg); }
+    body {
+      font-family: var(--font);
+      color: var(--ink);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Stage --------------------------------------------------------------- */
+    .stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      isolation: isolate;
+    }
+
+    /* Ambient light that shifts colour across the 30s loop */
+    .ambient {
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background: radial-gradient(60vmax 60vmax at 50% 42%, var(--glow, rgba(245, 220, 140, 0.16)), transparent 70%);
+      animation: glow 30s linear infinite;
+    }
+    @keyframes glow {
+      0%   { --glow: rgba(245, 245, 247, 0.07); }
+      16%  { --glow: rgba(245, 220, 140, 0.16); }
+      36%  { --glow: rgba(50, 215, 75, 0.13); }
+      52%  { --glow: rgba(245, 220, 140, 0.17); }
+      70%  { --glow: rgba(62, 230, 255, 0.10); }
+      86%  { --glow: rgba(245, 220, 140, 0.18); }
+      100% { --glow: rgba(245, 220, 140, 0.22); }
+    }
+    /* Fallback for engines that don't animate custom properties: a gentle pulse */
+    @supports not (background: radial-gradient(at 0 0, var(--glow), transparent)) {
+      .ambient { animation: pulse 8s ease-in-out infinite; }
+    }
+    @keyframes pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+
+    /* Scenes -------------------------------------------------------------- */
+    .scene {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 8vw;
+      opacity: 0;
+      transform: translateY(20px);
+      animation-duration: 30s;
+      animation-timing-function: var(--ease);
+      animation-iteration-count: infinite;
+      animation-fill-mode: both;
+      will-change: opacity, transform;
+    }
+
+    /* Each scene owns a slice of the same 30s clock, so they stay in sync.
+       Pattern per scene: hidden -> rise in -> hold -> fall out. */
+    #s1 { animation-name: s1; }
+    #s2 { animation-name: s2; }
+    #s3 { animation-name: s3; }
+    #s4 { animation-name: s4; }
+    #s5 { animation-name: s5; }
+    #s6 { animation-name: s6; }
+    #s7 { animation-name: s7; }
+
+    @keyframes s1 {
+      0%   { opacity: 0; transform: translateY(20px); }
+      3%   { opacity: 1; transform: none; }
+      11%  { opacity: 1; transform: none; }
+      14%  { opacity: 0; transform: translateY(-12px); }
+      100% { opacity: 0; transform: translateY(-12px); }
+    }
+    @keyframes s2 {
+      0%, 14% { opacity: 0; transform: translateY(20px); }
+      17.5%   { opacity: 1; transform: none; }
+      26%     { opacity: 1; transform: none; }
+      29%     { opacity: 0; transform: translateY(-12px); }
+      100%    { opacity: 0; transform: translateY(-12px); }
+    }
+    @keyframes s3 {
+      0%, 29% { opacity: 0; transform: translateY(20px); }
+      32.5%   { opacity: 1; transform: none; }
+      42%     { opacity: 1; transform: none; }
+      45%     { opacity: 0; transform: translateY(-12px); }
+      100%    { opacity: 0; transform: translateY(-12px); }
+    }
+    @keyframes s4 {
+      0%, 45% { opacity: 0; transform: translateY(20px); }
+      48.5%   { opacity: 1; transform: none; }
+      58%     { opacity: 1; transform: none; }
+      61%     { opacity: 0; transform: translateY(-12px); }
+      100%    { opacity: 0; transform: translateY(-12px); }
+    }
+    @keyframes s5 {
+      0%, 61% { opacity: 0; transform: translateY(20px); }
+      64.5%   { opacity: 1; transform: none; }
+      74%     { opacity: 1; transform: none; }
+      77%     { opacity: 0; transform: translateY(-12px); }
+      100%    { opacity: 0; transform: translateY(-12px); }
+    }
+    @keyframes s6 {
+      0%, 77% { opacity: 0; transform: translateY(20px); }
+      80%     { opacity: 1; transform: none; }
+      85%     { opacity: 1; transform: none; }
+      88%     { opacity: 0; transform: translateY(-12px); }
+      100%    { opacity: 0; transform: translateY(-12px); }
+    }
+    @keyframes s7 {
+      0%, 88% { opacity: 0; transform: translateY(20px); }
+      92%     { opacity: 1; transform: none; }
+      100%    { opacity: 1; transform: none; }
+    }
+
+    /* Typography ---------------------------------------------------------- */
+    .eyebrow {
+      font-size: clamp(0.7rem, 1.5vw, 0.95rem);
+      font-weight: 600;
+      letter-spacing: 0.42em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 1.6rem;
+    }
+    h1 {
+      font-size: clamp(2rem, 6.4vw, 5.4rem);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.05;
+      max-width: 16ch;
+      margin-inline: auto;
+    }
+    .sub {
+      margin-top: 1.6rem;
+      font-size: clamp(1rem, 2.2vw, 1.6rem);
+      font-weight: 400;
+      color: var(--muted);
+      max-width: 34ch;
+      line-height: 1.4;
+      margin-inline: auto;
+    }
+    .grad-gold { color: var(--gold); }
+
+    /* Feature motifs ------------------------------------------------------ */
+    .props { margin-top: 2.6rem; display: flex; gap: 0.7rem; flex-wrap: wrap; justify-content: center; align-items: center; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.55rem 1.05rem;
+      border: 1px solid rgba(245, 245, 247, 0.16);
+      border-radius: 999px;
+      font-size: clamp(0.8rem, 1.6vw, 1rem);
+      font-weight: 500;
+      background: rgba(255, 255, 255, 0.03);
+      font-variant-numeric: tabular-nums;
+    }
+    .chip .k { color: var(--muted); font-weight: 400; }
+    .chip.gold { border-color: rgba(245, 220, 140, 0.45); color: var(--gold); }
+    .pill {
+      padding: 0.7rem 1.6rem;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: clamp(0.9rem, 1.8vw, 1.15rem);
+      border: 1px solid currentColor;
+    }
+    .pill.up { color: var(--green); }
+    .pill.down { color: var(--red); }
+
+    /* Conviction meter (signals scene) */
+    .meter {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.7rem;
+      font-weight: 700;
+      font-size: clamp(1.1rem, 2.6vw, 1.7rem);
+      color: var(--gold);
+    }
+    .meter .bar-wrap {
+      width: clamp(110px, 22vw, 220px);
+      height: 6px;
+      border-radius: 6px;
+      background: rgba(245, 245, 247, 0.14);
+      overflow: hidden;
+    }
+    .meter .bar-fill {
+      height: 100%;
+      width: 80%;
+      border-radius: 6px;
+      background: var(--gold);
+      transform-origin: left;
+      animation: fillMeter 30s var(--ease) infinite;
+    }
+    /* Fills while its scene (s2: 14%–29%) is on stage */
+    @keyframes fillMeter {
+      0%, 16%  { transform: scaleX(0.1); }
+      24%      { transform: scaleX(1); }
+      29%,100% { transform: scaleX(1); }
+    }
+
+    /* Outcome badges (track record scene) */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.55rem 1.1rem;
+      border-radius: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      font-size: clamp(0.85rem, 1.7vw, 1.05rem);
+    }
+    .badge.win  { color: var(--green); border: 1px solid rgba(50, 215, 75, 0.5); }
+    .badge.loss { color: var(--red);   border: 1px solid rgba(255, 69, 58, 0.45); }
+    .badge.r    { color: var(--gold);  border: 1px solid rgba(245, 220, 140, 0.5); }
+
+    /* Notification card (alerts scene) */
+    .notif {
+      margin: 2.6rem auto 0;
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+      text-align: left;
+      width: min(420px, 84vw);
+      padding: 0.95rem 1.15rem;
+      border-radius: 18px;
+      border: 1px solid rgba(245, 245, 247, 0.14);
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(6px);
+      animation: notifPop 30s var(--ease) infinite;
+    }
+    /* Pops while its scene (s5: 61%–77%) is on stage */
+    @keyframes notifPop {
+      0%, 64.5% { opacity: 0; transform: translateY(14px) scale(0.96); }
+      67.5%     { opacity: 1; transform: none; }
+      77%, 100% { opacity: 1; transform: none; }
+    }
+    .notif .app-dot {
+      flex: none;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      color: #000;
+      background: linear-gradient(160deg, #ffe9a8, var(--gold) 55%, #b89a4e);
+      font-size: 0.95rem;
+    }
+    .notif .body { min-width: 0; }
+    .notif .title { font-weight: 600; font-size: clamp(0.9rem, 1.8vw, 1.05rem); }
+    .notif .line { color: var(--muted); font-size: clamp(0.8rem, 1.6vw, 0.95rem); margin-top: 0.15rem; font-variant-numeric: tabular-nums; }
+    .notif .when { margin-left: auto; align-self: flex-start; color: var(--muted); font-size: 0.75rem; flex: none; }
+
+    /* Logo scene ---------------------------------------------------------- */
+    .wordmark {
+      font-size: clamp(2.6rem, 9vw, 7rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .wordmark .alpha { color: var(--gold); }
+    .tagline {
+      margin-top: 1.4rem;
+      font-size: clamp(1rem, 2.4vw, 1.7rem);
+      color: var(--muted);
+      font-weight: 400;
+    }
+    .live {
+      margin-top: 2.4rem;
+      font-size: clamp(0.72rem, 1.5vw, 0.95rem);
+      letter-spacing: 0.34em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+
+    /* Progress line: one sweep per 30s loop ------------------------------- */
+    .track {
+      position: absolute;
+      left: 50%;
+      bottom: 2.4rem;
+      transform: translateX(-50%);
+      width: min(280px, 46vw);
+      height: 2px;
+      background: rgba(245, 245, 247, 0.16);
+      border-radius: 2px;
+      overflow: hidden;
+      z-index: 5;
+    }
+    .bar {
+      height: 100%;
+      width: 100%;
+      background: var(--gold);
+      transform-origin: left;
+      animation: sweep 30s linear infinite;
+    }
+    @keyframes sweep { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+    /* Reduced motion: keep the full narrative, but as pure opacity crossfades
+       (no sliding). The scenes still play through their 30s timeline. */
+    @media (prefers-reduced-motion: reduce) {
+      .scene, .notif { transform: none !important; }
+      .meter .bar-fill { animation: none; transform: scaleX(0.8); }
+      .track { display: none; }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="stage" aria-label="Alpha Nova benefits advertisement">
+    <div class="ambient" aria-hidden="true"></div>
+
+    <!-- Act 1 — the hook -->
+    <section class="scene" id="s1">
+      <h1>Every trade is a decision. <span class="grad-gold">Make better ones.</span></h1>
+    </section>
+
+    <!-- Act 2 — the benefits -->
+    <section class="scene" id="s2">
+      <div>
+        <p class="eyebrow">Market Signals</p>
+        <h1>Every setup arrives with a plan.</h1>
+        <p class="sub">Entry. Stop. Target. Scored for conviction — before you commit a rupee.</p>
+        <div class="props" aria-hidden="true">
+          <span class="pill up">LONG · RELIANCE</span>
+          <span class="meter"><span class="bar-wrap"><span class="bar-fill"></span></span> 80</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene" id="s3">
+      <div>
+        <p class="eyebrow">Signal Track Record</p>
+        <h1>We keep score. In public.</h1>
+        <p class="sub">Every signal is paper-traded into a live model book — the wins and the losses.</p>
+        <div class="props" aria-hidden="true">
+          <span class="badge win">WIN</span>
+          <span class="badge loss">LOSS</span>
+          <span class="badge r">+1.5R</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene" id="s4">
+      <div>
+        <p class="eyebrow">Position Sizing</p>
+        <h1>Know your risk before you click buy.</h1>
+        <p class="sub">Capital, risk and stop become an exact quantity — in seconds.</p>
+        <div class="props" aria-hidden="true">
+          <span class="chip"><span class="k">Risk</span> 1%</span>
+          <span class="chip"><span class="k">Qty</span> 200</span>
+          <span class="chip gold"><span class="k">Target</span> 2R</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene" id="s5">
+      <div>
+        <p class="eyebrow">Signal Alerts</p>
+        <h1>The market comes to you.</h1>
+        <p class="sub">A push the moment a new setup scores — wherever you are.</p>
+        <div class="notif" aria-hidden="true">
+          <span class="app-dot">AN</span>
+          <span class="body">
+            <p class="title">New setup · LONG SBIN</p>
+            <p class="line">Score 74 · entry ₹812 · target ₹831</p>
+          </span>
+          <span class="when">now</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Act 3 — the payoff + reveal -->
+    <section class="scene" id="s6">
+      <h1>More conviction. <span class="grad-gold">Less guesswork.</span></h1>
+    </section>
+
+    <section class="scene" id="s7">
+      <div>
+        <p class="wordmark"><span class="alpha">Alpha</span> Nova</p>
+        <p class="tagline">Trade with a plan.</p>
+        <p class="live">Free · No credit card</p>
+      </div>
+    </section>
+
+    <div class="track" aria-hidden="true"><div class="bar"></div></div>
+  </main>
+</body>
+</html>
