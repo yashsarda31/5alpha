@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -24,6 +25,60 @@ const QUAD = {
 const pct = (v) => (v === null || v === undefined || Number.isNaN(v) ? '—' : `${v > 0 ? '+' : ''}${Number(v).toFixed(2)}%`);
 const toneOf = (v) => (v === null || v === undefined ? 'dim' : v > 0 ? 'green' : v < 0 ? 'red' : 'dim');
 
+// Sector → chartable index/ETF ticker (mirror of SECTOR_INDICES /
+// US_SECTOR_INDICES in api/main.py — keep in sync when sectors change there).
+const SECTOR_TICKER = {
+  'Nifty Bank': '^NSEBANK', 'Nifty IT': '^CNXIT', 'Nifty Auto': '^CNXAUTO',
+  'Nifty Pharma': '^CNXPHARMA', 'Nifty FMCG': '^CNXFMCG', 'Nifty Metal': '^CNXMETAL',
+  'Nifty Realty': '^CNXREALTY', 'Nifty Energy': '^CNXENERGY', 'Nifty Media': '^CNXMEDIA',
+  'Nifty PSU Bank': '^CNXPSUBANK', 'Nifty Fin Services': 'NIFTY_FIN_SERVICE.NS', 'Nifty Infra': '^CNXINFRA',
+  'Technology': 'XLK', 'Financials': 'XLF', 'Health Care': 'XLV', 'Energy': 'XLE',
+  'Discretionary': 'XLY', 'Staples': 'XLP', 'Industrials': 'XLI', 'Materials': 'XLB',
+  'Utilities': 'XLU', 'Real Estate': 'XLRE', 'Comm Svcs': 'XLC',
+};
+
+const SectorName = ({ name }) => {
+  const ticker = SECTOR_TICKER[name];
+  if (!ticker) return <>{name}</>;
+  return (
+    <Link
+      to={`/chart?symbol=${encodeURIComponent(ticker)}`}
+      className="sr-name-link"
+      title={`Open ${name} (${ticker}) in Chart Analyser`}
+    >{name}</Link>
+  );
+};
+
+// Which quadrant a raw RRG point sits in (same axes the chart draws).
+const quadOf = (p) => (p.x >= 100
+  ? (p.y >= 100 ? 'Leading' : 'Weakening')
+  : (p.y >= 100 ? 'Improving' : 'Lagging'));
+
+// Quadrant crossings over the visible tail — "what actually changed" without
+// reading the chart. Uses only data the API already returns.
+const rotationsFrom = (sectors) => sectors
+  .map((s) => {
+    if (!s.tail || s.tail.length < 2) return null;
+    const from = quadOf(s.tail[0]);
+    const to = s.quadrant || quadOf(s.tail[s.tail.length - 1]);
+    return from !== to ? { name: s.name, from, to } : null;
+  })
+  .filter(Boolean);
+
+const useIsNarrow = (px = 700) => {
+  const [narrow, setNarrow] = useState(() => (
+    typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(`(max-width: ${px}px)`).matches : false
+  ));
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const mq = window.matchMedia(`(max-width: ${px}px)`);
+    const onChange = (e) => setNarrow(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [px]);
+  return narrow;
+};
+
 const OutlookBadge = ({ outlook }) => {
   const map = {
     Favored: { bg: 'rgba(50,215,75,0.14)', fg: '#32D74B', txt: 'Tailwind' },
@@ -36,7 +91,7 @@ const OutlookBadge = ({ outlook }) => {
 
 // Relative Rotation Graph: RS-Ratio (x) vs RS-Momentum (y), both centred at 100.
 // Each sector is a short tail (recent weeks) ending in a labelled head dot.
-const RrgChart = ({ sectors }) => {
+const RrgChart = ({ sectors, height = 460 }) => {
   const { traces, bounds } = useMemo(() => {
     const xs = [], ys = [];
     const tr = [];
@@ -90,7 +145,7 @@ const RrgChart = ({ sectors }) => {
     <Plot
       data={traces}
       layout={{
-        autosize: true, height: 460,
+        autosize: true, height,
         margin: { l: 48, r: 20, t: 12, b: 40 },
         paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
         xaxis: { title: { text: 'RS-Ratio  (relative strength →)', font: { color: C.dim, size: 11 } }, range: [lo, hi], color: C.dim, gridcolor: C.grid, zeroline: false, tickfont: { size: 10 } },
@@ -113,6 +168,7 @@ const SectorRotation = () => {
   );
   const [aiReport, setAiReport] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const isNarrow = useIsNarrow(700);
 
   const runAi = async () => {
     const apiKey = localStorage.getItem('gemini_api_key') || '';
@@ -155,6 +211,7 @@ const SectorRotation = () => {
   }
 
   const { sectors, quadrant_counts: qc, leaders, laggards, benchmark, as_of } = data;
+  const rotations = rotationsFrom(sectors);
   // US sector map (SPDR ETFs vs S&P 500) serves during US market hours; India
   // (NSE sectors vs Nifty 50) otherwise. Labels follow whichever is live.
   const isUS = data.market === 'US';
@@ -216,13 +273,34 @@ const SectorRotation = () => {
         </span>
       </div>
 
+      {/* Quadrant crossings this week */}
+      <div className="card sr-rotations">
+        <span className="sr-posture-label">This week's rotations</span>
+        {rotations.length ? (
+          <div className="sr-chips">
+            {rotations.map((r) => (
+              <span
+                key={r.name}
+                className="sr-rot-chip"
+                style={{ color: (QUAD[r.to] || {}).color, borderColor: 'currentColor' }}
+                title={`${r.name}: ${r.from} → ${r.to} over the tail window`}
+              >
+                {r.name.replace('Nifty ', '')} → {r.to}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="sr-empty">No quadrant changes this week.</span>
+        )}
+      </div>
+
       {/* RRG chart */}
       <div className="card sr-chart-card">
         <div className="sr-card-title">
           <span>Relative Rotation Graph</span>
           <span className="sr-asof">{benchmark.name} benchmark · {as_of}</span>
         </div>
-        <RrgChart sectors={sectors} />
+        <RrgChart sectors={sectors} height={isNarrow ? 380 : 460} />
         <div className="sr-legend">
           {Object.values(QUAD).map((q) => (
             <span key={q.label} className="sr-legend-item">
@@ -237,7 +315,7 @@ const SectorRotation = () => {
         </p>
       </div>
 
-      {/* Ranked table */}
+      {/* Ranked table (desktop) / stacked cards (mobile) */}
       <div className="card sr-table-card">
         <div className="sr-card-title"><span>Sector strength ranking</span></div>
         <div className="sr-table-scroll">
@@ -257,7 +335,7 @@ const SectorRotation = () => {
               {sectors.map((s, i) => (
                 <tr key={s.name}>
                   <td className="sr-rank">{i + 1}</td>
-                  <td className="sr-name">{s.name}</td>
+                  <td className="sr-name"><SectorName name={s.name} /></td>
                   <td><OutlookBadge outlook={s.outlook} /></td>
                   <td>
                     <span className="sr-quad" style={{ color: (QUAD[s.quadrant] || {}).color }}>
@@ -277,6 +355,34 @@ const SectorRotation = () => {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="sr-cards">
+          {sectors.map((s, i) => {
+            const col = (QUAD[s.quadrant] || {}).color;
+            return (
+              <div key={s.name} className="sr-sector-card">
+                <div className="sr-sector-card-head">
+                  <span className="sr-rank">#{i + 1}</span>
+                  <span className="sr-name"><SectorName name={s.name} /></span>
+                  <OutlookBadge outlook={s.outlook} />
+                </div>
+                <div className="sr-sector-card-mid">
+                  <span className="sr-quad" style={{ color: col }}>
+                    <span className="sr-dot" style={{ background: col }} />{s.quadrant}
+                  </span>
+                  <span className="sr-score-cell" style={{ minWidth: 0 }}>
+                    <span className="sr-score-bar"><span style={{ width: `${s.score}%`, background: col }} /></span>
+                    <b>{s.score}</b>
+                  </span>
+                </div>
+                <div className="sr-sector-card-stats">
+                  <span>1W <b className={`tone-${toneOf(s.rel_1w)}`}>{pct(s.rel_1w)}</b></span>
+                  <span>1M <b className={`tone-${toneOf(s.rel_1m)}`}>{pct(s.rel_1m)}</b></span>
+                  <span>Today <b className={`tone-${toneOf(s.live_pct)}`}>{pct(s.live_pct)}</b></span>
+                </div>
+              </div>
+            );
+          })}
         </div>
         <p className="sr-note">
           "vs {benchShort}" = the sector's return minus the {benchName}'s over the same window (positive = outperforming).
