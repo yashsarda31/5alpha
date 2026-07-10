@@ -63,7 +63,7 @@ const Learn = () => {
       />
 
       <div style={{ display: 'flex', gap: '10px', margin: '18px 0', flexWrap: 'wrap' }}>
-        {Object.entries(TRACKS).map(([name, t]) => (
+        {Object.keys(TRACKS).map((name) => (
           <button
             key={name}
             onClick={() => setTrack(name)}

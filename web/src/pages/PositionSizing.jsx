@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -18,10 +18,15 @@ const loadPrefs = () => {
 const R_TARGETS = [1, 1.5, 2, 3];
 
 const PositionSizing = () => {
-  const prefs = useRef(loadPrefs()).current;
-  const [market, setMarket] = useState(prefs.market === 'US' ? 'US' : 'IN');
-  const [capital, setCapital] = useState(Number.isFinite(prefs.capital) ? prefs.capital : 100000);
-  const [riskPercent, setRiskPercent] = useState(Number.isFinite(prefs.riskPercent) ? prefs.riskPercent : 1);
+  const [market, setMarket] = useState(() => (loadPrefs().market === 'US' ? 'US' : 'IN'));
+  const [capital, setCapital] = useState(() => {
+    const p = loadPrefs();
+    return Number.isFinite(p.capital) ? p.capital : 100000;
+  });
+  const [riskPercent, setRiskPercent] = useState(() => {
+    const p = loadPrefs();
+    return Number.isFinite(p.riskPercent) ? p.riskPercent : 1;
+  });
   const [entryPrice, setEntryPrice] = useState(100);
   const [stopLoss, setStopLoss] = useState(95);
   const [symbol, setSymbol] = useState('');

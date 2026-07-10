@@ -152,6 +152,27 @@ def test_leaderboard_streak_and_hide(monkeypatch):
     assert board2["you"] is None
 
 
+def test_leaderboard_public_for_guests(monkeypatch):
+    """Guests (no/invalid token) can view the board — no 401, no own-rank."""
+    d1 = "2026-06-16"  # unique qdate — tests share the global daily_questions table
+    h, _ = _new_user(domain="example.com")
+    _unlock(monkeypatch, d1)
+    client.post("/api/predict", json={"choice": "UP"}, headers=h)
+    monkeypatch.setattr(main, "_nifty_outcome_for_date", lambda qd: ("UP", 0.5))
+    conn = main._auth_db(); main._resolve_day(conn, d1); conn.commit(); conn.close()
+
+    r = client.get("/api/leaderboard?board=streak")  # no auth header
+    assert r.status_code == 200
+    body = r.json()
+    assert body["you"] is None
+    assert len(body["top"]) >= 1
+    assert not any(e["is_you"] for e in body["top"])
+
+    r2 = client.get("/api/leaderboard", headers={"Authorization": "Bearer not-a-real-token"})
+    assert r2.status_code == 200
+    assert r2.json()["you"] is None
+
+
 def test_test_accounts_excluded_from_board(monkeypatch):
     d1 = "2026-05-11"
     h, _ = _new_user(domain="test.local")  # a QA/throwaway account

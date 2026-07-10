@@ -40,6 +40,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "4180"],
       "port": 4180
+    },
+    {
+      "name": "adserver2",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "4184"],
+      "port": 4184
     }
   ]
 }

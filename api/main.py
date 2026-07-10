@@ -55,6 +55,9 @@ _EDGE_STATIC_RULES = {
     "/api/rv-forecast": (900, 3600),
     "/api/symbol-search": (3600, 86400),
     "/api/signals/portfolio": (60, 300),
+    # public since 2026-07-10 (guests browse the community board); signed-in
+    # requests carry Authorization so the middleware already bypasses them
+    "/api/leaderboard": (120, 600),
 }
 _EDGE_PREFIX_RULES = (
     ("/api/news/", 300, 900),
@@ -4938,6 +4941,18 @@ def _require_user(conn, authorization: str):
         raise HTTPException(status_code=401, detail="Not signed in.")
     return row, conn
 
+def _optional_user(conn, authorization: str):
+    """Like _require_user, but guests get (None, conn) instead of a 401.
+
+    Skips the blob re-pull entirely when no token is presented, so anonymous
+    requests stay cheap."""
+    if not authorization:
+        return None, conn
+    try:
+        return _require_user(conn, authorization)
+    except HTTPException:
+        return None, _auth_db()
+
 class AuthCredentials(BaseModel):
     email: str
     password: str
@@ -6110,8 +6125,8 @@ def predict_me(authorization: str = Header(None)):
 def leaderboard(board: str = "streak", authorization: str = Header(None)):
     conn = _auth_db()
     try:
-        row, conn = _require_user(conn, authorization)
-        uid = row["id"]
+        row, conn = _optional_user(conn, authorization)
+        uid = row["id"] if row else None
         if board == "accuracy":
             where = f"total_calls >= {LEADERBOARD_MIN_CALLS} AND hide_from_board=0"
             order = "CAST(correct_calls AS REAL)/total_calls DESC, total_calls DESC"
@@ -6128,11 +6143,11 @@ def leaderboard(board: str = "streak", authorization: str = Header(None)):
             return {"rank": rank, "name": r["name"], "current_streak": r["current_streak"],
                     "longest_streak": r["longest_streak"], "total_calls": r["total_calls"],
                     "accuracy": _accuracy(r["correct_calls"], r["total_calls"]),
-                    "is_you": r["user_id"] == uid}
+                    "is_you": uid is not None and r["user_id"] == uid}
 
         top = [fmt(r, i + 1) for i, r in enumerate(rows)]
         you = next((t for t in top if t["is_you"]), None)
-        if not you:
+        if not you and uid is not None:
             my = conn.execute("SELECT * FROM streak_stats WHERE user_id=?", (uid,)).fetchone()
             eligible = my and not my["hide_from_board"] and (
                 board != "accuracy" or my["total_calls"] >= LEADERBOARD_MIN_CALLS)

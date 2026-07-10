@@ -23,6 +23,7 @@ const OptionChain = () => {
 
   const refreshIntervalRef = useRef(null);
   const atmRowRef = useRef(null);
+  const chainReqSeqRef = useRef(0);
 
   useEffect(() => {
     if (atmRowRef.current) {
@@ -64,11 +65,13 @@ const OptionChain = () => {
 
   // API Calls
   useEffect(() => {
+    let cancelled = false;
     const fetchExpiries = async () => {
       setLoading(true);
       setError(null);
       try {
         const res = await axios.get(`/api/option-chain/expiries/${activeSymbol}`);
+        if (cancelled) return;
         if (res.data && res.data.expiries && res.data.expiries.length > 0) {
           setExpiries(res.data.expiries);
           setSelectedExpiry(res.data.expiries[0]);
@@ -78,31 +81,36 @@ const OptionChain = () => {
           setError('No expiries found.');
         }
       } catch (err) {
+        if (cancelled) return;
         setError(err.response?.data?.detail || 'Failed to fetch expiries from data source.');
         setExpiries([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetchExpiries();
+    return () => { cancelled = true; };
   }, [activeSymbol]);
 
   const fetchChainData = async (showLoading = true) => {
     if (!selectedExpiry) return;
+    const seq = ++chainReqSeqRef.current;
     if (showLoading) setLoading(true);
-    
+
     try {
       const res = await axios.get(`/api/option-chain/data/${activeSymbol}`, {
         params: { expiryDate: selectedExpiry }
       });
+      if (seq !== chainReqSeqRef.current) return; // a newer request superseded this one
       setChainData(res.data.optionChain || null);
       setSpotData(res.data.spotData || null);
       setVixData(res.data.vixData || null);
       setError(null);
     } catch (err) {
+      if (seq !== chainReqSeqRef.current) return;
       if (showLoading) setError(err.response?.data?.detail || 'Failed to fetch option chain matrix.');
     } finally {
-      if (showLoading) setLoading(false);
+      if (seq === chainReqSeqRef.current && showLoading) setLoading(false);
     }
   };
 
@@ -125,16 +133,22 @@ const OptionChain = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, selectedExpiry, activeSymbol]);
 
-  // Handlers
-  const handlePreset = (sym) => {
+  // Handlers — clear the expiry alongside the symbol (React batches both), or the
+  // chain-data effect fires once with the OLD symbol's expiry and 400s.
+  const switchSymbol = (sym) => {
+    if (sym !== activeSymbol) setSelectedExpiry('');
     setActiveSymbol(sym);
+  };
+
+  const handlePreset = (sym) => {
+    switchSymbol(sym);
     setSearchInput('');
   };
 
   const handleSearch = (e) => {
     e.preventDefault();
     if (searchInput.trim()) {
-      setActiveSymbol(searchInput.trim().toUpperCase());
+      switchSymbol(searchInput.trim().toUpperCase());
     }
   };
 
