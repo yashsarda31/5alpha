@@ -248,18 +248,20 @@ const AppLayout = () => {
     <SignalAlertProvider>
       <div className="mobile-topbar">
         <button className="hamburger-btn" onClick={() => setMenuOpen(true)} aria-label="Open navigation menu">☰</button>
-        <span className="mobile-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+        <span className="mobile-title">
           <AppLogo size={20} />
-          <span><span style={{ color: 'var(--primary-gold)' }}>Alpha</span> Nova</span>
+          <span><span className="brand-alpha">Alpha</span> Nova</span>
         </span>
       </div>
       {menuOpen && <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />}
       <div className={`sidebar ${menuOpen ? 'open' : ''}`}>
-        <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
-          <AppLogo size={24} />
-          <span><span style={{ color: 'var(--primary-gold)' }}>Alpha</span> Nova</span>
-        </h2>
-        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '20px' }}>Pro Edition V3</div>
+        <div className="brand-block">
+          <div className="brand-row">
+            <AppLogo size={26} />
+            <span className="brand-wordmark"><span className="brand-alpha">Alpha</span> Nova</span>
+          </div>
+          <span className="brand-edition">Pro Terminal V3</span>
+        </div>
 
         <nav>
           {NAV_SECTIONS.map((section) => (

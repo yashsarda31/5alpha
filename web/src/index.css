@@ -26,6 +26,7 @@
 
   /* Glass Terminal design tokens */
   --font-mono: 'SF Mono', ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
+  --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
   --r-sm: 8px;
   --r-tile: 12px;
   --r-card: 16px;
@@ -34,6 +35,13 @@
   --surface-panel: rgba(18, 18, 20, 0.65);
   --border-subtle: rgba(255, 255, 255, 0.09);
   --border-hairline: rgba(255, 255, 255, 0.05);
+
+  /* Elevation — every raised surface layers the same three ingredients:
+     ambient shadow, contact shadow, inset top-highlight hairline */
+  --inset-hl: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.28), var(--inset-hl);
+  --shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.45), 0 20px 48px rgba(0, 0, 0, 0.4), var(--inset-hl);
+  --surface-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.028) 0%, rgba(255, 255, 255, 0) 55%);
 
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -80,8 +88,9 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background-image:
-    radial-gradient(circle at 15% 50%, rgba(245, 220, 140, 0.06) 0%, transparent 50%),
-    radial-gradient(circle at 85% 30%, rgba(62, 230, 255, 0.06) 0%, transparent 50%);
+    radial-gradient(ellipse 90% 45% at 50% -8%, rgba(245, 220, 140, 0.07) 0%, transparent 60%),
+    radial-gradient(circle at 15% 50%, rgba(245, 220, 140, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 85% 30%, rgba(62, 230, 255, 0.05) 0%, transparent 50%);
 }
 
 /* Themed text selection */
@@ -90,10 +99,10 @@ body::before {
   color: #fff;
 }
 
-/* Themed scrollbars */
+/* Quiet neutral scrollbars — chrome should never compete with data */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(62, 230, 255, 0.25) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -106,12 +115,12 @@ body::before {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(62, 230, 255, 0.2);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(62, 230, 255, 0.4);
+  background: rgba(255, 255, 255, 0.28);
 }
 
 /* Visible keyboard focus for accessibility */
@@ -126,9 +135,10 @@ body::before {
   height: 100vh;
 }
 
-/* Typography */
+/* Typography — Space Grotesk gives headings the terminal's signature voice */
 h1, h2, h3, h4 {
   color: var(--text-primary);
+  font-family: var(--font-display);
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -141,17 +151,70 @@ h2 {
 /* UI Structure */
 .sidebar {
   width: 280px;
-  background: var(--bg-panel);
+  background:
+    linear-gradient(180deg, rgba(245, 220, 140, 0.03) 0%, rgba(255, 255, 255, 0) 180px),
+    var(--bg-panel);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
   border-right: 1px solid var(--border-color);
-  padding: 32px 24px;
+  padding: 28px 20px 20px;
   display: flex;
   flex-direction: column;
   height: 100vh;
   position: sticky;
   top: 0;
   z-index: 100;
+}
+
+/* Brand block — wordmark in the display face + edition chip */
+.brand-block {
+  padding: 0 8px;
+  margin-bottom: 22px;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.brand-wordmark {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.brand-wordmark .brand-alpha {
+  color: var(--primary-gold);
+}
+
+.brand-edition {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-secondary);
+  padding: 3px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.03);
+  user-select: none;
+}
+
+.brand-edition::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary-gold);
+  box-shadow: 0 0 6px var(--primary-gold-glow);
 }
 
 .content {
@@ -364,40 +427,55 @@ h2 {
 }
 
 .nav-link {
+  position: relative;
   color: var(--text-secondary);
   text-decoration: none;
-  padding: 10px 16px;
+  padding: 9px 14px;
   border-radius: 10px;
-  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
   display: flex;
   align-items: center;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
   background: transparent;
 }
 
 .nav-link:hover {
-  background: var(--bg-panel-hover);
+  background: rgba(255, 255, 255, 0.05);
   color: var(--text-primary);
 }
 
 .nav-link.active {
-  background: var(--primary-accent-soft);
+  background: linear-gradient(90deg, rgba(62, 230, 255, 0.1) 0%, rgba(62, 230, 255, 0.03) 100%);
+  border-color: rgba(62, 230, 255, 0.18);
   color: var(--text-primary);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--primary-accent);
 }
 
-/* Cards & Panels (Apple Glassmorphism) */
+.nav-link.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--primary-accent);
+  box-shadow: 0 0 8px var(--primary-accent-glow);
+}
+
+/* Cards & Panels (Apple Glassmorphism, layered elevation) */
 .card {
-  background: var(--bg-panel);
+  background: var(--surface-grad), var(--bg-panel);
   border: 1px solid var(--border-color);
   padding: 24px;
   border-radius: 16px;
   margin-bottom: 24px;
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-card);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -418,43 +496,51 @@ input, select {
   border-radius: 10px;
   width: 100%;
   margin-bottom: 20px;
-  transition: all 0.2s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
   outline: none;
   font-family: inherit;
   font-size: 14px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+input:hover, select:hover {
+  border-color: var(--border-highlight);
 }
 
 input:focus, select:focus {
   border-color: var(--primary-accent);
-  box-shadow: 0 0 0 3px var(--primary-accent-glow);
+  box-shadow: 0 0 0 3px var(--primary-accent-glow), inset 0 1px 2px rgba(0, 0, 0, 0.3);
   background: rgba(0, 0, 0, 0.5);
 }
 
 button {
-  background: var(--primary-gold);
-  color: #000;
+  background: linear-gradient(180deg, var(--primary-gold-hover) 0%, var(--primary-gold) 45%, var(--primary-gold-dark) 100%);
+  color: #17140a;
   border: none;
   padding: 12px 24px;
   border-radius: 10px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-weight: 600;
+  transition: box-shadow 0.18s ease, transform 0.18s ease, filter 0.18s ease;
+  font-weight: 650;
   font-size: 14px;
+  letter-spacing: 0.01em;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 button:hover {
-  background: var(--primary-gold-hover);
-  transform: scale(1.02);
-  box-shadow: 0 4px 20px var(--primary-gold-glow);
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px var(--primary-gold-glow), inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 button:active {
-  transform: scale(0.98);
+  transform: translateY(0);
+  filter: brightness(0.97);
 }
 
 button:disabled {
@@ -462,6 +548,41 @@ button:disabled {
   color: var(--text-secondary);
   cursor: not-allowed;
   transform: none;
+  box-shadow: none;
+  filter: none;
+}
+
+/* Quiet button variants opt out of the gold gradient's shine */
+button.secondary,
+.settings-btn,
+.settings-close,
+.disclaimer-dismiss,
+.hamburger-btn,
+.tab-item,
+.tc-btn,
+.guest-banner-close,
+.text-btn,
+.preset-button,
+.lb-toggle button,
+.segmented-control button,
+.number-stepper button {
+  box-shadow: none;
+}
+
+.settings-btn:hover,
+.settings-close:hover,
+.disclaimer-dismiss:hover,
+.hamburger-btn:hover,
+.tab-item:hover,
+.tc-btn:hover,
+.guest-banner-close:hover,
+.text-btn:hover,
+.preset-button:hover,
+.lb-toggle button:hover,
+.segmented-control button:hover,
+.number-stepper button:hover {
+  box-shadow: none;
+  filter: none;
 }
 
 button.secondary {
@@ -472,6 +593,8 @@ button.secondary {
 
 button.secondary:hover {
   background: rgba(255, 255, 255, 0.15);
+  filter: none;
+  box-shadow: none;
 }
 
 /* Stats Display */
@@ -729,9 +852,17 @@ tr:hover td {
   }
 
   .mobile-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--font-display);
     font-size: 17px;
     font-weight: 700;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
+  }
+
+  .mobile-title .brand-alpha {
+    color: var(--primary-gold);
   }
 
   .sidebar {
@@ -892,7 +1023,10 @@ tr:hover td {
   align-items: center;
   min-height: 100vh;
   width: 100%;
-  background: radial-gradient(circle at 50% 50%, rgba(212, 175, 55, 0.1) 0%, transparent 70%);
+  padding: 24px 16px;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(245, 220, 140, 0.09) 0%, transparent 65%),
+    radial-gradient(circle at 50% 60%, rgba(62, 230, 255, 0.05) 0%, transparent 55%);
 }
 
 .login-card {
@@ -900,6 +1034,8 @@ tr:hover td {
   max-width: 420px;
   padding: 48px 40px;
   text-align: center;
+  border-color: rgba(245, 220, 140, 0.16);
+  box-shadow: var(--shadow-raised), 0 0 90px rgba(245, 220, 140, 0.05);
 }
 
 .login-header {
@@ -1069,14 +1205,16 @@ tr:hover td {
   flex: 0 0 auto;
   padding: 8px 16px;
   border-radius: 8px;
-  background: var(--primary-gold);
-  color: #101014;
+  background: linear-gradient(180deg, var(--primary-gold-hover) 0%, var(--primary-gold) 45%, var(--primary-gold-dark) 100%);
+  color: #17140a;
   font-size: 12px;
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: filter 0.18s ease, box-shadow 0.18s ease;
 }
-.guest-banner-cta:hover { background: var(--primary-gold-hover); }
+.guest-banner-cta:hover { filter: brightness(1.05); box-shadow: 0 4px 16px var(--primary-gold-glow), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 .guest-banner-close {
   flex: 0 0 auto;
   width: auto;
@@ -1094,14 +1232,16 @@ tr:hover td {
   margin-bottom: 10px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: var(--primary-gold);
-  color: #101014;
+  background: linear-gradient(180deg, var(--primary-gold-hover) 0%, var(--primary-gold) 45%, var(--primary-gold-dark) 100%);
+  color: #17140a;
   font-size: 13px;
   font-weight: 700;
   text-align: center;
   text-decoration: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: filter 0.18s ease, box-shadow 0.18s ease;
 }
-.sidebar-signup-cta:hover { background: var(--primary-gold-hover); }
+.sidebar-signup-cta:hover { filter: brightness(1.05); box-shadow: 0 4px 16px var(--primary-gold-glow), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 
 .login-perks {
   list-style: none;

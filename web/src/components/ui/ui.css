@@ -31,11 +31,20 @@
   align-items: flex-start;
   flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-hairline);
 }
 .ui-ph-titlerow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ui-ph-title { font-size: 22px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em; }
-.ui-ph-subtitle { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+.ui-ph-title {
+  font-family: var(--font-display);
+  font-size: 25px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.ui-ph-subtitle { color: var(--text-secondary); font-size: 13px; margin-top: 5px; }
 .ui-ph-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
 /* SectionTitle */
@@ -53,29 +62,33 @@
 
 /* Panel */
 .ui-panel {
-  background: var(--bg-panel);
+  background: var(--surface-grad), var(--bg-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-card);
   padding: 20px;
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: var(--shadow-card);
 }
 
 /* StatTile + StatGrid */
 .ui-stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
   gap: 12px;
 }
 .ui-stat-tile {
-  background: var(--surface-tile);
+  background: var(--surface-grad), var(--surface-tile);
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-tile);
   padding: 13px 15px;
+  box-shadow: var(--inset-hl);
+  transition: border-color 0.18s ease;
 }
+.ui-stat-tile:hover { border-color: var(--border-highlight); }
 .ui-stat-label {
   font-size: 10px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-secondary);
 }
@@ -104,10 +117,27 @@
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  border: 1px solid currentColor;
+  border: 1px solid;
 }
-.ui-status-pill.open { color: var(--green-gain); background: rgba(50, 215, 75, 0.12); }
-.ui-status-pill.closed { color: var(--red-loss); background: rgba(255, 69, 58, 0.10); }
+.ui-status-pill.open { color: var(--green-gain); border-color: rgba(50, 215, 75, 0.35); background: rgba(50, 215, 75, 0.10); }
+.ui-status-pill.closed { color: var(--red-loss); border-color: rgba(255, 69, 58, 0.35); background: rgba(255, 69, 58, 0.08); }
+
+/* Live dot — breathes while the market is open (reduced-motion collapses it) */
+.ui-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+.ui-status-pill.open .ui-status-dot {
+  box-shadow: 0 0 6px currentColor;
+  animation: statusPulse 2.2s ease-in-out infinite;
+}
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
 
 /* DataTable */
 .ui-table-wrap {
@@ -123,13 +153,13 @@
 }
 .ui-table th {
   text-align: left;
-  padding: 10px 15px;
+  padding: 11px 15px;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.09em;
   color: var(--text-secondary);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.025);
   border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
 }
