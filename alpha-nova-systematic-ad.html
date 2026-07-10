@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Alpha Nova — Systematic Infrastructure</title>
+<style>
+  :root {
+    --gold: #e8c47c;
+    --gold-deep: #b98a3e;
+    --green: #32d74b;
+    --red: #ff453a;
+    --teal: #5ac8fa;
+    --ink: #f5f5f7;
+    --dim: rgba(245, 245, 247, 0.55);
+    --faint: rgba(245, 245, 247, 0.30);
+    --panel: rgba(20, 20, 24, 0.62);
+    --border: rgba(255, 255, 255, 0.11);
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --mono: "SF Mono", ui-monospace, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: #060608;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Inter, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: var(--ink);
+  }
+  .stage { position: fixed; inset: 0; display: grid; place-items: center; }
+
+  /* ambient light + faint grid = "infrastructure" texture */
+  .orb {
+    position: absolute; border-radius: 50%; filter: blur(120px); opacity: 0;
+    transition: opacity 2.4s var(--ease); will-change: transform, opacity;
+  }
+  .orb-a { width: 55vmax; height: 55vmax; left: -12vmax; top: -18vmax;
+    background: radial-gradient(circle, rgba(232,196,124,0.13), transparent 65%);
+    animation: drift-a 30s ease-in-out infinite alternate; }
+  .orb-b { width: 60vmax; height: 60vmax; right: -20vmax; bottom: -24vmax;
+    background: radial-gradient(circle, rgba(90,200,250,0.08), transparent 65%);
+    animation: drift-b 36s ease-in-out infinite alternate; }
+  .stage.lit .orb { opacity: 1; }
+  @keyframes drift-a { to { transform: translate(8vmax, 6vmax) scale(1.12); } }
+  @keyframes drift-b { from { transform: scale(1.08); } to { transform: translate(-7vmax, -5vmax); } }
+
+  .grid-bg {
+    position: absolute; inset: 0; opacity: 0;
+    transition: opacity 2s var(--ease);
+    background-image:
+      linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(ellipse at center, black 20%, transparent 72%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 20%, transparent 72%);
+  }
+  .stage.lit .grid-bg { opacity: 1; }
+  .vignette { position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 54%, rgba(0,0,0,0.6) 100%); }
+
+  .scene {
+    position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+    padding: 5vmin; opacity: 0; visibility: hidden;
+    transition: opacity 0.85s var(--ease), visibility 0s linear 0.85s;
+  }
+  .scene.on { opacity: 1; visibility: visible; transition: opacity 0.85s var(--ease); }
+
+  .eyebrow {
+    font-size: clamp(11px, 1.55vmin, 15px); font-weight: 600; letter-spacing: 0.4em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 2.6vmin;
+    opacity: 0; transform: translateY(14px);
+    transition: transform 1s var(--ease), opacity 1s var(--ease);
+  }
+  .eyebrow .g { color: var(--gold); }
+  .scene.on .eyebrow { opacity: 1; transform: translateY(0); }
+
+  .line {
+    font-size: clamp(30px, 6vmin, 72px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.07;
+    opacity: 0; transform: translateY(24px) scale(1.02);
+    transition: transform 1.2s var(--ease) 0.12s, opacity 1.2s var(--ease) 0.12s;
+  }
+  .scene.on .line { opacity: 1; transform: translateY(0) scale(1); }
+  .scene.on .line.l2 { transition-delay: 0.5s; }
+  .gold { color: var(--gold); }
+  .soft { color: var(--dim); }
+
+  .intro-line { font-size: clamp(34px, 7.4vmin, 88px); font-weight: 800; letter-spacing: -0.04em; }
+
+  .wordmark {
+    font-size: clamp(50px, 11vmin, 128px); font-weight: 800; letter-spacing: -0.045em; line-height: 1;
+    background: linear-gradient(100deg, #fff 10%, var(--gold) 46%, var(--gold-deep) 62%, #fff 92%);
+    background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+    opacity: 0; transform: translateY(28px) scale(1.03);
+    transition: transform 1.4s var(--ease) 0.3s, opacity 1.4s var(--ease) 0.3s;
+    animation: sheen 6s ease-in-out infinite;
+  }
+  .scene.on .wordmark { opacity: 1; transform: translateY(0) scale(1); }
+  @keyframes sheen { 0%,100% { background-position: 0 0; } 50% { background-position: 100% 0; } }
+  .subline {
+    margin-top: 2.4vmin; font-size: clamp(15px, 2.5vmin, 26px); font-weight: 500; color: var(--dim);
+    letter-spacing: 0.01em; opacity: 0; transform: translateY(16px);
+    transition: transform 1.2s var(--ease) 0.7s, opacity 1.2s var(--ease) 0.7s;
+  }
+  .scene.on .subline { opacity: 1; transform: translateY(0); }
+
+  /* glass panel for pillar scenes */
+  .panel {
+    width: min(660px, 90vw); margin: 4vmin auto 0; text-align: left;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 20px;
+    padding: 2.8vmin 3vmin; backdrop-filter: blur(26px) saturate(150%);
+    -webkit-backdrop-filter: blur(26px) saturate(150%);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55);
+    opacity: 0; transform: translateY(28px) scale(0.975);
+    transition: transform 1.2s var(--ease) 0.35s, opacity 1.2s var(--ease) 0.35s;
+  }
+  .scene.on .panel { opacity: 1; transform: translateY(0) scale(1); }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2vmin; }
+  .panel-title { font-size: clamp(10px, 1.45vmin, 13px); font-weight: 700; letter-spacing: 0.26em; color: var(--faint); }
+  .pill { font-family: var(--mono); font-size: clamp(9px, 1.35vmin, 12px);
+    padding: 0.6vmin 1.5vmin; border-radius: 100px; border: 1px solid var(--border); color: var(--dim); }
+  .pill.g { color: var(--gold); border-color: rgba(232,196,124,0.4); background: rgba(232,196,124,0.08); }
+
+  /* equity curve (backtest) */
+  .curvebox { position: relative; }
+  .curvebox svg { width: 100%; height: clamp(96px, 15vmin, 150px); display: block; }
+  .eq-fill { fill: url(#eqg); opacity: 0; transition: opacity 1.3s var(--ease) 2.2s; }
+  .scene.on .eq-fill { opacity: 1; }
+  .eq-line { fill: none; stroke: var(--gold); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round;
+    stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 1.9s var(--ease) 0.9s; }
+  .scene.on .eq-line { stroke-dashoffset: 0; }
+  .eq-base { stroke: rgba(255,255,255,0.14); stroke-width: 1; stroke-dasharray: 3 4; }
+
+  .statrow { display: flex; gap: 1.4vmin; margin-top: 2.4vmin; flex-wrap: wrap; }
+  .stat { flex: 1 1 0; min-width: 96px; border: 1px solid rgba(255,255,255,0.09); border-radius: 13px;
+    padding: 1.5vmin 1.7vmin; background: rgba(255,255,255,0.04);
+    opacity: 0; transform: translateY(14px); transition: transform 0.85s var(--ease), opacity 0.85s var(--ease); }
+  .scene.on .stat { opacity: 1; transform: translateY(0); }
+  .scene.on .stat:nth-child(1) { transition-delay: 2.6s; }
+  .scene.on .stat:nth-child(2) { transition-delay: 2.78s; }
+  .scene.on .stat:nth-child(3) { transition-delay: 2.96s; }
+  .scene.on .stat:nth-child(4) { transition-delay: 3.14s; }
+  .stat .k { font-size: clamp(8px, 1.2vmin, 11px); font-weight: 700; letter-spacing: 0.16em; color: var(--faint); margin-bottom: 0.6vmin; }
+  .stat .v { font-family: var(--mono); font-size: clamp(15px, 2.5vmin, 23px); font-weight: 600; }
+  .stat .v.pos { color: var(--green); }
+  .stat .v.au { color: var(--gold); }
+
+  /* factor attribution bars (transparency) */
+  .factor { display: grid; grid-template-columns: 12ch 1fr 4ch; align-items: center; gap: 1.6vmin;
+    margin-top: 1.8vmin; font-size: clamp(12px, 1.85vmin, 16px);
+    opacity: 0; transform: translateX(-16px); transition: transform 0.9s var(--ease), opacity 0.9s var(--ease); }
+  /* Per-factor target width + row stagger come from inline --w / transition-delay,
+     so they don't depend on :nth-child position within the panel. */
+  .scene.on .factor { opacity: 1; transform: translateX(0); }
+  .factor .fname { color: var(--ink); font-weight: 600; }
+  .factor .ftrack { display: block; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .factor .fbar { display: block; height: 100%; width: 0%; border-radius: 4px;
+    background: linear-gradient(90deg, var(--gold-deep), var(--gold)); transition: width 1.4s var(--ease) 0.9s; }
+  .scene.on .factor .fbar { width: var(--w, 60%); }
+  .factor .fw { font-family: var(--mono); font-size: 0.82em; color: var(--gold); text-align: right; }
+
+  .microdisc { margin-top: 2.2vmin; font-size: clamp(9px, 1.25vmin, 12px); color: var(--faint); letter-spacing: 0.02em; }
+
+  /* end card */
+  .mark { width: clamp(72px, 12vmin, 116px); height: clamp(72px, 12vmin, 116px); border-radius: 26%;
+    display: grid; place-items: center; margin: 0 auto 3.6vmin; font-weight: 800;
+    font-size: clamp(29px, 5vmin, 46px); color: #0a0a0c;
+    background: linear-gradient(135deg, #f6e2b3, var(--gold) 45%, var(--gold-deep));
+    box-shadow: 0 0 70px rgba(232,196,124,0.32), 0 0 180px rgba(232,196,124,0.14);
+    opacity: 0; transform: translateY(24px) scale(0.94); transition: transform 1.4s var(--ease), opacity 1.4s var(--ease); }
+  .scene.on .mark { opacity: 1; transform: translateY(0) scale(1); }
+  .end-name { font-size: clamp(38px, 7vmin, 82px); font-weight: 800; letter-spacing: -0.04em;
+    opacity: 0; transform: translateY(20px); transition: transform 1.3s var(--ease) 0.35s, opacity 1.3s var(--ease) 0.35s; }
+  .scene.on .end-name { opacity: 1; transform: translateY(0); }
+  .tagline { margin-top: 1.5vmin; font-size: clamp(16px, 2.5vmin, 25px); font-weight: 500; color: var(--dim);
+    opacity: 0; transform: translateY(16px); transition: transform 1.3s var(--ease) 0.6s, opacity 1.3s var(--ease) 0.6s; }
+  .scene.on .tagline { opacity: 1; transform: translateY(0); }
+  .cta { display: inline-flex; align-items: center; gap: 1.1vmin; margin-top: 4.2vmin; padding: 1.4vmin 2.9vmin;
+    border-radius: 100px; border: 1px solid rgba(232,196,124,0.4); background: rgba(232,196,124,0.09);
+    font-size: clamp(12px, 1.8vmin, 16px); font-weight: 600; letter-spacing: 0.04em; color: var(--gold);
+    opacity: 0; transform: translateY(14px); transition: transform 1.3s var(--ease) 0.95s, opacity 1.3s var(--ease) 0.95s; }
+  .scene.on .cta { opacity: 1; transform: translateY(0); }
+  .cta .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px var(--green);
+    animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 0.55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.18); } }
+
+  .progress { position: fixed; left: 0; bottom: 0; height: 2px; width: 0%;
+    background: linear-gradient(90deg, var(--gold-deep), var(--gold)); z-index: 10; }
+  .replay { position: fixed; left: 50%; bottom: 5.5vmin; transform: translateX(-50%) translateY(14px);
+    padding: 12px 26px; border-radius: 100px; border: 1px solid rgba(255,255,255,0.22);
+    background: rgba(255,255,255,0.07); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    color: var(--ink); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+    opacity: 0; pointer-events: none; transition: opacity 0.8s var(--ease), transform 0.8s var(--ease); z-index: 11; }
+  .replay.on { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+  .replay:hover { background: rgba(255,255,255,0.14); }
+
+  @media (prefers-reduced-motion: reduce) { .orb, .wordmark, .cta .dot { animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+  <div class="grid-bg"></div>
+
+  <!-- 0.6 – 5.0 : reframe -->
+  <section class="scene" data-start="0.6" data-end="5.0">
+    <div>
+      <p class="eyebrow">Rethinking the retail terminal</p>
+      <h1 class="line intro-line">Tips expire.<br /><span class="gold">Systems compound.</span></h1>
+    </div>
+  </section>
+
+  <!-- 5.0 – 9.8 : reveal -->
+  <section class="scene" data-start="5.0" data-end="9.8">
+    <div>
+      <p class="eyebrow"><span class="g">Introducing</span></p>
+      <h1 class="wordmark">Alpha Nova</h1>
+      <p class="subline">Systematic trading infrastructure.</p>
+    </div>
+  </section>
+
+  <!-- 9.8 – 17.4 : Pillar 01 — Backtesting validity -->
+  <section class="scene" data-start="9.8" data-end="17.4">
+    <div style="width:100%">
+      <p class="eyebrow"><span class="g">01</span> · Backtesting validity</p>
+      <h2 class="line">Every signal, stress-tested.</h2>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">STRATEGY BACKTEST · RISK-ADJUSTED</span>
+          <span class="pill g">OUT-OF-SAMPLE</span>
+        </div>
+        <div class="curvebox">
+          <svg viewBox="0 0 640 150" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="eqg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="rgba(232,196,124,0.24)" />
+                <stop offset="100%" stop-color="rgba(232,196,124,0)" />
+              </linearGradient>
+            </defs>
+            <line class="eq-base" x1="0" y1="120" x2="640" y2="120" />
+            <path class="eq-fill" d="M0,120 L40,116 L80,118 L120,104 L160,108 L200,90 L240,96 L280,74 L320,80 L360,58 L400,64 L440,42 L480,50 L520,30 L560,36 L600,20 L640,12 L640,150 L0,150 Z" />
+            <path class="eq-line" pathLength="1" d="M0,120 L40,116 L80,118 L120,104 L160,108 L200,90 L240,96 L280,74 L320,80 L360,58 L400,64 L440,42 L480,50 L520,30 L560,36 L600,20 L640,12" />
+          </svg>
+        </div>
+        <div class="statrow">
+          <div class="stat"><div class="k">SHARPE</div><div class="v au">1.84</div></div>
+          <div class="stat"><div class="k">SORTINO</div><div class="v au">2.31</div></div>
+          <div class="stat"><div class="k">MAX DD</div><div class="v pos">-9.2%</div></div>
+          <div class="stat"><div class="k">HIT RATE</div><div class="v">58%</div></div>
+        </div>
+        <p class="microdisc">Illustrative backtest. Past performance does not guarantee future results.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 17.4 – 24.2 : Pillar 02 — Factor transparency -->
+  <section class="scene" data-start="17.4" data-end="24.2">
+    <div style="width:100%">
+      <p class="eyebrow"><span class="g">02</span> · Factor transparency</p>
+      <h2 class="line">No black boxes.</h2>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">CONVICTION SCORE · FACTOR ATTRIBUTION</span>
+          <span class="pill">DOCUMENTED</span>
+        </div>
+        <div class="factor" style="--w:92%; transition-delay:0.70s"><span class="fname">OI intensity</span><span class="ftrack"><span class="fbar"></span></span><span class="fw">22</span></div>
+        <div class="factor" style="--w:78%; transition-delay:0.86s"><span class="fname">Price momentum</span><span class="ftrack"><span class="fbar"></span></span><span class="fw">18</span></div>
+        <div class="factor" style="--w:70%; transition-delay:1.02s"><span class="fname">Options flow</span><span class="ftrack"><span class="fbar"></span></span><span class="fw">15</span></div>
+        <div class="factor" style="--w:61%; transition-delay:1.18s"><span class="fname">Delivery %</span><span class="ftrack"><span class="fbar"></span></span><span class="fw">10</span></div>
+        <div class="factor" style="--w:54%; transition-delay:1.34s"><span class="fname">Regime align</span><span class="ftrack"><span class="fbar"></span></span><span class="fw">10</span></div>
+        <p class="microdisc">Every score decomposes into weighted, documented factors — not opaque AI claims.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 24.2 – 27.4 : closing line -->
+  <section class="scene" data-start="24.2" data-end="27.4">
+    <div>
+      <h1 class="line">Institutional discipline.</h1>
+      <h1 class="line l2 gold">Auditable by design.</h1>
+    </div>
+  </section>
+
+  <!-- 27.4 – end : end card -->
+  <section class="scene" data-start="27.4" data-end="99">
+    <div>
+      <div class="mark">AN</div>
+      <h1 class="end-name">Alpha Nova</h1>
+      <p class="tagline">Trade the process.</p>
+      <div class="cta"><span class="dot"></span> Now live &nbsp;·&nbsp; 5alphav2.vercel.app</div>
+    </div>
+  </section>
+
+  <div class="vignette"></div>
+</div>
+
+<div class="progress" id="progress"></div>
+<button class="replay" id="replay" type="button">↻ Watch again</button>
+
+<script>
+  const DURATION = 30;
+  const stage = document.getElementById('stage');
+  const progress = document.getElementById('progress');
+  const replayBtn = document.getElementById('replay');
+  const scenes = [...document.querySelectorAll('.scene')].map((el) => ({
+    el, start: parseFloat(el.dataset.start), end: parseFloat(el.dataset.end),
+  }));
+
+  function update(t) {
+    for (const s of scenes) s.el.classList.toggle('on', t >= s.start && t < s.end);
+    stage.classList.toggle('lit', t >= 0.2);
+    progress.style.width = Math.min(t / DURATION, 1) * 100 + '%';
+    replayBtn.classList.toggle('on', t >= DURATION);
+  }
+
+  let rafId = null, startTs = null;
+  function frame(now) {
+    if (startTs === null) startTs = now;
+    const t = (now - startTs) / 1000;
+    update(t);
+    if (t < DURATION + 0.5) rafId = requestAnimationFrame(frame);
+  }
+  function play() {
+    if (rafId) cancelAnimationFrame(rafId);
+    startTs = null; update(0); rafId = requestAnimationFrame(frame);
+  }
+  replayBtn.addEventListener('click', play);
+  // Debug hook: jump to any timestamp.
+  window.__seek = (t) => { if (rafId) cancelAnimationFrame(rafId); rafId = null; update(t); };
+  play();
+</script>
+</body>
+</html>

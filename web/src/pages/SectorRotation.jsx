@@ -3,6 +3,7 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Plot from '../components/Plot';
+import ShareButton from '../components/ShareButton';
 import { PageHeader } from '../components/ui';
 import { useSWR } from '../lib/swrCache';
 import './SectorRotation.css';
@@ -176,7 +177,7 @@ const SectorRotation = () => {
         right={
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <span className="sr-market-pill">{isUS ? 'US market' : 'India'}</span>
-            <button className="secondary sr-refresh" onClick={revalidate} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+            <button data-noshare="" className="secondary sr-refresh" onClick={revalidate} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
           </div>
         }
       />
@@ -201,6 +202,12 @@ const SectorRotation = () => {
       <div className="card sr-posture">
         <span className="sr-posture-label">Market posture</span>
         <span className="sr-posture-value">{posture}</span>
+        <ShareButton
+          label="Share"
+          filename="alpha-nova-sector-rotation.png"
+          shareText="Indian sector rotation read — Alpha Nova"
+          capture={() => document.querySelector('.sr-container')}
+        />
         <span className="sr-posture-counts">
           <span style={{ color: QUAD.Leading.color }}>{qc.Leading} leading</span> ·
           <span style={{ color: QUAD.Improving.color }}> {qc.Improving} improving</span> ·
@@ -278,7 +285,7 @@ const SectorRotation = () => {
       </div>
 
       {/* AI brief */}
-      <div className="card sr-ai-card">
+      <div className="card sr-ai-card" data-noshare="">
         <div className="sr-card-title">
           <span>AI rotation brief</span>
           <button className="secondary" onClick={runAi} disabled={aiLoading}>{aiLoading ? 'Analysing…' : 'Generate'}</button>

@@ -1,0 +1,1 @@
+function e(e){window.innerWidth>850||setTimeout(()=>{document.getElementById(e)?.scrollIntoView({behavior:`smooth`,block:`start`})},80)}export{e as t};

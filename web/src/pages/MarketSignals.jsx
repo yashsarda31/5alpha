@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, StatusPill } from '../components/ui';
+import ShareButton from '../components/ShareButton';
 import { useSWR } from '../lib/swrCache';
 import './MarketSignals.css';
 
@@ -23,6 +24,33 @@ const US_BUCKET_META = {
 
 const fmt = (v, dec = 2) => (v === null || v === undefined || isNaN(v) ? 'N/A' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: dec }));
 
+// Horizontal strip: 95%/68% forecast bands with markers for the ensemble
+// point, current realized vol and VIX — all on one annualized-vol axis.
+const RVBand = ({ rv }) => {
+  if (!rv?.band95 || !rv?.band68) return null;
+  const pts = [rv.band95[0], rv.band95[1], rv.current?.rv10, rv.current?.vix, rv.ensemble?.point].filter((v) => v != null);
+  const lo = Math.min(...pts) * 0.88;
+  const hi = Math.max(...pts) * 1.08;
+  const x = (v) => ((v - lo) / (hi - lo)) * 100;
+  return (
+    <div className="rv-band-wrap">
+      <div className="rv-band-scale">
+        <div className="rv-band rv-band-95" style={{ left: `${x(rv.band95[0])}%`, width: `${x(rv.band95[1]) - x(rv.band95[0])}%` }} />
+        <div className="rv-band rv-band-68" style={{ left: `${x(rv.band68[0])}%`, width: `${x(rv.band68[1]) - x(rv.band68[0])}%` }} />
+        <div className="rv-marker rv-marker-fcst" style={{ left: `${x(rv.ensemble.point)}%` }} title={`Forecast ${rv.ensemble.point}%`} />
+        {rv.current?.rv10 != null && <div className="rv-marker rv-marker-now" style={{ left: `${x(rv.current.rv10)}%` }} title={`Current 10d RV ${rv.current.rv10}%`} />}
+        {rv.current?.vix != null && <div className="rv-marker rv-marker-vix" style={{ left: `${x(rv.current.vix)}%` }} title={`India VIX ${rv.current.vix}%`} />}
+      </div>
+      <div className="rv-band-legend">
+        <span><i className="rv-dot rv-dot-fcst" /> forecast {fmt(rv.ensemble.point, 1)}%</span>
+        {rv.current?.rv10 != null && <span><i className="rv-dot rv-dot-now" /> RV now {fmt(rv.current.rv10, 1)}%</span>}
+        {rv.current?.vix != null && <span><i className="rv-dot rv-dot-vix" /> VIX {fmt(rv.current.vix, 1)}%</span>}
+        <span className="rv-band-note">shaded: 68% / 95% forecast bands</span>
+      </div>
+    </div>
+  );
+};
+
 const MarketSignals = () => {
   const [searchParams] = useSearchParams();
   // ?market=US / ?market=IN peeks at the other session; default follows the
@@ -38,6 +66,13 @@ const MarketSignals = () => {
     swrKey,
     () => axios.get(`/api/signals${marketQS}`).then((r) => r.data),
     autoRefresh ? 60000 : 0,
+  );
+  // Nifty 10d realized-vol forecast — server refits at most hourly, so a slow
+  // client poll is plenty; card hides itself if the model endpoint is down.
+  const { data: rvFc } = useSWR(
+    'rv-forecast',
+    () => axios.get('/api/rv-forecast').then((r) => r.data),
+    900000,
   );
   const loading = !data && !swrError;
   const error = !data && swrError
@@ -145,6 +180,41 @@ const MarketSignals = () => {
         </div>
       </div>
 
+      {/* ---- Volatility forecast (Nifty-only model) ---- */}
+      {!isUS && rvFc && (
+        <>
+          <div className="signals-section-title">Volatility Forecast
+            <span style={{ color: 'var(--text-secondary)', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
+              · SARIMAX + GARCH-t ensemble · next {rvFc.horizon_days} sessions · as of {rvFc.as_of}
+            </span>
+          </div>
+          <div className="rv-card">
+            <div className="rv-hero">
+              <div className="label">Forecast {rvFc.horizon_days}d Realized Vol</div>
+              <div className="value" style={{ color: 'var(--primary-accent)' }}>{fmt(rvFc.ensemble?.point, 1)}%</div>
+              <div className="detail">±{fmt(rvFc.expected_move_pct, 1)}% expected NIFTY move over {rvFc.horizon_days} sessions (1σ, annualized vol de-scaled)</div>
+            </div>
+            <div className="rv-stats">
+              <div className="oc-stat"><div className="k">Current 10d RV</div><div className="v">{fmt(rvFc.current?.rv10, 1)}%</div></div>
+              <div className="oc-stat"><div className="k">India VIX</div><div className="v">{fmt(rvFc.current?.vix, 1)}%</div></div>
+              <div className="oc-stat" title="India VIX minus forecast realized vol. Positive = options priced rich vs the model (premium-selling edge); negative = options cheap.">
+                <div className="k">Vol Risk Premium</div>
+                <div className="v" style={{ color: rvFc.vrp == null ? 'var(--text-primary)' : rvFc.vrp >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>
+                  {rvFc.vrp == null ? 'N/A' : `${rvFc.vrp >= 0 ? '+' : ''}${fmt(rvFc.vrp, 1)} pts`}
+                </div>
+              </div>
+              <div className="oc-stat" title={rvFc.legs?.sarimax?.spec}><div className="k">SARIMAX + VIX leg</div><div className="v">{fmt(rvFc.legs?.sarimax?.point, 1)}%</div></div>
+              <div className="oc-stat" title={rvFc.legs?.garch ? `${rvFc.legs.garch.spec} · fat-tail df ν=${rvFc.legs.garch.nu}` : undefined}><div className="k">GJR-GARCH-t leg</div><div className="v">{fmt(rvFc.legs?.garch?.point, 1)}%</div></div>
+            </div>
+            <RVBand rv={rvFc} />
+            <div className="rv-footnote">
+              Parkinson (range) realized vol, annualized. Ensemble = {(rvFc.ensemble?.w_sarimax * 100).toFixed(0)}% SARIMAX(3,0,2)×(0,0,1,5) on log RV with log-VIX exog + {(rvFc.ensemble?.w_garch * 100).toFixed(0)}% GJR-GARCH(1,1)-t,
+              weights from a {rvFc.backtest?.n_origins}-origin out-of-sample backtest ({rvFc.backtest?.sample}). Not investment advice.
+            </div>
+          </div>
+        </>
+      )}
+
       {/* ---- Options intelligence ---- */}
       <div className="signals-section-title">Options Intelligence</div>
       <div className="oc-summary-grid">
@@ -215,10 +285,22 @@ const MarketSignals = () => {
       )}
 
       {/* ---- Actionable setups ---- */}
-      <div className="signals-section-title">Actionable Setups
-        <span style={{ color: 'var(--text-secondary)', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
-          · index bias: <strong className={setups.index_bias === 'bull' ? 'side-LONG' : setups.index_bias === 'bear' ? 'side-SHORT' : ''}>{setups.index_bias.toUpperCase()}</strong> · {setups.radar_size} names on radar
+      <div id="setups-analysis">
+      <div className="signals-section-title" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+        <span>Actionable Setups
+          <span style={{ color: 'var(--text-secondary)', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
+            {' '}· index bias: <strong className={setups.index_bias === 'bull' ? 'side-LONG' : setups.index_bias === 'bear' ? 'side-SHORT' : ''}>{setups.index_bias.toUpperCase()}</strong> · {setups.radar_size} names on radar
+          </span>
         </span>
+        {setups.plans.length > 0 && (
+          <ShareButton
+            compact
+            filename="alpha-nova-setups.png"
+            shareText="Today's scored trade setups — Alpha Nova"
+            capture={() => document.getElementById('setups-analysis')}
+            style={{ marginLeft: 'auto' }}
+          />
+        )}
       </div>
       {setups.plans.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '32px' }}>
@@ -271,6 +353,7 @@ const MarketSignals = () => {
         *Qty sized so a stop-out loses {setups.risk_pct}% of {cur}{fmt(setups.capital, 0)} capital, scaled by the volatility regime (×{regime.vol_scale}) — not rounded to lot size.
         Signals are analytics, not investment advice.
       </p>
+      </div>
     </div>
   );
 };

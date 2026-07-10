@@ -52,6 +52,16 @@ def test_entry_dedupes_open_symbol():
     conn.close()
 
 
+def test_entry_keeps_india_and_us_books_separate():
+    conn = _reset()
+    assert main._enter_signal_positions(conn, [_plan(f"IN{i}", score=i) for i in range(10)], "IN") == 10
+    # A full India book must not stop the US-session model portfolio from opening.
+    assert main._enter_signal_positions(conn, [_plan("US1")], "US") == 1
+    assert conn.execute("SELECT COUNT(*) FROM signal_positions WHERE market='IN'").fetchone()[0] == 10
+    assert conn.execute("SELECT COUNT(*) FROM signal_positions WHERE market='US'").fetchone()[0] == 1
+    conn.close()
+
+
 def test_entry_rejects_incoherent_levels():
     conn = _reset()
     # LONG needs stop < entry < target; this one has stop above entry
@@ -235,3 +245,16 @@ def test_portfolio_endpoint_shape(monkeypatch):
     assert r.status_code == 200
     j = r.json()
     assert "stats" in j and "open" in j and "closed" in j and "equity_curve" in j
+
+
+def test_portfolio_endpoint_filters_market_book(monkeypatch):
+    conn = _reset()
+    _insert(conn, market="IN", symbol="INDIA")
+    _insert(conn, market="US", symbol="AMERICA")
+    conn.close()
+    monkeypatch.setattr(main, "_resolve_signal_positions", lambda conn: 0)
+    monkeypatch.setattr(main, "_yf_quote_change", lambda s: {"last": 100.0, "change_pct": 0.0})
+    main.API_CACHE.pop("signal_portfolio_US", None)
+    data = client.get("/api/signals/portfolio?market=US").json()
+    assert data["market"] == "US"
+    assert [r["symbol"] for r in data["open"]] == ["AMERICA"]

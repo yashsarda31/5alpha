@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Alpha Nova — Launch Film</title>
+<style>
+  :root {
+    --gold: #e8c47c;
+    --gold-deep: #b98a3e;
+    --teal: #5ac8fa;
+    --green: #32d74b;
+    --red: #ff453a;
+    --ink: #f5f5f7;
+    --dim: rgba(245, 245, 247, 0.55);
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Inter, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: var(--ink);
+  }
+
+  .stage {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    cursor: default;
+  }
+
+  /* ---- ambient light ---- */
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0;
+    transition: opacity 2.4s var(--ease);
+    will-change: transform, opacity;
+  }
+  .orb-a {
+    width: 55vmax; height: 55vmax;
+    left: -12vmax; top: -18vmax;
+    background: radial-gradient(circle, rgba(232, 196, 124, 0.16), transparent 65%);
+    animation: drift-a 26s ease-in-out infinite alternate;
+  }
+  .orb-b {
+    width: 60vmax; height: 60vmax;
+    right: -20vmax; bottom: -24vmax;
+    background: radial-gradient(circle, rgba(90, 200, 250, 0.10), transparent 65%);
+    animation: drift-b 32s ease-in-out infinite alternate;
+  }
+  .stage.lit .orb { opacity: 1; }
+  @keyframes drift-a { from { transform: translate(0, 0) scale(1); } to { transform: translate(9vmax, 7vmax) scale(1.12); } }
+  @keyframes drift-b { from { transform: translate(0, 0) scale(1.08); } to { transform: translate(-8vmax, -6vmax) scale(1); } }
+
+  .vignette {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+    pointer-events: none;
+  }
+
+  /* ---- ticker wall (background texture for reveal) ---- */
+  .tickerwall {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: space-around;
+    opacity: 0;
+    transition: opacity 1.6s var(--ease);
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+    pointer-events: none;
+  }
+  .tickerwall.on { opacity: 0.35; }
+  .tickerrow {
+    white-space: nowrap;
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: clamp(11px, 1.4vmin, 15px);
+    letter-spacing: 0.12em;
+    color: rgba(245, 245, 247, 0.5);
+    animation: slide 40s linear infinite;
+  }
+  .tickerrow:nth-child(even) { animation-direction: reverse; color: rgba(232, 196, 124, 0.35); }
+  @keyframes slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+  /* ---- scenes ---- */
+  .scene {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.9s var(--ease), visibility 0s linear 0.9s;
+    padding: 6vmin;
+  }
+  .scene.on {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.9s var(--ease);
+  }
+
+  .line {
+    font-size: clamp(34px, 7.2vmin, 84px);
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1.08;
+    transform: translateY(26px) scale(1.02);
+    opacity: 0;
+    transition: transform 1.2s var(--ease), opacity 1.2s var(--ease);
+    will-change: transform, opacity;
+  }
+  .scene.on .line { transform: translateY(0) scale(1); opacity: 1; }
+  .scene.on .line.l2 { transition-delay: 0.55s; }
+  .line .soft { color: var(--dim); }
+
+  .eyebrow {
+    font-size: clamp(12px, 1.7vmin, 16px);
+    font-weight: 600;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 3.2vmin;
+    opacity: 0;
+    transform: translateY(14px);
+    transition: transform 1s var(--ease), opacity 1s var(--ease);
+  }
+  .scene.on .eyebrow { opacity: 1; transform: translateY(0); }
+
+  .wordmark {
+    font-size: clamp(52px, 11vmin, 132px);
+    font-weight: 800;
+    letter-spacing: -0.045em;
+    line-height: 1;
+    background: linear-gradient(100deg, #fff 10%, var(--gold) 45%, var(--gold-deep) 62%, #fff 90%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    opacity: 0;
+    transform: translateY(30px) scale(1.03);
+    transition: transform 1.5s var(--ease) 0.35s, opacity 1.5s var(--ease) 0.35s;
+    animation: sheen 6s ease-in-out infinite;
+  }
+  .scene.on .wordmark { opacity: 1; transform: translateY(0) scale(1); }
+  @keyframes sheen { 0%, 100% { background-position: 0% 0; } 50% { background-position: 100% 0; } }
+
+  /* ---- feature vignettes ---- */
+  .feature .line { font-size: clamp(30px, 5.6vmin, 64px); }
+  .chips {
+    display: flex;
+    gap: 1.6vmin;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 4.4vmin;
+  }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 1.2vmin;
+    padding: 1.7vmin 2.6vmin;
+    border-radius: 100px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.055);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: clamp(13px, 1.9vmin, 18px);
+    letter-spacing: 0.02em;
+    opacity: 0;
+    transform: translateY(22px);
+    transition: transform 1.1s var(--ease), opacity 1.1s var(--ease);
+  }
+  .scene.on .chip:nth-child(1) { transition-delay: 0.45s; }
+  .scene.on .chip:nth-child(2) { transition-delay: 0.62s; }
+  .scene.on .chip:nth-child(3) { transition-delay: 0.79s; }
+  .scene.on .chip { opacity: 1; transform: translateY(0); }
+  .chip .k { color: var(--dim); font-size: 0.82em; letter-spacing: 0.14em; }
+  .chip .gain { color: var(--green); }
+  .chip .loss { color: var(--red); }
+  .chip .au { color: var(--gold); }
+
+  .flowbar {
+    width: clamp(90px, 14vmin, 150px);
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.10);
+  }
+  .flowbar i {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--green), #7ee787);
+    border-radius: 4px;
+    transition: width 1.6s var(--ease) 0.9s;
+  }
+  .scene.on .flowbar i { width: 78%; }
+
+  .spark {
+    display: inline-block;
+    color: var(--gold);
+    animation: pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 0.55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.18); } }
+
+  /* ---- end card ---- */
+  .mark {
+    width: clamp(74px, 12vmin, 118px);
+    height: clamp(74px, 12vmin, 118px);
+    border-radius: 26%;
+    display: grid;
+    place-items: center;
+    margin: 0 auto 4vmin;
+    font-weight: 800;
+    font-size: clamp(30px, 5vmin, 48px);
+    letter-spacing: -0.02em;
+    color: #0a0a0c;
+    background: linear-gradient(135deg, #f6e2b3, var(--gold) 45%, var(--gold-deep));
+    box-shadow: 0 0 70px rgba(232, 196, 124, 0.35), 0 0 180px rgba(232, 196, 124, 0.15);
+    opacity: 0;
+    transform: translateY(26px) scale(0.94);
+    transition: transform 1.4s var(--ease), opacity 1.4s var(--ease);
+  }
+  .scene.on .mark { opacity: 1; transform: translateY(0) scale(1); }
+
+  .end-name {
+    font-size: clamp(40px, 7vmin, 84px);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    opacity: 0;
+    transform: translateY(22px);
+    transition: transform 1.3s var(--ease) 0.35s, opacity 1.3s var(--ease) 0.35s;
+  }
+  .scene.on .end-name { opacity: 1; transform: translateY(0); }
+
+  .tagline {
+    margin-top: 1.6vmin;
+    font-size: clamp(17px, 2.6vmin, 26px);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--dim);
+    opacity: 0;
+    transform: translateY(18px);
+    transition: transform 1.3s var(--ease) 0.65s, opacity 1.3s var(--ease) 0.65s;
+  }
+  .scene.on .tagline { opacity: 1; transform: translateY(0); }
+
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 1.1vmin;
+    margin-top: 4.6vmin;
+    padding: 1.5vmin 3vmin;
+    border-radius: 100px;
+    border: 1px solid rgba(232, 196, 124, 0.4);
+    background: rgba(232, 196, 124, 0.09);
+    font-size: clamp(13px, 1.9vmin, 17px);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--gold);
+    opacity: 0;
+    transform: translateY(16px);
+    transition: transform 1.3s var(--ease) 1s, opacity 1.3s var(--ease) 1s;
+  }
+  .scene.on .cta { opacity: 1; transform: translateY(0); }
+  .cta .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 12px var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  /* ---- chrome ---- */
+  .progress {
+    position: fixed;
+    left: 0; bottom: 0;
+    height: 2px;
+    width: 0%;
+    background: linear-gradient(90deg, var(--gold-deep), var(--gold));
+    z-index: 10;
+  }
+
+  .replay {
+    position: fixed;
+    left: 50%;
+    bottom: 5.5vmin;
+    transform: translateX(-50%) translateY(14px);
+    padding: 12px 26px;
+    border-radius: 100px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: var(--ink);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.8s var(--ease), transform 0.8s var(--ease);
+    z-index: 11;
+  }
+  .replay.on { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+  .replay:hover { background: rgba(255, 255, 255, 0.14); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .orb, .tickerrow, .wordmark, .spark, .cta .dot { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+
+  <div class="tickerwall" id="tickerwall"></div>
+
+  <!-- 0.6s – 4.2s -->
+  <section class="scene" data-start="0.6" data-end="4.2">
+    <h1 class="line">Markets move fast.</h1>
+  </section>
+
+  <!-- 4.2s – 7.6s -->
+  <section class="scene" data-start="4.2" data-end="7.6">
+    <h1 class="line">Insight should move <em style="font-style:normal; color:var(--gold)">faster.</em></h1>
+  </section>
+
+  <!-- 7.6s – 12.4s : reveal -->
+  <section class="scene" data-start="7.6" data-end="12.4">
+    <div>
+      <p class="eyebrow">Introducing</p>
+      <h1 class="wordmark">Alpha Nova</h1>
+    </div>
+  </section>
+
+  <!-- 12.4s – 15.0s : option chain -->
+  <section class="scene feature" data-start="12.4" data-end="15.0">
+    <div>
+      <h2 class="line">Live option chains.</h2>
+      <div class="chips">
+        <span class="chip"><span class="k">PCR</span> 0.997</span>
+        <span class="chip"><span class="k">MAX PAIN</span> <span class="au">24,200</span></span>
+        <span class="chip"><span class="k">ATM IV</span> 8.3%</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 15.0s – 17.6s : flows -->
+  <section class="scene feature" data-start="15.0" data-end="17.6">
+    <div>
+      <h2 class="line">Institutional flows.</h2>
+      <div class="chips">
+        <span class="chip"><span class="k">FII</span> <span class="gain">+₹1,355 Cr</span></span>
+        <span class="chip"><span class="flowbar"><i></i></span></span>
+        <span class="chip"><span class="k">NIFTY</span> <span class="gain">▲ 0.4%</span></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 17.6s – 20.2s : momentum & signals -->
+  <section class="scene feature" data-start="17.6" data-end="20.2">
+    <div>
+      <h2 class="line">Momentum. Signals.<br /><span class="soft">Forecasts.</span></h2>
+      <div class="chips">
+        <span class="chip">SHRIRAMFIN <span class="gain">+25.3%</span></span>
+        <span class="chip"><span class="k">REGIME</span> <span class="au">RISK-ON</span></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 20.2s – 22.8s : AI -->
+  <section class="scene feature" data-start="20.2" data-end="22.8">
+    <div>
+      <h2 class="line"><span class="spark">✦</span> AI insight, on demand.</h2>
+      <div class="chips">
+        <span class="chip"><span class="k">POWERED BY</span> Gemini</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 22.8s – 26.2s -->
+  <section class="scene" data-start="22.8" data-end="26.2">
+    <div>
+      <h1 class="line">Everything the market knows.</h1>
+      <h1 class="line l2" style="color:var(--gold)">Now you do too.</h1>
+    </div>
+  </section>
+
+  <!-- 26.2s – 30s : end card -->
+  <section class="scene" data-start="26.2" data-end="99">
+    <div>
+      <div class="mark">AN</div>
+      <h1 class="end-name">Alpha Nova</h1>
+      <p class="tagline">See the whole market.</p>
+      <div class="cta"><span class="dot"></span> Now live &nbsp;·&nbsp; 5alphav2.vercel.app</div>
+    </div>
+  </section>
+
+  <div class="vignette"></div>
+</div>
+
+<div class="progress" id="progress"></div>
+<button class="replay" id="replay" type="button">↻ Watch again</button>
+
+<script>
+  const DURATION = 30;
+
+  const stage = document.getElementById('stage');
+  const progress = document.getElementById('progress');
+  const replayBtn = document.getElementById('replay');
+  const scenes = [...document.querySelectorAll('.scene')].map((el) => ({
+    el,
+    start: parseFloat(el.dataset.start),
+    end: parseFloat(el.dataset.end),
+  }));
+
+  // Ticker wall content
+  const wall = document.getElementById('tickerwall');
+  const symbols = [
+    'NIFTY 24,270.85 ▲0.39', 'BANKNIFTY 57,938.50 ▼0.16', 'VIX 11.80 ▼3.98',
+    'RELIANCE 1,304.00', 'TCS 2,093.50 ▲1.23', 'HDFCBANK 801.05',
+    'SHRIRAMFIN ▲25.3', 'PCR 0.997', 'MAXPAIN 24,200', 'FII +1,355.33',
+    'DII +2,410.80', 'ATM 24,250', 'IV 8.3', 'OI +2,60%', 'SBIN 1,040.00',
+  ];
+  for (let r = 0; r < 7; r++) {
+    const row = document.createElement('div');
+    row.className = 'tickerrow';
+    const shuffled = [...symbols].sort(() => ((r * 31 + 17) % 7) - 3);
+    row.textContent = (shuffled.join('      ') + '      ').repeat(4);
+    row.style.animationDuration = 34 + r * 7 + 's';
+    wall.appendChild(row);
+  }
+
+  // Pure state applier — given a time t (seconds), set the whole stage.
+  function update(t) {
+    for (const s of scenes) s.el.classList.toggle('on', t >= s.start && t < s.end);
+    // Ticker wall breathes in behind the reveal, out during the montage end
+    wall.classList.toggle('on', t >= 7.0 && t < 12.8);
+    stage.classList.toggle('lit', t >= 0.2);
+    progress.style.width = Math.min(t / DURATION, 1) * 100 + '%';
+    replayBtn.classList.toggle('on', t >= DURATION);
+  }
+
+  let rafId = null;
+  let startTs = null;
+
+  function frame(now) {
+    if (startTs === null) startTs = now;
+    const t = (now - startTs) / 1000;
+    update(t);
+    if (t < DURATION + 0.5) {
+      rafId = requestAnimationFrame(frame);
+    }
+  }
+
+  function play() {
+    if (rafId) cancelAnimationFrame(rafId);
+    startTs = null;
+    update(0);
+    rafId = requestAnimationFrame(frame);
+  }
+
+  replayBtn.addEventListener('click', play);
+
+  // Debug / test hook: jump the film to any timestamp.
+  window.__seek = (t) => {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    update(t);
+  };
+
+  play();
+</script>
+</body>
+</html>

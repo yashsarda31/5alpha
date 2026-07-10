@@ -1,11 +1,13 @@
 import React, { useState, lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigationType } from 'react-router-dom';
 import {
   LayoutGrid, Star, Zap, Rocket, Newspaper,
   LineChart, Bird, Search, Landmark, Calculator, BarChart3, Sparkles, Scale, Link2,
   Trophy, Gamepad2, GraduationCap, Settings, Menu, Compass, ArrowLeftRight, Gauge,
+  ChevronsUpDown,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
+import AppLogo from './components/AppLogo';
 import { WatchlistProvider } from './WatchlistContext';
 import { PredictionProvider } from './PredictionContext';
 import Login from './pages/Login';
@@ -21,6 +23,7 @@ const routeImporters = {
   '/leaderboard': () => import('./pages/Leaderboard'),
   '/dcf': () => import('./pages/Dcf'),
   '/chart': () => import('./pages/Chart'),
+  '/flcl': () => import('./pages/Flcl'),
   '/screener': () => import('./pages/Screener'),
   '/arima': () => import('./pages/Arima'),
   '/position-sizing': () => import('./pages/PositionSizing'),
@@ -52,6 +55,7 @@ const Watchlist = lazy(routeImporters['/watchlist']);
 const Leaderboard = lazy(routeImporters['/leaderboard']);
 const Dcf = lazy(routeImporters['/dcf']);
 const Chart = lazy(routeImporters['/chart']);
+const Flcl = lazy(routeImporters['/flcl']);
 const Screener = lazy(routeImporters['/screener']);
 const Arima = lazy(routeImporters['/arima']);
 const PositionSizing = lazy(routeImporters['/position-sizing']);
@@ -87,6 +91,7 @@ const NAV_SECTIONS = [
     title: 'Research',
     items: [
       { to: '/chart', label: 'Chart Analyser', Icon: LineChart },
+      { to: '/flcl', label: 'FLCL Analysis', Icon: ChevronsUpDown },
       { to: '/druck-minervini', label: 'Druck & Minervini', Icon: Bird },
       { to: '/screener', label: 'Quant Screener', Icon: Search },
       { to: '/fiidii', label: 'FII / DII Activity', Icon: Landmark },
@@ -182,10 +187,47 @@ const MobileTabBar = ({ onMore }) => (
   </nav>
 );
 
+// Plotly-bearing routes: their page chunks statically pull the ~1.2 MB Plot
+// bundle, so they are left to hover/touch prefetch instead of idle warming.
+const HEAVY_ROUTES = new Set(['/chart', '/arima', '/druck-minervini', '/sectors', '/flcl']);
+
+// SPA navigations keep the previous page's scroll offset, which strands mobile
+// users mid-page when they tap a tab. Reset to top on forward navigations only
+// — back/forward (POP) keeps the browser's own position handling.
+const ScrollToTop = () => {
+  const { pathname } = useLocation();
+  const navType = useNavigationType();
+  React.useEffect(() => {
+    if (navType !== 'POP') window.scrollTo(0, 0);
+  }, [pathname, navType]);
+  return null;
+};
+
 const AppLayout = () => {
   const { currentUser } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // While the nav drawer is open, stop touch scrolls from reaching the page
+  // behind it (the backdrop otherwise chains the scroll to the body).
+  React.useEffect(() => {
+    document.body.classList.toggle('menu-open', menuOpen);
+    return () => document.body.classList.remove('menu-open');
+  }, [menuOpen]);
+
+  // Once the first page is up and the browser is idle, warm every light page
+  // chunk (~50 kB gzip total) so later navigation resolves from memory.
+  React.useEffect(() => {
+    const warm = () => Object.keys(routeImporters)
+      .filter((p) => !HEAVY_ROUTES.has(p))
+      .forEach(prefetchRoute);
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(warm, { timeout: 6000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(warm, 3000);
+    return () => clearTimeout(id);
+  }, []);
 
   return (
     <WatchlistProvider>
@@ -193,14 +235,16 @@ const AppLayout = () => {
     <SignalAlertProvider>
       <div className="mobile-topbar">
         <button className="hamburger-btn" onClick={() => setMenuOpen(true)} aria-label="Open navigation menu">☰</button>
-        <span className="mobile-title">
-          <span style={{ color: 'var(--primary-gold)' }}>Alpha</span> Nova
+        <span className="mobile-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <AppLogo size={20} />
+          <span><span style={{ color: 'var(--primary-gold)' }}>Alpha</span> Nova</span>
         </span>
       </div>
       {menuOpen && <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />}
       <div className={`sidebar ${menuOpen ? 'open' : ''}`}>
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
-          <span style={{ color: 'var(--primary-gold)' }}>Alpha</span> Nova
+          <AppLogo size={24} />
+          <span><span style={{ color: 'var(--primary-gold)' }}>Alpha</span> Nova</span>
         </h2>
         <div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '20px' }}>Pro Edition V3</div>
 
@@ -227,6 +271,7 @@ const AppLayout = () => {
       </div>
 
       <div className="content">
+        <ScrollToTop />
         <Disclaimer />
         <Suspense fallback={<PageLoader />}>
         <Routes>
@@ -237,6 +282,7 @@ const AppLayout = () => {
           <Route path="/fundamentals" element={<Fundamentals />} />
           <Route path="/momentum" element={<Momentum />} />
           <Route path="/chart" element={<Chart />} />
+          <Route path="/flcl" element={<Flcl />} />
           <Route path="/druck-minervini" element={<DruckMinervini />} />
           <Route path="/screener" element={<Screener />} />
 

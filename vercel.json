@@ -55,6 +55,10 @@
       "dest": "/web/apple-touch-icon-v2.png"
     },
     {
+      "src": "/apple-touch-icon-v3\\.png",
+      "dest": "/web/apple-touch-icon-v3.png"
+    },
+    {
       "src": "/icons/(.*)",
       "headers": { "cache-control": "public, max-age=86400" },
       "dest": "/web/icons/$1"

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import Plot from '../components/Plot';
+import TickerSearch from '../components/TickerSearch';
+import ShareButton from '../components/ShareButton';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -63,7 +65,7 @@ const Chart = () => {
   const runAiAnalysis = async () => {
     const apiKey = localStorage.getItem('gemini_api_key');
     if (!apiKey) {
-      alert("Please enter a Gemini API Key in the sidebar.");
+      setAiReport('**Add your Gemini API key in Settings to generate the market insight.**');
       return;
     }
     
@@ -157,19 +159,26 @@ const Chart = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '12px' }}>
-          <div style={{ width: '160px' }}>
-            <input
+          <div style={{ width: '220px' }}>
+            <TickerSearch
               value={ticker}
-              onChange={(e) => setTicker(e.target.value.toUpperCase())}
-              onFocus={(e) => e.target.select()}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !loading) fetchChart(); }}
-              placeholder="SEARCH TICKER..."
-              style={{ marginBottom: 0 }}
+              onChange={setTicker}
+              onSelect={(sym) => fetchChart(sym)}
+              placeholder="Ticker or company name…"
+              inputProps={{ onKeyDown: (e) => { if (e.key === 'Enter' && !loading) fetchChart(); } }}
             />
           </div>
           <button onClick={() => fetchChart()} disabled={loading} style={{ width: 'auto' }}>
             {loading ? <><span className="spinner"></span> LOAD...</> : "SEARCH"}
           </button>
+          {chartData && (
+            <ShareButton
+              label="Share"
+              filename={`alpha-nova-${ticker.replace(/\W+/g, '-')}.png`}
+              shareText={`${ticker} technical analysis — Alpha Nova`}
+              capture={() => document.getElementById('chart-analysis')}
+            />
+          )}
         </div>
       </div>
 
@@ -180,7 +189,7 @@ const Chart = () => {
       )}
 
       {chartData ? (
-        <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
+        <div id="chart-analysis" className="card" style={{ padding: '0', overflow: 'hidden' }}>
           <div className="stats-grid" style={{ padding: '24px', borderBottom: '1px solid var(--glass-border)' }}>
             <div className="stat-box">
               <div className="stat-label">{ticker} PRICE</div>
@@ -370,7 +379,7 @@ const Chart = () => {
 
           <div style={{ padding: '24px', borderTop: '1px solid var(--glass-border)', backgroundColor: 'rgba(0,0,0,0.02)' }}>
             {!aiReport ? (
-              <button onClick={runAiAnalysis} disabled={aiLoading} className="secondary">
+              <button data-noshare="" onClick={runAiAnalysis} disabled={aiLoading} className="secondary">
                 {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "GENERATE GEMINI AI TECHNICAL INSIGHT"}
               </button>
             ) : (

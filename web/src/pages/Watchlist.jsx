@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, DataTable, StatusPill, EmptyState } from '../components/ui';
+import TickerSearch from '../components/TickerSearch';
 import { useWatchlist } from '../WatchlistContext';
 import './Watchlist.css';
 
@@ -42,13 +43,12 @@ const AddBox = ({ onAdd, error, onClearError }) => {
 
   return (
     <form className="wl-addbox" onSubmit={submit}>
-      <input
-        type="text"
+      <TickerSearch
         value={value}
-        onChange={(e) => { setValue(e.target.value); if (error) onClearError(); }}
-        placeholder={market === 'IN' ? 'Add an NSE symbol (e.g. RELIANCE)' : 'Add a US symbol (e.g. AAPL)'}
-        aria-label="Add a symbol to your watchlist"
-        style={{ marginBottom: 0, textTransform: 'uppercase' }}
+        onChange={(v) => { setValue(v); if (error) onClearError(); }}
+        placeholder={market === 'IN' ? 'Symbol or company name (e.g. Tata Motors)' : 'Symbol or company name (e.g. Apple)'}
+        inputStyle={{ marginBottom: 0, textTransform: 'uppercase' }}
+        inputProps={{ 'aria-label': 'Add a symbol to your watchlist' }}
       />
       <button type="button" onClick={() => setMarket('IN')} style={toggleStyle(market === 'IN')} aria-pressed={market === 'IN'}>NSE</button>
       <button type="button" onClick={() => setMarket('US')} style={toggleStyle(market === 'US')} aria-pressed={market === 'US'}>US</button>

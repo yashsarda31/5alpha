@@ -179,7 +179,7 @@ const Screener = () => {
     if (data.length === 0) return;
     const apiKey = localStorage.getItem('gemini_api_key');
     if (!apiKey) {
-      alert("Please enter a Gemini API Key in the sidebar.");
+      setAiReport('**Add your Gemini API key in Settings to generate the screener brief.**');
       return;
     }
     setAiLoading(true);

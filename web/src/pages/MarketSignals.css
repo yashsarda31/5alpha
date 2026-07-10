@@ -102,10 +102,120 @@
 .breadth-bar .adv { background: var(--green-gain); }
 .breadth-bar .dec { background: var(--red-loss); }
 
+/* Volatility forecast card */
+.rv-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 18px;
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 18px 28px;
+  align-items: center;
+}
+
+.rv-hero .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.rv-hero .value {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.rv-hero .detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.rv-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+
+.rv-band-wrap { grid-column: 1 / -1; }
+
+.rv-band-scale {
+  position: relative;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.rv-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+}
+
+.rv-band-95 { background: var(--primary-accent-soft, rgba(10, 132, 255, 0.12)); }
+.rv-band-68 { background: var(--primary-accent-soft, rgba(10, 132, 255, 0.12)); opacity: 0.9; filter: brightness(1.6); }
+
+.rv-marker {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  border-radius: 2px;
+  transform: translateX(-50%);
+}
+
+.rv-marker-fcst { background: var(--primary-accent); box-shadow: 0 0 6px var(--primary-accent); }
+.rv-marker-now { background: var(--text-primary, #fff); }
+.rv-marker-vix { background: var(--primary-gold); }
+
+.rv-band-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.rv-band-legend .rv-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: baseline;
+}
+
+.rv-dot-fcst { background: var(--primary-accent); }
+.rv-dot-now { background: var(--text-primary, #fff); }
+.rv-dot-vix { background: var(--primary-gold); }
+
+.rv-band-note { margin-left: auto; }
+
+.rv-footnote {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  border-top: 1px dotted rgba(255, 255, 255, 0.08);
+  padding-top: 10px;
+}
+
+@media (max-width: 850px) {
+  .rv-card { grid-template-columns: 1fr; }
+  .rv-hero .value { font-size: 28px; }
+}
+
 /* Options intelligence */
 .oc-summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 14px;
 }
 
@@ -150,7 +260,7 @@
 
 .buildup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 12px;
   margin-top: 14px;
 }

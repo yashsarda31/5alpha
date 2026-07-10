@@ -40,6 +40,7 @@ const FiiDii = () => {
   }, []);
 
   const formatAmount = (val) => `${val > 0 ? '+' : ''}${val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatContracts = (val) => `${val > 0 ? '+' : ''}${Math.round(val).toLocaleString('en-IN')}`;
   const maxAbsValue = data.length > 0 ? Math.max(...data.map((d) => Math.abs(view === 'FII' ? d.fii_net : d.dii_net))) : 10000;
 
   const netCol = view === 'FII' ? 'fii_net' : 'dii_net';
@@ -80,6 +81,27 @@ const FiiDii = () => {
           {r.chg_pct > 0 ? '▲' : r.chg_pct < 0 ? '▼' : ''} {Math.abs(r.chg_pct).toFixed(1)}%
         </span>
       ),
+    },
+    {
+      key: 'retail_opt', label: 'Retail Opt (Net)', align: 'right',
+      render: (r) => {
+        const val = r.retail_opt || 0;
+        return <span className={val > 0 ? 'tone-gain' : val < 0 ? 'tone-loss' : ''}>{formatContracts(val)}</span>;
+      },
+    },
+    {
+      key: 'fii_opt', label: 'FII Opt (Net)', align: 'right',
+      render: (r) => {
+        const val = r.fii_opt || 0;
+        return <span className={val > 0 ? 'tone-gain' : val < 0 ? 'tone-loss' : ''}>{formatContracts(val)}</span>;
+      },
+    },
+    {
+      key: 'prop_opt', label: 'Prop Opt (Net)', align: 'right',
+      render: (r) => {
+        const val = r.prop_opt || 0;
+        return <span className={val > 0 ? 'tone-gain' : val < 0 ? 'tone-loss' : ''}>{formatContracts(val)}</span>;
+      },
     },
   ];
 

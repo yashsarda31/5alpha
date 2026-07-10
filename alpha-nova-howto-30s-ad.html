@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alpha Nova — How to Use · 30s</title>
+<style>
+  :root{
+    --gold:#F5DC8C;
+    --green:#32D74B;
+    --red:#FF453A;
+    --txt:#F5F5F7;
+    --dim:#A1A1AA;
+    --faint:#6E6E73;
+    --card:#121214;
+    --line:rgba(255,255,255,.08);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    background:#000;
+    color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+
+  .stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+
+  /* ambient glow that drifts through the whole spot */
+  .aurora{
+    position:absolute;width:130vmax;height:130vmax;border-radius:50%;
+    background:radial-gradient(circle at center, rgba(245,220,140,.10), rgba(245,220,140,.035) 32%, transparent 62%);
+    filter:blur(50px);
+    animation:aurora 30s ease-in-out infinite alternate;
+    pointer-events:none;
+  }
+  @keyframes aurora{
+    0%{transform:translate(-16%,-10%) scale(1);}
+    50%{transform:translate(12%,8%) scale(1.12);}
+    100%{transform:translate(-8%,14%) scale(.95);}
+  }
+
+  /* ---------- scenes ---------- */
+  .scene{
+    position:absolute;inset:0;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:24px;
+    opacity:0;visibility:hidden;
+    transform:scale(.97);
+    filter:blur(14px);
+    transition:opacity .9s cubic-bezier(.25,.1,.25,1),
+               transform .9s cubic-bezier(.25,.1,.25,1),
+               filter .9s cubic-bezier(.25,.1,.25,1),
+               visibility 0s linear .9s;
+    will-change:opacity,transform,filter;
+  }
+  .scene.on{
+    opacity:1;visibility:visible;
+    transform:scale(1);
+    filter:blur(0);
+    transition:opacity .9s cubic-bezier(.25,.1,.25,1),
+               transform .9s cubic-bezier(.25,.1,.25,1),
+               filter .9s cubic-bezier(.25,.1,.25,1),
+               visibility 0s;
+  }
+
+  /* staggered line reveals inside an active scene */
+  .rise{opacity:0;transform:translateY(26px);}
+  .scene.on .rise{
+    animation:rise 1s cubic-bezier(.2,.7,.2,1) forwards;
+    animation-delay:var(--d,0s);
+  }
+  @keyframes rise{to{opacity:1;transform:translateY(0);}}
+
+  .kicker{
+    font-size:clamp(11px,1.4vw,14px);
+    letter-spacing:.42em;text-transform:uppercase;
+    color:var(--gold);font-weight:600;
+    margin-bottom:22px;
+  }
+  .hero{
+    font-size:clamp(38px,7.2vw,92px);
+    font-weight:700;letter-spacing:-.03em;line-height:1.04;
+  }
+  .hero .soft{color:var(--faint);}
+  .sub{
+    margin-top:20px;
+    font-size:clamp(15px,2vw,22px);
+    color:var(--dim);font-weight:400;letter-spacing:-.01em;
+    max-width:640px;
+  }
+  .gold{color:var(--gold);}
+  .up{color:var(--green);}
+  .dn{color:var(--red);}
+
+  /* ---------- shared mock-UI card ---------- */
+  .mock{
+    margin-top:40px;
+    background:linear-gradient(180deg,#151517,#0D0D0F);
+    border:1px solid var(--line);
+    border-radius:22px;
+    padding:22px 26px;
+    box-shadow:0 30px 90px rgba(0,0,0,.7), 0 0 60px rgba(245,220,140,.05);
+    text-align:left;
+    min-width:min(560px,92vw);
+  }
+  .mock .mhead{
+    display:flex;align-items:center;justify-content:space-between;
+    font-size:11px;letter-spacing:.28em;color:var(--faint);
+    text-transform:uppercase;margin-bottom:16px;font-weight:600;
+  }
+  .dotlive{color:var(--green);letter-spacing:.1em;}
+
+  .row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 4px;border-top:1px solid var(--line);
+    font-size:clamp(14px,1.8vw,18px);font-weight:600;letter-spacing:-.01em;
+  }
+  .row:first-of-type{border-top:none;}
+  .row .sym{display:flex;align-items:center;gap:12px;}
+  .star{color:#3A3A3C;font-size:1.15em;transition:color .4s, transform .4s, text-shadow .4s;}
+  .star.lit{color:var(--gold);text-shadow:0 0 18px rgba(245,220,140,.65);}
+  .scene.on .star.will-light{animation:starlight .5s ease forwards;animation-delay:var(--d,1.4s);}
+  @keyframes starlight{
+    0%{color:#3A3A3C;transform:scale(1);text-shadow:none;}
+    55%{transform:scale(1.55);}
+    100%{color:var(--gold);transform:scale(1);text-shadow:0 0 18px rgba(245,220,140,.65);}
+  }
+  .chip{
+    font-size:10px;letter-spacing:.14em;color:var(--faint);
+    border:1px solid var(--line);border-radius:6px;padding:2px 7px;font-weight:700;
+  }
+
+  /* signal card */
+  .sigtop{display:flex;align-items:center;gap:16px;justify-content:space-between;}
+  .side-long{
+    color:var(--green);font-weight:800;letter-spacing:.08em;
+    font-size:clamp(18px,2.4vw,24px);
+  }
+  .ring{position:relative;width:86px;height:86px;flex:none;}
+  .ring svg{transform:rotate(-90deg);}
+  .ring .num{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    font-weight:800;font-size:26px;letter-spacing:-.02em;
+  }
+  .ring .num small{font-size:9px;letter-spacing:.3em;color:var(--faint);font-weight:600;}
+  .ring circle.track{stroke:rgba(255,255,255,.09);}
+  .ring circle.arc{
+    stroke:var(--gold);stroke-linecap:round;
+    stroke-dasharray:239;stroke-dashoffset:239;
+  }
+  .scene.on .ring circle.arc{animation:arc 1.6s cubic-bezier(.3,.7,.3,1) forwards;animation-delay:1s;}
+  @keyframes arc{to{stroke-dashoffset:67;}} /* 72/100 of 2πr(38)≈239 */
+
+  .levels{display:flex;gap:0;margin-top:18px;border-top:1px solid var(--line);padding-top:16px;}
+  .levels div{flex:1;}
+  .levels .lab{font-size:10px;letter-spacing:.26em;color:var(--faint);font-weight:700;margin-bottom:6px;}
+  .levels .val{font-size:clamp(16px,2vw,21px);font-weight:700;letter-spacing:-.01em;}
+  .regs{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;}
+  .reg{
+    font-size:11px;letter-spacing:.12em;font-weight:700;
+    border:1px solid var(--line);border-radius:999px;padding:6px 13px;color:var(--dim);
+  }
+  .reg b{color:var(--txt);}
+  .reg.riskon{border-color:rgba(50,215,75,.35);color:var(--green);}
+
+  /* breakout sparkline */
+  .spark-wrap{margin-top:6px;}
+  .spark-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
+  .spark-head .t{font-size:clamp(18px,2.4vw,24px);font-weight:800;letter-spacing:-.01em;}
+  .badge{
+    font-size:10px;letter-spacing:.2em;font-weight:800;color:#000;
+    background:var(--gold);border-radius:6px;padding:4px 9px;
+  }
+  .sparkline path.area{fill:url(#fadeGold);}
+  .sparkline path.line{
+    fill:none;stroke:var(--gold);stroke-width:2.5;
+    stroke-dasharray:620;stroke-dashoffset:620;
+  }
+  .scene.on .sparkline path.line{animation:draw 2.2s cubic-bezier(.4,0,.2,1) forwards;animation-delay:.9s;}
+  @keyframes draw{to{stroke-dashoffset:0;}}
+  .sparkline path.area{opacity:0;}
+  .scene.on .sparkline path.area{animation:fadein 1s ease forwards;animation-delay:2.4s;}
+  @keyframes fadein{to{opacity:1;}}
+  .sparkline line.lvl{stroke:rgba(245,220,140,.5);stroke-dasharray:5 6;stroke-width:1.4;}
+
+  /* daily call buttons */
+  .callbtns{display:flex;gap:16px;margin-top:36px;}
+  .cb{
+    font-size:clamp(16px,2.2vw,21px);font-weight:800;letter-spacing:.02em;
+    background:transparent;
+    border-radius:999px;padding:16px 42px;border:1.5px solid var(--line);color:var(--dim);
+    transition:all .5s ease;
+  }
+  .cb.g{border-color:rgba(50,215,75,.5);color:var(--green);}
+  .cb.r{border-color:rgba(255,69,58,.5);color:var(--red);}
+  .scene.on .cb.g{animation:pickgreen .7s ease forwards;animation-delay:1.5s;}
+  @keyframes pickgreen{
+    to{background:rgba(50,215,75,.16);box-shadow:0 0 44px rgba(50,215,75,.35);transform:scale(1.06);}
+  }
+  .streak{
+    margin-top:30px;font-size:clamp(15px,2vw,20px);color:var(--dim);font-weight:600;
+  }
+  .streak b{color:var(--txt);}
+
+  /* finale */
+  .monogram{
+    width:112px;height:112px;border-radius:28px;
+    background:linear-gradient(160deg,#1A1A1C,#0A0A0B);
+    border:1px solid rgba(245,220,140,.35);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:44px;letter-spacing:-.02em;color:var(--gold);
+    box-shadow:0 0 80px rgba(245,220,140,.16), inset 0 1px 0 rgba(255,255,255,.08);
+    margin-bottom:34px;
+  }
+  .url{
+    margin-top:26px;font-size:clamp(15px,2vw,20px);letter-spacing:.04em;
+    color:var(--gold);font-weight:600;
+  }
+  .fineprint{
+    position:absolute;bottom:104px;left:0;right:0;text-align:center;
+    font-size:10.5px;color:#48484A;letter-spacing:.03em;padding:0 40px;
+  }
+
+  /* progress bar */
+  .progress{
+    position:fixed;left:0;bottom:0;height:3px;width:100%;
+    background:rgba(255,255,255,.06);z-index:50;
+  }
+  .progress i{
+    display:block;height:100%;width:0;
+    background:linear-gradient(90deg,rgba(245,220,140,.5),var(--gold));
+  }
+  body.playing .progress i{animation:prog 30s linear forwards;}
+  @keyframes prog{to{width:100%;}}
+
+  /* replay */
+  .replay{
+    position:fixed;bottom:34px;left:50%;transform:translateX(-50%) translateY(14px);
+    background:transparent;border:1px solid rgba(245,220,140,.45);color:var(--gold);
+    font-family:inherit;font-weight:600;
+    font-size:13px;letter-spacing:.24em;text-transform:uppercase;
+    border-radius:999px;padding:13px 34px;cursor:pointer;
+    opacity:0;pointer-events:none;transition:opacity .8s ease, transform .8s ease, background .3s;
+    z-index:60;
+  }
+  .replay.show{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0);}
+  .replay:hover{background:rgba(245,220,140,.12);}
+
+  .counter{
+    position:fixed;top:26px;right:32px;z-index:50;
+    font-size:11px;letter-spacing:.3em;color:#3A3A3C;font-weight:600;
+    font-variant-numeric:tabular-nums;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="aurora"></div>
+
+  <!-- S1 · 0.0–2.8 · open -->
+  <section class="scene" id="s1">
+    <div class="hero rise">Meet <span class="gold">Alpha&nbsp;Nova</span>.</div>
+    <div class="sub rise" style="--d:.45s">Your markets. One terminal. Here’s how it works.</div>
+  </section>
+
+  <!-- S2 · 2.8–7.0 · dashboard -->
+  <section class="scene" id="s2">
+    <div class="kicker rise">Step 01</div>
+    <div class="hero rise" style="--d:.15s">Start on the Dashboard.</div>
+    <div class="sub rise" style="--d:.35s">Indices, top movers and your day — the second you sign in.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="mhead"><span>LIVE MARKET SNAPSHOT</span><span class="dotlive">● LIVE</span></div>
+      <div class="row"><span class="sym">NIFTY 50</span><span>24,430.35 <span class="up">+0.66%</span></span></div>
+      <div class="row"><span class="sym">HDFCBANK</span><span class="up">+3.60%</span></div>
+      <div class="row"><span class="sym">RELIANCE</span><span class="up">+1.33%</span></div>
+      <div class="row"><span class="sym">TCS</span><span class="dn">−1.71%</span></div>
+    </div>
+  </section>
+
+  <!-- S3 · 7.0–11.4 · watchlist -->
+  <section class="scene" id="s3">
+    <div class="kicker rise">Step 02</div>
+    <div class="hero rise" style="--d:.15s">Tap <span class="gold">★</span>&hairsp;. That’s your watchlist.</div>
+    <div class="sub rise" style="--d:.35s">Any stock, anywhere in the app. NSE and US, side by side.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="mhead"><span>MY WATCHLIST</span><span>NSE&nbsp;·&nbsp;US</span></div>
+      <div class="row"><span class="sym"><span class="star lit">★</span> RELIANCE <span class="chip">₹ NSE</span></span><span class="up">+1.33%</span></div>
+      <div class="row"><span class="sym"><span class="star lit">★</span> AAPL <span class="chip">$ US</span></span><span class="up">+0.20%</span></div>
+      <div class="row"><span class="sym"><span class="star will-light" style="--d:1.5s">☆</span> HDFCBANK <span class="chip">₹ NSE</span></span><span class="up">+3.60%</span></div>
+    </div>
+  </section>
+
+  <!-- S4 · 11.4–16.4 · market signals -->
+  <section class="scene" id="s4">
+    <div class="kicker rise">Step 03</div>
+    <div class="hero rise" style="--d:.15s">Open Market Signals.</div>
+    <div class="sub rise" style="--d:.35s">Every setup scored 0–100, with entry, target and stop. Not noise — a plan.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="sigtop">
+        <div>
+          <div class="side-long">LONG · HDFCBANK FUT</div>
+          <div class="regs">
+            <span class="reg riskon">RISK-ON</span>
+            <span class="reg">VIX <b>11.8</b></span>
+            <span class="reg">PCR <b>1.32</b></span>
+            <span class="reg">MAX PAIN <b>24,400</b></span>
+          </div>
+        </div>
+        <div class="ring">
+          <svg width="86" height="86" viewBox="0 0 86 86">
+            <circle class="track" cx="43" cy="43" r="38" fill="none" stroke-width="6"/>
+            <circle class="arc" cx="43" cy="43" r="38" fill="none" stroke-width="6"/>
+          </svg>
+          <div class="num">72<small>SCORE</small></div>
+        </div>
+      </div>
+      <div class="levels">
+        <div><div class="lab">ENTRY</div><div class="val">₹1,012</div></div>
+        <div><div class="lab">TARGET</div><div class="val up">₹1,048</div></div>
+        <div><div class="lab">STOP</div><div class="val dn">₹988</div></div>
+        <div><div class="lab">R:R</div><div class="val gold">1.5R</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S5 · 16.4–21.0 · momentum breakouts -->
+  <section class="scene" id="s5">
+    <div class="kicker rise">Step 04</div>
+    <div class="hero rise" style="--d:.15s">Catch breakouts. Today.</div>
+    <div class="sub rise" style="--d:.35s">Momentum Leaders flags stocks clearing 52-week highs — as it happens.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="spark-wrap">
+        <div class="spark-head">
+          <span class="t">M&amp;M <span class="up" style="font-size:.75em">+4.2%</span></span>
+          <span class="badge">52W HIGH BROKEN</span>
+        </div>
+        <svg class="sparkline" width="100%" height="120" viewBox="0 0 520 120" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="fadeGold" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#F5DC8C" stop-opacity=".28"/>
+              <stop offset="1" stop-color="#F5DC8C" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <line class="lvl" x1="0" y1="38" x2="520" y2="38"/>
+          <path class="area" d="M0,96 L40,90 L80,94 L120,82 L160,86 L200,74 L240,80 L280,64 L320,70 L360,56 L400,60 L440,44 L480,40 L520,14 L520,120 L0,120 Z"/>
+          <path class="line" d="M0,96 L40,90 L80,94 L120,82 L160,86 L200,74 L240,80 L280,64 L320,70 L360,56 L400,60 L440,44 L480,40 L520,14"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- S6 · 21.0–25.4 · daily call -->
+  <section class="scene" id="s6">
+    <div class="kicker rise">Step 05</div>
+    <div class="hero rise" style="--d:.15s">Call the market. Daily.</div>
+    <div class="sub rise" style="--d:.35s">Nifty — green or red? Lock it before 9:15. Build your streak. Climb the leaderboard.</div>
+    <div class="callbtns rise" style="--d:.6s">
+      <button class="cb g">▲ GREEN</button>
+      <button class="cb r">▼ RED</button>
+    </div>
+    <div class="streak rise" style="--d:.85s">🔥 <b>7-day streak</b> · Rank <b>#12</b> on the Nifty Leaderboard</div>
+  </section>
+
+  <!-- S7 · 25.4–30 · finale -->
+  <section class="scene" id="s7">
+    <div class="monogram rise">AN</div>
+    <div class="hero rise" style="--d:.25s">Alpha Nova.</div>
+    <div class="sub rise" style="--d:.5s">Install it on your phone. Free.</div>
+    <div class="url rise" style="--d:.7s">5alphav2.vercel.app</div>
+    <div class="fineprint">For educational and analytical purposes only. Not investment advice.</div>
+  </section>
+</div>
+
+<div class="counter" id="counter">00:00 / 00:30</div>
+<div class="progress"><i></i></div>
+<button class="replay" id="replay">↺&nbsp;&nbsp;Replay</button>
+
+<script>
+(function(){
+  // scene id → start time (s). Total spot: 30s.
+  const TIMELINE = [
+    ['s1', 0.0],
+    ['s2', 2.8],
+    ['s3', 7.0],
+    ['s4', 11.4],
+    ['s5', 16.4],
+    ['s6', 21.0],
+    ['s7', 25.4],
+  ];
+  const TOTAL = 30;
+
+  const scenes = TIMELINE.map(([id]) => document.getElementById(id));
+  const replay = document.getElementById('replay');
+  const counter = document.getElementById('counter');
+  let timers = [];
+  let tickTimer = null;
+  let t0 = 0;
+
+  function clearAll(){
+    timers.forEach(clearTimeout);
+    timers = [];
+    if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+    scenes.forEach(s => s.classList.remove('on'));
+    replay.classList.remove('show');
+    document.body.classList.remove('playing');
+  }
+
+  function fmt(s){
+    return '00:' + String(Math.min(TOTAL, Math.floor(s))).padStart(2,'0') + ' / 00:30';
+  }
+
+  function play(){
+    clearAll();
+    // restart CSS progress animation
+    void document.querySelector('.progress i').offsetWidth;
+    document.body.classList.add('playing');
+    t0 = performance.now();
+
+    TIMELINE.forEach(([id, at], i) => {
+      timers.push(setTimeout(() => {
+        scenes.forEach(s => s.classList.remove('on'));
+        document.getElementById(id).classList.add('on');
+      }, at * 1000));
+    });
+    timers.push(setTimeout(() => replay.classList.add('show'), (TOTAL - 1.2) * 1000));
+
+    tickTimer = setInterval(() => {
+      const el = (performance.now() - t0) / 1000;
+      counter.textContent = fmt(el);
+      if (el >= TOTAL) { clearInterval(tickTimer); tickTimer = null; }
+    }, 250);
+  }
+
+  replay.addEventListener('click', play);
+  play();
+})();
+</script>
+</body>
+</html>

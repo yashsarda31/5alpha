@@ -4,6 +4,7 @@ import Plot from '../components/Plot';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PageHeader } from '../components/ui';
+import TickerSearch from '../components/TickerSearch';
 
 const DruckMinervini = () => {
   // Form Inputs
@@ -15,6 +16,7 @@ const DruckMinervini = () => {
   // App States
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState(null);
   
   // Interactive Calculator States
@@ -101,7 +103,8 @@ const DruckMinervini = () => {
     e.preventDefault();
     const apiKey = localStorage.getItem('gemini_api_key');
     if (!apiKey) {
-      alert("Please enter a Gemini API Key in the sidebar.");
+      // Inline error — alert() freezes the preview renderer and interrupts flows
+      setError('Add your Gemini API key in Settings to run the AI analysis.');
       return;
     }
 
@@ -162,7 +165,7 @@ const DruckMinervini = () => {
         subtitle="Evaluate technical setups with Mark Minervini's SEPA (Stage 2 Uptrends, VCP, Pivot Breakouts) integrated with Stanley Druckenmiller's macroeconomic liquidity and sizing principles."
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start', marginBottom: '32px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: '24px', alignItems: 'start', marginBottom: '32px' }}>
         
         {/* INPUTS PANEL */}
         <div className="card" style={{ padding: '24px' }}>
@@ -172,13 +175,12 @@ const DruckMinervini = () => {
           <form onSubmit={handleAnalyze}>
             <div style={{ marginBottom: '20px' }}>
               <label htmlFor="ticker">Stock Ticker (Optional)</label>
-              <input
-                id="ticker"
-                type="text"
-                placeholder="e.g. NVDA, MSFT, RELIANCE.NS"
+              <TickerSearch
                 value={ticker}
-                onChange={(e) => setTicker(e.target.value)}
-                style={{ marginBottom: '4px' }}
+                onChange={setTicker}
+                placeholder="Ticker or company name…"
+                inputStyle={{ marginBottom: '4px' }}
+                inputProps={{ id: 'ticker' }}
               />
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Fetches Python technical metrics & 150-day chart history.</span>
             </div>
@@ -441,7 +443,7 @@ const DruckMinervini = () => {
           
           {/* PYTHON TECHNICAL indicator CHECKLIST & CHART */}
           {results.sepa_checks && Object.keys(results.sepa_checks).length > 0 && !results.sepa_checks.error && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(450px, 100%), 1fr))', gap: '24px' }}>
               
               {/* MINERVINI CHECKLIST */}
               <div className="card" style={{ padding: '24px' }}>
@@ -541,15 +543,16 @@ const DruckMinervini = () => {
               <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 Macro-Micro Investment Research Report
               </span>
-              <button 
+              <button
                 onClick={() => {
                   navigator.clipboard.writeText(results.report);
-                  alert("Report copied to clipboard!");
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
                 }}
-                className="secondary" 
+                className="secondary"
                 style={{ padding: '6px 12px', fontSize: '12px', width: 'auto' }}
               >
-                Copy Report
+                {copied ? 'Copied ✓' : 'Copy Report'}
               </button>
             </h3>
             <div className="markdown-body" style={{ color: 'var(--text-primary)', lineHeight: 1.6, fontSize: '15px' }}>

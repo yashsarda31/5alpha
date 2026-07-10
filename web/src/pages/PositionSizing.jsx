@@ -22,7 +22,7 @@ const PositionSizing = () => {
   const runAiAnalysis = async () => {
     const apiKey = localStorage.getItem('gemini_api_key');
     if (!apiKey) {
-      alert("Please enter a Gemini API Key in the sidebar.");
+      setAiReport('**Add your Gemini API key in Settings to generate the sizing brief.**');
       return;
     }
     setAiLoading(true);
@@ -56,7 +56,7 @@ const PositionSizing = () => {
         subtitle="Calculate institutional-grade position sizes based on capital risk and stop-loss levels."
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '30px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: '30px' }}>
         <div className="card">
           <h3 style={{ fontSize: '18px', marginBottom: '20px' }}>Trade Parameters</h3>
           

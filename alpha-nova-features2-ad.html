@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Alpha Nova — Deeper Edge</title>
+<style>
+  :root {
+    --gold: #e8c47c;
+    --gold-deep: #b98a3e;
+    --green: #32d74b;
+    --red: #ff453a;
+    --teal: #5ac8fa;
+    --ink: #f5f5f7;
+    --dim: rgba(245, 245, 247, 0.55);
+    --faint: rgba(245, 245, 247, 0.32);
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --mono: "SF Mono", ui-monospace, Consolas, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Inter, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: var(--ink);
+  }
+
+  .stage { position: fixed; inset: 0; display: grid; place-items: center; }
+
+  .orb {
+    position: absolute; border-radius: 50%;
+    filter: blur(120px); opacity: 0;
+    transition: opacity 2.4s var(--ease);
+    will-change: transform, opacity;
+  }
+  .orb-a {
+    width: 55vmax; height: 55vmax; left: -14vmax; top: -18vmax;
+    background: radial-gradient(circle, rgba(232,196,124,0.15), transparent 65%);
+    animation: drift-a 28s ease-in-out infinite alternate;
+  }
+  .orb-b {
+    width: 60vmax; height: 60vmax; right: -20vmax; bottom: -24vmax;
+    background: radial-gradient(circle, rgba(90,200,250,0.09), transparent 65%);
+    animation: drift-b 34s ease-in-out infinite alternate;
+  }
+  .stage.lit .orb { opacity: 1; }
+  @keyframes drift-a { to { transform: translate(9vmax, 7vmax) scale(1.12); } }
+  @keyframes drift-b { from { transform: scale(1.08); } to { transform: translate(-8vmax, -6vmax); } }
+
+  .vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+  }
+
+  /* ---- scenes ---- */
+  .scene {
+    position: absolute; inset: 0;
+    display: grid; place-items: center; text-align: center;
+    padding: 5vmin;
+    opacity: 0; visibility: hidden;
+    transition: opacity 0.85s var(--ease), visibility 0s linear 0.85s;
+  }
+  .scene.on { opacity: 1; visibility: visible; transition: opacity 0.85s var(--ease); }
+
+  .eyebrow {
+    font-size: clamp(12px, 1.6vmin, 15px);
+    font-weight: 600; letter-spacing: 0.4em; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 2.6vmin;
+    opacity: 0; transform: translateY(14px);
+    transition: transform 1s var(--ease), opacity 1s var(--ease);
+  }
+  .eyebrow .num { color: var(--gold); }
+  .scene.on .eyebrow { opacity: 1; transform: translateY(0); }
+
+  .line {
+    font-size: clamp(30px, 5.8vmin, 68px);
+    font-weight: 700; letter-spacing: -0.035em; line-height: 1.08;
+    opacity: 0; transform: translateY(24px) scale(1.02);
+    transition: transform 1.2s var(--ease) 0.15s, opacity 1.2s var(--ease) 0.15s;
+  }
+  .scene.on .line { opacity: 1; transform: translateY(0) scale(1); }
+
+  .intro-line { font-size: clamp(36px, 7.4vmin, 88px); font-weight: 800; letter-spacing: -0.04em; }
+  .gold { color: var(--gold); }
+
+  /* ---- glass app panel ---- */
+  .panel {
+    width: min(640px, 88vw);
+    margin: 4.2vmin auto 0;
+    border-radius: 22px;
+    border: 1px solid rgba(255,255,255,0.13);
+    background: rgba(20, 20, 24, 0.55);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4) inset;
+    padding: 3vmin 3.2vmin;
+    text-align: left;
+    opacity: 0; transform: translateY(30px) scale(0.97);
+    transition: transform 1.3s var(--ease) 0.4s, opacity 1.3s var(--ease) 0.4s;
+  }
+  .scene.on .panel { opacity: 1; transform: translateY(0) scale(1); }
+
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 2.2vmin;
+  }
+  .panel-title {
+    font-size: clamp(11px, 1.5vmin, 14px);
+    font-weight: 700; letter-spacing: 0.28em; color: var(--faint);
+  }
+  .pill {
+    font-family: var(--mono);
+    font-size: clamp(10px, 1.4vmin, 13px);
+    padding: 0.7vmin 1.6vmin; border-radius: 100px;
+    border: 1px solid rgba(255,255,255,0.14);
+    color: var(--dim);
+  }
+  .pill.gold { color: var(--gold); border-color: rgba(232,196,124,0.4); background: rgba(232,196,124,0.08); }
+  .pill.green { color: var(--green); border-color: rgba(50,215,75,0.35); background: rgba(50,215,75,0.08); }
+
+  /* guru pills (scene 1) */
+  .gurus { display: flex; gap: 1.4vmin; flex-wrap: wrap; }
+  .guru {
+    padding: 1.3vmin 2.2vmin; border-radius: 100px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.05);
+    font-size: clamp(12px, 1.8vmin, 16px);
+    font-weight: 600;
+    opacity: 0; transform: translateY(14px);
+    transition: transform 0.9s var(--ease), opacity 0.9s var(--ease), border-color 0.6s var(--ease), background 0.6s var(--ease), color 0.6s var(--ease);
+  }
+  .scene.on .guru:nth-child(1) { transition-delay: 0.9s; }
+  .scene.on .guru:nth-child(2) { transition-delay: 1.05s; }
+  .scene.on .guru:nth-child(3) { transition-delay: 1.2s; }
+  .scene.on .guru { opacity: 1; transform: translateY(0); }
+  .scene.on .guru.pick {
+    border-color: rgba(232,196,124,0.6);
+    background: rgba(232,196,124,0.12);
+    color: var(--gold);
+    transition-delay: 2.1s;
+  }
+
+  /* screener rows (scene 1) */
+  .rows { margin-top: 2.4vmin; display: flex; flex-direction: column; gap: 1.2vmin; }
+  .row {
+    display: flex; align-items: center; gap: 2vmin;
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 14px;
+    padding: 1.6vmin 2vmin;
+    background: rgba(255,255,255,0.04);
+    font-family: var(--mono);
+    font-size: clamp(12px, 1.8vmin, 16px);
+    opacity: 0; transform: translateX(-18px);
+    transition: transform 1s var(--ease), opacity 1s var(--ease);
+  }
+  .scene.on .row:nth-child(1) { transition-delay: 2.6s; }
+  .scene.on .row:nth-child(2) { transition-delay: 2.85s; }
+  .scene.on .row:nth-child(3) { transition-delay: 3.1s; }
+  .scene.on .row { opacity: 1; transform: translateX(0); }
+  .row .sym { font-weight: 700; min-width: 9ch; }
+  .row .px { color: var(--dim); }
+  .row .alpha { margin-left: auto; display: flex; align-items: center; gap: 1.2vmin; }
+  .row .alpha .k { font-size: 0.75em; letter-spacing: 0.2em; color: var(--faint); }
+  .alphabar {
+    width: clamp(70px, 11vmin, 120px); height: 6px;
+    border-radius: 3px; background: rgba(255,255,255,0.09);
+    overflow: hidden;
+  }
+  .alphabar i {
+    display: block; height: 100%; width: 0%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--gold-deep), var(--gold));
+    transition: width 1.5s var(--ease);
+  }
+  .scene.on .row:nth-child(1) .alphabar i { width: 92%; transition-delay: 3.2s; }
+  .scene.on .row:nth-child(2) .alphabar i { width: 99%; transition-delay: 3.45s; }
+  .scene.on .row:nth-child(3) .alphabar i { width: 95%; transition-delay: 3.7s; }
+  .row .score { color: var(--gold); font-weight: 700; min-width: 2ch; }
+
+  /* flow rows (scene 2) */
+  .flows { display: flex; flex-direction: column; gap: 1.6vmin; }
+  .flow {
+    display: grid;
+    grid-template-columns: 11ch 1fr 12ch;
+    align-items: center; gap: 2vmin;
+    font-family: var(--mono);
+    font-size: clamp(12px, 1.8vmin, 16px);
+    opacity: 0; transform: translateY(14px);
+    transition: transform 0.9s var(--ease), opacity 0.9s var(--ease);
+  }
+  .scene.on .flow:nth-child(1) { transition-delay: 0.9s; }
+  .scene.on .flow:nth-child(2) { transition-delay: 1.1s; }
+  .scene.on .flow:nth-child(3) { transition-delay: 1.3s; }
+  .scene.on .flow { opacity: 1; transform: translateY(0); }
+  .flow .d { color: var(--dim); }
+  .flow .amt { text-align: right; font-weight: 700; }
+  .flow .amt.gain { color: var(--green); }
+  .flow .amt.loss { color: var(--red); }
+  .flowtrack {
+    position: relative; height: 12px;
+    display: flex; align-items: center;
+  }
+  .flowtrack::before {
+    content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px;
+    width: 1px; background: rgba(255,255,255,0.25);
+  }
+  .fbar {
+    position: absolute; height: 100%; width: 0;
+    transition: width 1.6s var(--ease);
+  }
+  .fbar.buy { left: 50%; background: linear-gradient(90deg, rgba(50,215,75,0.9), rgba(126,231,135,0.9)); border-radius: 0 6px 6px 0; }
+  .fbar.sell { right: 50%; background: linear-gradient(270deg, rgba(255,69,58,0.9), rgba(255,120,110,0.9)); border-radius: 6px 0 0 6px; }
+  .scene.on .flow:nth-child(1) .fbar { width: 14%; transition-delay: 1.5s; }
+  .scene.on .flow:nth-child(2) .fbar { width: 38%; transition-delay: 1.7s; }
+  .scene.on .flow:nth-child(3) .fbar { width: 30%; transition-delay: 1.9s; }
+
+  /* forecast chart (scene 3) */
+  .chartbox { position: relative; }
+  .chartbox svg { width: 100%; height: clamp(110px, 18vmin, 170px); display: block; }
+  .hist-path {
+    fill: none; stroke: var(--ink); stroke-width: 2.2;
+    stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 1; stroke-dashoffset: 1;
+    transition: stroke-dashoffset 1.5s var(--ease) 0.9s;
+  }
+  .scene.on .hist-path { stroke-dashoffset: 0; }
+  .fc-band {
+    fill: rgba(232,196,124,0.10);
+    opacity: 0;
+    transition: opacity 1.2s var(--ease) 2.7s;
+  }
+  .scene.on .fc-band { opacity: 1; }
+  .fc-path {
+    fill: none; stroke: var(--gold); stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-dasharray: 0.06 0.045;
+    opacity: 0;
+    transition: opacity 1.2s var(--ease) 2.5s;
+  }
+  .scene.on .fc-path { opacity: 1; }
+  .fc-divider {
+    stroke: rgba(255,255,255,0.2); stroke-width: 1; stroke-dasharray: 4 5;
+  }
+  .fc-tag {
+    position: absolute; right: 2%; top: 4%;
+    font-family: var(--mono);
+    font-size: clamp(10px, 1.5vmin, 13px);
+    color: var(--gold);
+    padding: 0.6vmin 1.4vmin;
+    border: 1px solid rgba(232,196,124,0.4);
+    border-radius: 100px;
+    background: rgba(232,196,124,0.08);
+    opacity: 0; transform: translateY(-8px);
+    transition: transform 1s var(--ease) 3.1s, opacity 1s var(--ease) 3.1s;
+  }
+  .scene.on .fc-tag { opacity: 1; transform: translateY(0); }
+  .axis-note {
+    display: flex; justify-content: space-between;
+    margin-top: 1.2vmin;
+    font-family: var(--mono);
+    font-size: clamp(10px, 1.4vmin, 13px);
+    color: var(--faint);
+  }
+
+  /* ---- end card ---- */
+  .mark {
+    width: clamp(70px, 11vmin, 110px); height: clamp(70px, 11vmin, 110px);
+    border-radius: 26%;
+    display: grid; place-items: center;
+    margin: 0 auto 3.6vmin;
+    font-weight: 800; font-size: clamp(28px, 4.6vmin, 44px);
+    color: #0a0a0c;
+    background: linear-gradient(135deg, #f6e2b3, var(--gold) 45%, var(--gold-deep));
+    box-shadow: 0 0 70px rgba(232,196,124,0.35), 0 0 180px rgba(232,196,124,0.15);
+    opacity: 0; transform: translateY(24px) scale(0.94);
+    transition: transform 1.4s var(--ease), opacity 1.4s var(--ease);
+  }
+  .scene.on .mark { opacity: 1; transform: translateY(0) scale(1); }
+  .end-name {
+    font-size: clamp(38px, 6.6vmin, 78px);
+    font-weight: 800; letter-spacing: -0.04em;
+    opacity: 0; transform: translateY(20px);
+    transition: transform 1.3s var(--ease) 0.35s, opacity 1.3s var(--ease) 0.35s;
+  }
+  .scene.on .end-name { opacity: 1; transform: translateY(0); }
+  .tagline {
+    margin-top: 1.4vmin;
+    font-size: clamp(16px, 2.4vmin, 24px);
+    font-weight: 500; color: var(--dim);
+    opacity: 0; transform: translateY(16px);
+    transition: transform 1.3s var(--ease) 0.65s, opacity 1.3s var(--ease) 0.65s;
+  }
+  .scene.on .tagline { opacity: 1; transform: translateY(0); }
+  .cta {
+    display: inline-flex; align-items: center; gap: 1.1vmin;
+    margin-top: 4.2vmin; padding: 1.5vmin 3vmin;
+    border-radius: 100px;
+    border: 1px solid rgba(232,196,124,0.4);
+    background: rgba(232,196,124,0.09);
+    font-size: clamp(13px, 1.8vmin, 16px);
+    font-weight: 600; letter-spacing: 0.05em; color: var(--gold);
+    opacity: 0; transform: translateY(14px);
+    transition: transform 1.3s var(--ease) 1s, opacity 1.3s var(--ease) 1s;
+  }
+  .scene.on .cta { opacity: 1; transform: translateY(0); }
+  .cta .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green); box-shadow: 0 0 12px var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 0.55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.18); } }
+
+  /* step dots */
+  .stepdots {
+    position: fixed; top: 5vmin; left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 10px;
+    opacity: 0; transition: opacity 0.8s var(--ease);
+    z-index: 9;
+  }
+  .stepdots.on { opacity: 1; }
+  .stepdots span {
+    width: 30px; height: 3px; border-radius: 2px;
+    background: rgba(255,255,255,0.18);
+    transition: background 0.5s var(--ease);
+  }
+  .stepdots span.hit { background: var(--gold); }
+
+  .progress {
+    position: fixed; left: 0; bottom: 0;
+    height: 2px; width: 0%;
+    background: linear-gradient(90deg, var(--gold-deep), var(--gold));
+    z-index: 10;
+  }
+  .replay {
+    position: fixed; left: 50%; bottom: 5.5vmin;
+    transform: translateX(-50%) translateY(14px);
+    padding: 12px 26px; border-radius: 100px;
+    border: 1px solid rgba(255,255,255,0.22);
+    background: rgba(255,255,255,0.07);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: var(--ink); font: inherit; font-size: 15px; font-weight: 600;
+    cursor: pointer; opacity: 0; pointer-events: none;
+    transition: opacity 0.8s var(--ease), transform 0.8s var(--ease);
+    z-index: 11;
+  }
+  .replay.on { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+  .replay:hover { background: rgba(255,255,255,0.14); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .orb, .cta .dot { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+
+  <!-- 0.6 – 5.0 : intro -->
+  <section class="scene" data-start="0.6" data-end="5.0">
+    <div>
+      <p class="eyebrow">How to <span class="num">Alpha Nova</span> · Part II</p>
+      <h1 class="line intro-line">Three more moves.<br /><span class="gold">Deeper edge.</span></h1>
+    </div>
+  </section>
+
+  <!-- 5.0 – 13.2 : step 1 · Quant Screener -->
+  <section class="scene" data-start="5.0" data-end="13.2">
+    <div style="width:100%">
+      <p class="eyebrow"><span class="num">01</span> · Quant Screener</p>
+      <h2 class="line">Screen like the greats.</h2>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">GURU SCREENS</span>
+          <span class="pill gold">NIFTY 100 + S&amp;P 100</span>
+        </div>
+        <div class="gurus">
+          <span class="guru">🏛 Buffett</span>
+          <span class="guru pick">🚀 Minervini</span>
+          <span class="guru">🧮 Greenblatt</span>
+        </div>
+        <div class="rows">
+          <div class="row">
+            <span class="sym">TCS.NS</span><span class="px">₹2,093.50</span>
+            <span class="alpha"><span class="k">ALPHA</span><span class="alphabar"><i></i></span><span class="score">92</span></span>
+          </div>
+          <div class="row">
+            <span class="sym">MSFT</span><span class="px">$390.49</span>
+            <span class="alpha"><span class="k">ALPHA</span><span class="alphabar"><i></i></span><span class="score">99</span></span>
+          </div>
+          <div class="row">
+            <span class="sym">NVDA</span><span class="px">$194.83</span>
+            <span class="alpha"><span class="k">ALPHA</span><span class="alphabar"><i></i></span><span class="score">95</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13.2 – 20.6 : step 2 · FII / DII -->
+  <section class="scene" data-start="13.2" data-end="20.6">
+    <div style="width:100%">
+      <p class="eyebrow"><span class="num">02</span> · FII / DII Activity</p>
+      <h2 class="line">Follow the money.</h2>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">INSTITUTIONAL FLOW · ₹ CR</span>
+          <span class="pill green">FII · NET BUYERS</span>
+        </div>
+        <div class="flows">
+          <div class="flow">
+            <span class="d">03-Jul</span>
+            <span class="flowtrack"><i class="fbar buy"></i></span>
+            <span class="amt gain">+1,355.33</span>
+          </div>
+          <div class="flow">
+            <span class="d">02-Jul</span>
+            <span class="flowtrack"><i class="fbar buy"></i></span>
+            <span class="amt gain">+3,656.12</span>
+          </div>
+          <div class="flow">
+            <span class="d">29-Jun</span>
+            <span class="flowtrack"><i class="fbar sell"></i></span>
+            <span class="amt loss">-2,879.67</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 20.6 – 26.4 : step 3 · SARIMAX Forecaster -->
+  <section class="scene" data-start="20.6" data-end="26.4">
+    <div style="width:100%">
+      <p class="eyebrow"><span class="num">03</span> · SARIMAX Forecaster</p>
+      <h2 class="line">See what's next.</h2>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">RELIANCE.NS · PROJECTION</span>
+          <span class="pill">10 DAYS</span>
+        </div>
+        <div class="chartbox">
+          <span class="fc-tag">FORECAST ▸</span>
+          <svg viewBox="0 0 640 160" preserveAspectRatio="none" aria-hidden="true">
+            <line class="fc-divider" x1="440" y1="6" x2="440" y2="154" />
+            <path class="fc-band" d="M440,64 L490,58 L540,50 L590,46 L640,38 L640,86 L590,78 L540,74 L490,72 L440,64 Z" />
+            <path class="hist-path" pathLength="1" d="M0,120 L40,110 L80,116 L120,98 L160,104 L200,86 L240,92 L280,74 L320,82 L360,66 L400,72 L440,64" />
+            <path class="fc-path" pathLength="1" d="M440,64 L490,60 L540,54 L590,50 L640,44" />
+          </svg>
+        </div>
+        <div class="axis-note">
+          <span>HISTORY · 12M</span>
+          <span style="color:var(--gold)">↗ PROJECTED PATH · 95% BAND</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 26.4 – end : end card -->
+  <section class="scene" data-start="26.4" data-end="99">
+    <div>
+      <div class="mark">AN</div>
+      <h1 class="end-name">Alpha Nova</h1>
+      <p class="tagline">Your edge, compounding.</p>
+      <div class="cta"><span class="dot"></span> Now live &nbsp;·&nbsp; 5alphav2.vercel.app</div>
+    </div>
+  </section>
+
+  <div class="vignette"></div>
+</div>
+
+<div class="stepdots" id="stepdots"><span></span><span></span><span></span></div>
+<div class="progress" id="progress"></div>
+<button class="replay" id="replay" type="button">↻ Watch again</button>
+
+<script>
+  const DURATION = 30;
+
+  const stage = document.getElementById('stage');
+  const progress = document.getElementById('progress');
+  const replayBtn = document.getElementById('replay');
+  const stepdots = document.getElementById('stepdots');
+  const dots = stepdots.querySelectorAll('span');
+  const scenes = [...document.querySelectorAll('.scene')].map((el) => ({
+    el,
+    start: parseFloat(el.dataset.start),
+    end: parseFloat(el.dataset.end),
+  }));
+
+  const STEP_STARTS = [5.0, 13.2, 20.6];
+  const STEPS_WINDOW = [5.0, 26.4];
+
+  function update(t) {
+    for (const s of scenes) s.el.classList.toggle('on', t >= s.start && t < s.end);
+    stage.classList.toggle('lit', t >= 0.2);
+    stepdots.classList.toggle('on', t >= STEPS_WINDOW[0] && t < STEPS_WINDOW[1]);
+    dots.forEach((d, i) => d.classList.toggle('hit', t >= STEP_STARTS[i]));
+    progress.style.width = Math.min(t / DURATION, 1) * 100 + '%';
+    replayBtn.classList.toggle('on', t >= DURATION);
+  }
+
+  let rafId = null;
+  let startTs = null;
+
+  function frame(now) {
+    if (startTs === null) startTs = now;
+    const t = (now - startTs) / 1000;
+    update(t);
+    if (t < DURATION + 0.5) rafId = requestAnimationFrame(frame);
+  }
+
+  function play() {
+    if (rafId) cancelAnimationFrame(rafId);
+    startTs = null;
+    update(0);
+    rafId = requestAnimationFrame(frame);
+  }
+
+  replayBtn.addEventListener('click', play);
+
+  // Debug / test hook: jump the film to any timestamp.
+  window.__seek = (t) => {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    update(t);
+  };
+
+  play();
+</script>
+</body>
+</html>

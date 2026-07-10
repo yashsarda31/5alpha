@@ -4,7 +4,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PageHeader, StatTile, StatGrid } from '../components/ui';
 import Plot from '../components/Plot';
+import TickerSearch from '../components/TickerSearch';
+import ShareButton from '../components/ShareButton';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
+import revealResults from '../lib/revealResults';
 
 const currencyFor = (ticker) => {
   const t = (ticker || '').toUpperCase();
@@ -37,6 +40,7 @@ const Arima = () => {
         days: parseInt(days) || 10
       });
       setForecastData(res.data);
+      revealResults('arima-analysis');
     } catch (err) {
       // Inline error — alert() freezes the preview renderer and interrupts flows
       setError(err.response?.data?.detail || err.message);
@@ -178,8 +182,11 @@ const Arima = () => {
       }}>
         <div>
           <label style={{ display: 'block', fontSize: 12 }}>Ticker Symbol</label>
-          <input value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())}
-            onFocus={(e) => e.target.select()} style={{ width: '100%', marginBottom: 0 }} />
+          <TickerSearch
+            value={ticker}
+            onChange={setTicker}
+            placeholder="Ticker or company name…"
+          />
         </div>
         <div>
           <label style={{ display: 'block', fontSize: 12 }}>Horizon (Days)</label>
@@ -198,6 +205,19 @@ const Arima = () => {
       )}
 
       {forecastData && sum && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <ShareButton
+            label="Share this forecast"
+            filename={`alpha-nova-forecast-${ticker.replace(/\W+/g, '-')}.png`}
+            shareText={`${ticker} ${sum.horizon_days}-day SARIMAX projection — Alpha Nova`}
+            capture={() => document.getElementById('arima-analysis')}
+          />
+        </div>
+      )}
+
+      {forecastData && (
+      <div id="arima-analysis">
+      {sum && (
         <StatGrid style={{ marginBottom: 16 }}>
           <StatTile label="Last Price" value={`${cur}${sum.last_price.toLocaleString()}`} />
           <StatTile label={`Forecast · ${sum.horizon_days}d`} tone={up ? 'gain' : 'loss'}
@@ -216,7 +236,6 @@ const Arima = () => {
         </StatGrid>
       )}
 
-      {forecastData && (
         <div className="card" style={{ padding: '12px 8px 4px' }}>
           <Plot
             data={traces}
@@ -231,6 +250,7 @@ const Arima = () => {
             inherently uncertain — treat the band, not the line, as the forecast.
           </p>
         </div>
+      </div>
       )}
 
       {forecastData && (

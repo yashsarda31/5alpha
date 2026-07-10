@@ -4,7 +4,7 @@
  *   so deploys are picked up immediately and the app still opens offline.
  * - /api/* is never touched: market data and auth must always be live.
  */
-const CACHE = 'alphanova-v2';
+const CACHE = 'alphanova-v4';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -61,8 +61,8 @@ self.addEventListener('push', (event) => {
     self.registration.showNotification(data.title || 'Alpha Nova', {
       body: data.body || 'New market signal',
       tag: data.tag || 'alphanova-signal',
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
+      icon: '/icons/icon-192-v3.png',
+      badge: '/icons/icon-192-v3.png',
       data: { url: data.url || '/signals' },
     })
   );

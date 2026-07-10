@@ -5,6 +5,7 @@ requests
 pandas
 numpy
 statsmodels
+arch
 google-genai
 pydantic
 Pillow

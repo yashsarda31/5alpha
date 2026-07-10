@@ -18,7 +18,7 @@ const InstallApp = ({ compact = false }) => {
   // main.jsx stashes the (once-only, pre-mount) beforeinstallprompt event on
   // window — read it instead of racing to catch the event ourselves.
   const [deferredPrompt, setDeferredPrompt] = useState(() => window.__anInstallPrompt || null);
-  const [showHelp, setShowHelp] = useState(false);
+  const [showHelp, setShowHelp] = useState(() => isIOS());
   const [installed, setInstalled] = useState(isStandalone);
 
   useEffect(() => {
@@ -39,19 +39,37 @@ const InstallApp = ({ compact = false }) => {
   if (!deferredPrompt && !isIOS() && !isAndroid()) return null;
 
   const handleClick = async () => {
-    if (deferredPrompt) {
+    // Safari has no install prompt, even when a browser emulator exposes one.
+    // Always guide iPhone/iPad users through Safari's Add to Home Screen flow.
+    if (isIOS()) {
+      setShowHelp((v) => !v);
+      return;
+    }
+    if (!deferredPrompt) {
+      setShowHelp(true);
+      return;
+    }
+    try {
+      // Keep a manual path visible if Android's native install sheet stalls
+      // or is dismissed, so the install button never appears inert.
+      setShowHelp(true);
       deferredPrompt.prompt();
-      await deferredPrompt.userChoice.catch(() => {});
+      const choice = await deferredPrompt.userChoice;
+      // If Android's native sheet is dismissed, leave a clear manual path
+      // instead of making the button appear broken.
+      if (choice?.outcome !== 'accepted') setShowHelp(true);
+    } catch {
+      setShowHelp(true);
+    } finally {
       setDeferredPrompt(null);
       window.__anInstallPrompt = null;
-    } else {
-      setShowHelp((v) => !v);
     }
   };
 
   return (
     <div style={{ marginBottom: compact ? 0 : '16px' }}>
       <button
+        type="button"
         onClick={handleClick}
         className="secondary"
         style={{
@@ -78,7 +96,7 @@ const InstallApp = ({ compact = false }) => {
             </>
           ) : (
             <>
-              In Chrome: tap the <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>⋮ menu</strong> (top right),
+              If the install sheet does not complete, in Chrome tap the <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>⋮ menu</strong> (top right),
               then choose <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>Add to Home screen</strong> →{' '}
               <strong style={{ color: 'var(--text-primary, #F5F5F7)' }}>Install</strong>.
             </>

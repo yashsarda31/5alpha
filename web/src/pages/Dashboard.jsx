@@ -100,6 +100,7 @@ const NAV_MODULES = [
   { to: '/track-record', code: 'TRACK', title: 'Signal Track Record', desc: 'Model portfolio & win rate — every signal, marked to market.' },
   { to: '/option-chain', code: 'OCHN', title: 'Option Chain', desc: 'Institutional derivative analytics & structural mapping.' },
   { to: '/chart', code: 'GP', title: 'Chart Analyser', desc: 'Technical analysis with Minervini VCP ratings.' },
+  { to: '/flcl', code: 'FLCL', title: 'FLCL Analysis', desc: 'Floor/ceiling regime engine with trailing structure levels.' },
   { to: '/screener', code: 'EQS', title: 'Quant Screener', desc: 'Filter market using institutional constraints.' },
   { to: '/dcf', code: 'DCF', title: 'Valuations', desc: 'Intrinsic value via reverse-engineered cash flows.' },
   { to: '/fiidii', code: 'FLOW', title: 'Inst. Activity', desc: 'Track FII/DII cash market activity and flow.' },

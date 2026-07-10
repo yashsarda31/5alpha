@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alpha Nova — The Edge · 30s</title>
+<style>
+  :root{
+    --gold:#F5DC8C;
+    --blue:#3EE6FF;
+    --green:#32D74B;
+    --red:#FF453A;
+    --txt:#F5F5F7;
+    --dim:#A1A1AA;
+    --faint:#6E6E73;
+    --line:rgba(255,255,255,.08);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    background:#000;
+    color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  .stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+
+  /* ambient light */
+  .aurora{
+    position:absolute;width:135vmax;height:135vmax;border-radius:50%;
+    background:radial-gradient(circle at center, rgba(62,230,255,.07), rgba(245,220,140,.055) 34%, transparent 62%);
+    filter:blur(52px);
+    animation:aurora 32s ease-in-out infinite alternate;
+    pointer-events:none;
+  }
+  @keyframes aurora{
+    0%{transform:translate(15%,-13%) scale(1);}
+    50%{transform:translate(-13%,7%) scale(1.12);}
+    100%{transform:translate(7%,15%) scale(.94);}
+  }
+
+  /* scene transitions — cinematic blur-in */
+  .scene{
+    position:absolute;inset:0;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:24px;
+    opacity:0;visibility:hidden;
+    transform:scale(.975);
+    filter:blur(15px);
+    transition:opacity .9s cubic-bezier(.25,.1,.25,1),
+               transform .9s cubic-bezier(.25,.1,.25,1),
+               filter .9s cubic-bezier(.25,.1,.25,1),
+               visibility 0s linear .9s;
+    will-change:opacity,transform,filter;
+  }
+  .scene.on{
+    opacity:1;visibility:visible;transform:scale(1);filter:blur(0);
+    transition:opacity .9s cubic-bezier(.25,.1,.25,1),
+               transform .9s cubic-bezier(.25,.1,.25,1),
+               filter .9s cubic-bezier(.25,.1,.25,1),
+               visibility 0s;
+  }
+
+  .rise{opacity:0;transform:translateY(28px);}
+  .scene.on .rise{animation:rise 1s cubic-bezier(.2,.7,.2,1) forwards;animation-delay:var(--d,0s);}
+  @keyframes rise{to{opacity:1;transform:translateY(0);}}
+
+  .kicker{
+    font-size:clamp(11px,1.4vw,14px);
+    letter-spacing:.42em;text-transform:uppercase;
+    color:var(--gold);font-weight:600;margin-bottom:22px;
+  }
+  .hero{
+    font-size:clamp(34px,6.6vw,86px);
+    font-weight:700;letter-spacing:-.03em;line-height:1.05;
+  }
+  .hero .soft{color:var(--faint);}
+  .sub{
+    margin-top:20px;font-size:clamp(15px,2vw,22px);
+    color:var(--dim);font-weight:400;letter-spacing:-.01em;max-width:680px;
+  }
+  .gold{color:var(--gold);} .blue{color:var(--blue);}
+  .up{color:var(--green);} .dn{color:var(--red);}
+
+  /* shared mock card */
+  .mock{
+    margin-top:36px;
+    background:linear-gradient(180deg,#151517,#0D0D0F);
+    border:1px solid var(--line);border-radius:22px;
+    padding:22px 26px;
+    box-shadow:0 30px 90px rgba(0,0,0,.7), 0 0 60px rgba(245,220,140,.05);
+    text-align:left;min-width:min(600px,92vw);
+  }
+  .mhead{
+    display:flex;align-items:center;justify-content:space-between;
+    font-size:11px;letter-spacing:.28em;color:var(--faint);
+    text-transform:uppercase;margin-bottom:16px;font-weight:600;
+  }
+
+  /* --- S2 regime chips --- */
+  .chips{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
+  .chip{
+    background:#0A0A0B;border:1px solid var(--line);border-radius:14px;
+    padding:14px 16px;opacity:0;transform:translateY(16px);
+  }
+  .scene.on .chip{animation:rise .6s cubic-bezier(.2,.7,.2,1) forwards;animation-delay:var(--d,1s);}
+  .chip .lab{font-size:10px;letter-spacing:.22em;color:var(--faint);font-weight:700;text-transform:uppercase;}
+  .chip .val{font-size:clamp(19px,2.7vw,26px);font-weight:800;letter-spacing:-.02em;margin-top:6px;}
+  .chip .note{font-size:11.5px;color:var(--dim);margin-top:4px;font-weight:500;}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle;}
+
+  /* --- S3 options intelligence grid --- */
+  .oi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px 10px;}
+  .oi-cell{opacity:0;transform:translateY(14px);}
+  .scene.on .oi-cell{animation:rise .55s cubic-bezier(.2,.7,.2,1) forwards;animation-delay:var(--d,1s);}
+  .oi-cell .lab{font-size:9.5px;letter-spacing:.16em;color:var(--faint);font-weight:700;text-transform:uppercase;}
+  .oi-cell .v{font-size:clamp(17px,2.4vw,23px);font-weight:800;letter-spacing:-.02em;margin-top:5px;}
+  .oi-tape{
+    margin-top:18px;display:flex;align-items:center;gap:10px;
+    font-size:12px;color:var(--dim);font-weight:600;
+    border-top:1px solid var(--line);padding-top:14px;
+  }
+  .tag-iv{
+    font-size:10.5px;letter-spacing:.16em;font-weight:800;color:#000;
+    background:var(--blue);border-radius:6px;padding:5px 10px;
+  }
+
+  /* --- S4 scored setup gauge --- */
+  .setup{display:flex;align-items:center;gap:30px;flex-wrap:wrap;}
+  .ring{
+    --p:0;position:relative;width:130px;height:130px;border-radius:50%;flex:none;
+    background:conic-gradient(var(--green) calc(var(--p)*1%), rgba(255,255,255,.07) 0);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 40px rgba(50,215,75,.16);
+  }
+  .scene.on .ring{animation:score 1.6s cubic-bezier(.3,.7,.3,1) forwards;animation-delay:1.1s;}
+  @keyframes score{to{--p:78;}}
+  @property --p{syntax:'<number>';inherits:false;initial-value:0;}
+  .ring::before{content:"";position:absolute;inset:11px;border-radius:50%;background:#0D0D0F;}
+  .ring .num{position:relative;font-size:40px;font-weight:800;letter-spacing:-.03em;}
+  .ring .num small{font-size:16px;color:var(--faint);font-weight:700;}
+  .setup-body{flex:1;min-width:230px;}
+  .setup-side{
+    display:inline-block;font-size:12px;letter-spacing:.14em;font-weight:800;
+    color:#000;background:var(--green);border-radius:6px;padding:5px 12px;margin-bottom:12px;
+  }
+  .setup-rows{display:flex;gap:26px;flex-wrap:wrap;}
+  .setup-rows div .l{font-size:10px;letter-spacing:.18em;color:var(--faint);font-weight:700;text-transform:uppercase;}
+  .setup-rows div .n{font-size:clamp(18px,2.4vw,24px);font-weight:800;margin-top:4px;letter-spacing:-.02em;}
+  .rr{margin-top:14px;font-size:12.5px;color:var(--dim);font-weight:600;}
+
+  /* --- S5 dual market --- */
+  .duo{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-top:36px;}
+  .mkt{
+    background:linear-gradient(180deg,#151517,#0D0D0F);
+    border:1px solid var(--line);border-radius:20px;
+    padding:22px 24px;min-width:min(280px,90vw);flex:1;text-align:left;
+    opacity:0;transform:translateY(20px);
+    box-shadow:0 24px 70px rgba(0,0,0,.6);
+  }
+  .scene.on .mkt{animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards;animation-delay:var(--d,.9s);}
+  .mkt .flag{font-size:11px;letter-spacing:.24em;font-weight:700;color:var(--faint);text-transform:uppercase;}
+  .mkt .idx{font-size:clamp(24px,3.4vw,34px);font-weight:800;letter-spacing:-.02em;margin-top:8px;}
+  .mkt .chg{font-size:14px;font-weight:700;margin-top:2px;}
+  .mkt .when{font-size:11px;color:var(--faint);margin-top:14px;letter-spacing:.06em;font-weight:600;}
+
+  /* --- S6 push lockscreen --- */
+  .phone{
+    margin-top:34px;width:min(340px,80vw);
+    background:linear-gradient(170deg,#101012,#050506);
+    border:1px solid rgba(255,255,255,.1);border-radius:34px;
+    padding:26px 16px 22px;box-shadow:0 30px 90px rgba(0,0,0,.8);
+  }
+  .lock-time{text-align:center;font-size:52px;font-weight:300;letter-spacing:-.03em;color:var(--txt);}
+  .lock-date{text-align:center;font-size:13px;color:var(--dim);margin-top:2px;font-weight:500;}
+  .push{
+    margin-top:26px;background:rgba(40,40,42,.9);border-radius:16px;
+    padding:13px 14px;display:flex;gap:12px;align-items:flex-start;
+    backdrop-filter:blur(8px);opacity:0;transform:translateY(30px) scale(.95);
+  }
+  .scene.on .push{animation:pushin .7s cubic-bezier(.25,1.3,.35,1) forwards;animation-delay:var(--d,1.1s);}
+  @keyframes pushin{to{opacity:1;transform:translateY(0) scale(1);}}
+  .push .ico{
+    width:38px;height:38px;border-radius:10px;flex:none;
+    background:linear-gradient(160deg,#1A1A1C,#0A0A0B);
+    border:1px solid rgba(245,220,140,.4);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:14px;color:var(--gold);
+  }
+  .push .body{flex:1;min-width:0;}
+  .push .top{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);font-weight:600;letter-spacing:.04em;}
+  .push .tt{font-weight:700;font-size:13.5px;margin-top:3px;letter-spacing:-.01em;}
+  .push .td{font-size:12px;color:var(--dim);margin-top:2px;}
+
+  /* finale */
+  .monogram{
+    width:112px;height:112px;border-radius:28px;
+    background:linear-gradient(160deg,#1A1A1C,#0A0A0B);
+    border:1px solid rgba(245,220,140,.35);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:44px;letter-spacing:-.02em;color:var(--gold);
+    box-shadow:0 0 80px rgba(245,220,140,.16), inset 0 1px 0 rgba(255,255,255,.08);
+    margin-bottom:34px;
+  }
+  .url{margin-top:26px;font-size:clamp(15px,2vw,20px);letter-spacing:.04em;color:var(--gold);font-weight:600;}
+  .fineprint{
+    position:absolute;bottom:104px;left:0;right:0;text-align:center;
+    font-size:10.5px;color:#48484A;letter-spacing:.03em;padding:0 40px;
+  }
+
+  .progress{position:fixed;left:0;bottom:0;height:3px;width:100%;background:rgba(255,255,255,.06);z-index:50;}
+  .progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,rgba(245,220,140,.5),var(--gold));}
+  body.playing .progress i{animation:prog 30s linear forwards;}
+  @keyframes prog{to{width:100%;}}
+
+  .replay{
+    position:fixed;bottom:34px;left:50%;transform:translateX(-50%) translateY(14px);
+    background:transparent;border:1px solid rgba(245,220,140,.45);color:var(--gold);
+    font-family:inherit;font-weight:600;font-size:13px;letter-spacing:.24em;text-transform:uppercase;
+    border-radius:999px;padding:13px 34px;cursor:pointer;
+    opacity:0;pointer-events:none;transition:opacity .8s ease, transform .8s ease, background .3s;z-index:60;
+  }
+  .replay.show{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0);}
+  .replay:hover{background:rgba(245,220,140,.12);}
+  .counter{
+    position:fixed;top:26px;right:32px;z-index:50;
+    font-size:11px;letter-spacing:.3em;color:#3A3A3C;font-weight:600;font-variant-numeric:tabular-nums;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="aurora"></div>
+
+  <!-- S1 · 0.0–3.0 · open -->
+  <section class="scene" id="s1">
+    <div class="hero rise">Anyone can see the price.</div>
+    <div class="hero rise" style="--d:.5s"><span class="gold">Few can read the signal.</span></div>
+    <div class="sub rise" style="--d:.9s">Alpha Nova — the advanced edge.</div>
+  </section>
+
+  <!-- S2 · 3.0–8.0 · Regime context -->
+  <section class="scene" id="s2">
+    <div class="kicker rise">Market Signals</div>
+    <div class="hero rise" style="--d:.15s">Read the whole market<br>in one glance.</div>
+    <div class="sub rise" style="--d:.35s">Regime, trend, volatility, options-IV — fused so you know when to press and when to wait.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="mhead"><span>REGIME CONTEXT · NSE</span><span>LIVE</span></div>
+      <div class="chips">
+        <div class="chip" style="--d:1.0s">
+          <div class="lab">Market Regime</div>
+          <div class="val up"><span class="dot" style="background:var(--green)"></span>RISK-ON</div>
+          <div class="note">Direction BULL · size ×1.0</div>
+        </div>
+        <div class="chip" style="--d:1.2s">
+          <div class="lab">Volatility · VIX</div>
+          <div class="val">11.65 <span style="font-size:.6em;color:var(--dim)">NORMAL</span></div>
+          <div class="note">34th pctile — trade buildups freely</div>
+        </div>
+        <div class="chip" style="--d:1.4s">
+          <div class="lab">Nifty Trend</div>
+          <div class="val gold">RECOVERY</div>
+          <div class="note">30d +4.3% · 52w-pos 53%</div>
+        </div>
+        <div class="chip" style="--d:1.6s">
+          <div class="lab">Near-Expiry IV</div>
+          <div class="val blue">CHEAP</div>
+          <div class="note">favour debit spreads / long options</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S3 · 8.0–13.0 · Options intelligence -->
+  <section class="scene" id="s3">
+    <div class="kicker rise">Options Intelligence</div>
+    <div class="hero rise" style="--d:.15s">The options tape,<br><span class="gold">decoded.</span></div>
+    <div class="sub rise" style="--d:.35s">PCR, max-pain, walls and true ATM&nbsp;IV solved from the straddle — the levels the desk actually watches.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="mhead"><span>NIFTY · EXP 07-JUL · 24,398</span><span>OPTION CHAIN v3</span></div>
+      <div class="oi-grid">
+        <div class="oi-cell" style="--d:1.0s"><div class="lab">PCR ±5%</div><div class="v">0.94</div></div>
+        <div class="oi-cell" style="--d:1.12s"><div class="lab">Max Pain</div><div class="v">24,400</div></div>
+        <div class="oi-cell" style="--d:1.24s"><div class="lab">Support</div><div class="v up">24,400</div></div>
+        <div class="oi-cell" style="--d:1.36s"><div class="lab">Resist.</div><div class="v dn">24,700</div></div>
+        <div class="oi-cell" style="--d:1.48s"><div class="lab">ATM IV</div><div class="v blue">12.6%</div></div>
+        <div class="oi-cell" style="--d:1.6s"><div class="lab">Straddle</div><div class="v">₹198</div></div>
+        <div class="oi-cell" style="--d:1.72s"><div class="lab">ΔOI Calls</div><div class="v up">+10.9L</div></div>
+        <div class="oi-cell" style="--d:1.84s"><div class="lab">ΔOI Puts</div><div class="v dn">−1.4K</div></div>
+      </div>
+      <div class="oi-tape"><span class="tag-iv">IV SOLVED</span> Straddle-implied ATM IV — no put-skew inflation.</div>
+    </div>
+  </section>
+
+  <!-- S4 · 13.0–18.5 · Scored setups -->
+  <section class="scene" id="s4">
+    <div class="kicker rise">Scored Setups</div>
+    <div class="hero rise" style="--d:.15s">Every setup, <span class="gold">scored 0–100.</span></div>
+    <div class="sub rise" style="--d:.35s">OI buildup, delivery, trend and regime roll into one conviction score — with entry, stop and target already drawn.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="mhead"><span>FUTURES RADAR · TRADE PLAN</span><span>CONVICTION</span></div>
+      <div class="setup">
+        <div class="ring"><div class="num">78<small>/100</small></div></div>
+        <div class="setup-body">
+          <span class="setup-side">LONG · HDFCBANK</span>
+          <div class="setup-rows">
+            <div><div class="l">Entry</div><div class="n">₹1,012</div></div>
+            <div><div class="l">Stop</div><div class="n dn">₹988</div></div>
+            <div><div class="l">Target</div><div class="n up">₹1,061</div></div>
+          </div>
+          <div class="rr">Long buildup · OI ↑ · dlv✓ · 2.0R to target</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S5 · 18.5–23.0 · Dual market -->
+  <section class="scene" id="s5">
+    <div class="kicker rise">Around the clock</div>
+    <div class="hero rise" style="--d:.15s">One terminal.<br>Two markets.</div>
+    <div class="sub rise" style="--d:.35s">Trade India by day; the same engine tracks the US megacaps overnight.</div>
+    <div class="duo">
+      <div class="mkt" style="--d:.9s">
+        <div class="flag">🇮🇳 &nbsp;NSE · INDIA</div>
+        <div class="idx">NIFTY 24,398</div>
+        <div class="chg up">▲ +0.42%</div>
+        <div class="when">09:15 – 15:30 IST · options, futures, delivery</div>
+      </div>
+      <div class="mkt" style="--d:1.15s">
+        <div class="flag">🇺🇸 &nbsp;US · MEGACAP</div>
+        <div class="idx">S&amp;P 6,284</div>
+        <div class="chg up">▲ +0.31%</div>
+        <div class="when">20:00 – 02:00 IST · SPY/QQQ · VIX regime</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S6 · 23.0–26.8 · Push alerts -->
+  <section class="scene" id="s6">
+    <div class="kicker rise">Never miss it</div>
+    <div class="hero rise" style="--d:.15s">It taps you<br>on the shoulder.</div>
+    <div class="sub rise" style="--d:.35s">Fresh high-conviction setups arrive as push notifications — right on your phone.</div>
+    <div class="phone">
+      <div class="lock-time">9:41</div>
+      <div class="lock-date">Wednesday, 8 July</div>
+      <div class="push" style="--d:1.1s">
+        <div class="ico">AN</div>
+        <div class="body">
+          <div class="top"><span>ALPHA NOVA</span><span>now</span></div>
+          <div class="tt">⚡ LONG HDFCBANK · 78/100</div>
+          <div class="td">entry ₹1,012 · stop ₹988 · target ₹1,061</div>
+        </div>
+      </div>
+      <div class="push" style="--d:1.55s">
+        <div class="ico">AN</div>
+        <div class="body">
+          <div class="top"><span>ALPHA NOVA</span><span>now</span></div>
+          <div class="tt">⚡ SHORT TATASTEEL · 64/100</div>
+          <div class="td">entry ₹148.2 · stop ₹151.9 · target ₹142.6</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S7 · 26.8–30 · finale -->
+  <section class="scene" id="s7">
+    <div class="monogram rise">AN</div>
+    <div class="hero rise" style="--d:.25s">Trade with an edge.</div>
+    <div class="sub rise" style="--d:.5s">The institutional terminal. In your pocket. Free.</div>
+    <div class="url rise" style="--d:.7s">5alphav2.vercel.app</div>
+    <div class="fineprint">For educational and analytical purposes only. Not investment advice.</div>
+  </section>
+</div>
+
+<div class="counter" id="counter">00:00 / 00:30</div>
+<div class="progress"><i></i></div>
+<button class="replay" id="replay">↺&nbsp;&nbsp;Replay</button>
+
+<script>
+(function(){
+  const TIMELINE = [
+    ['s1', 0.0],
+    ['s2', 3.0],
+    ['s3', 8.0],
+    ['s4', 13.0],
+    ['s5', 18.5],
+    ['s6', 23.0],
+    ['s7', 26.8],
+  ];
+  const TOTAL = 30;
+
+  const scenes = TIMELINE.map(([id]) => document.getElementById(id));
+  const replay = document.getElementById('replay');
+  const counter = document.getElementById('counter');
+  let timers = [];
+  let tickTimer = null;
+  let t0 = 0;
+
+  function clearAll(){
+    timers.forEach(clearTimeout);
+    timers = [];
+    if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+    scenes.forEach(s => s.classList.remove('on'));
+    replay.classList.remove('show');
+    document.body.classList.remove('playing');
+  }
+
+  function fmt(s){
+    return '00:' + String(Math.min(TOTAL, Math.floor(s))).padStart(2,'0') + ' / 00:30';
+  }
+
+  function play(){
+    clearAll();
+    void document.querySelector('.progress i').offsetWidth;
+    document.body.classList.add('playing');
+    t0 = performance.now();
+
+    TIMELINE.forEach(([id, at]) => {
+      timers.push(setTimeout(() => {
+        scenes.forEach(s => s.classList.remove('on'));
+        document.getElementById(id).classList.add('on');
+      }, at * 1000));
+    });
+    timers.push(setTimeout(() => replay.classList.add('show'), (TOTAL - 1.2) * 1000));
+
+    tickTimer = setInterval(() => {
+      const el = (performance.now() - t0) / 1000;
+      counter.textContent = fmt(el);
+      if (el >= TOTAL) { clearInterval(tickTimer); tickTimer = null; }
+    }, 250);
+  }
+
+  replay.addEventListener('click', play);
+  play();
+})();
+</script>
+</body>
+</html>

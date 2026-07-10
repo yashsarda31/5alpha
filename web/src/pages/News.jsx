@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { PageHeader, Badge } from '../components/ui';
+import TickerSearch from '../components/TickerSearch';
 
 const sentimentTone = (label) =>
   label === 'Bullish' ? 'gain' : label === 'Bearish' ? 'loss' : 'neutral';
@@ -43,16 +44,17 @@ const News = () => {
 
   const persistKey = (v) => { setNewsApiKey(v); localStorage.setItem('news_api_key', v); };
 
-  const fetchNews = async (e) => {
+  const fetchNews = async (e, overrideTicker) => {
     if (e) e.preventDefault();
-    if (!ticker) return;
+    const sym = (overrideTicker || ticker || '').trim();
+    if (!sym) return;
     setLoading(true);
     setError(null);
     setActiveSource('All');
     try {
       const url = newsApiKey
-        ? `/api/news/${ticker.toUpperCase()}?apiKey=${encodeURIComponent(newsApiKey)}`
-        : `/api/news/${ticker.toUpperCase()}`;
+        ? `/api/news/${sym.toUpperCase()}?apiKey=${encodeURIComponent(newsApiKey)}`
+        : `/api/news/${sym.toUpperCase()}`;
       const { data } = await axios.get(url);
       setNews(data.articles || []);
       setSentiment(data.sentiment_summary || null);
@@ -91,12 +93,11 @@ const News = () => {
       <div className="panel" style={{ marginBottom: '20px' }}>
         <form onSubmit={fetchNews} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
           <div style={{ display: 'flex', gap: '10px' }}>
-            <input
-              type="text"
+            <TickerSearch
               value={ticker}
-              onChange={(e) => setTicker(e.target.value)}
-              placeholder="Enter Ticker (e.g. RELIANCE, TCS, AAPL)"
-              style={{ flex: 1, marginBottom: 0 }}
+              onChange={setTicker}
+              onSelect={(sym) => fetchNews(null, sym)}
+              placeholder="Ticker or company name (e.g. Tata Motors, AAPL)"
             />
             <button type="submit" className="btn" disabled={loading} style={{ width: 'auto', padding: '12px 24px' }}>
               {loading ? 'Fetching...' : 'Get News'}

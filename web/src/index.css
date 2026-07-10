@@ -61,6 +61,13 @@ body {
   min-height: 100vh;
   display: flex;
   overflow-x: hidden;
+  /* our own :active states replace the browser's gray tap flash */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Nav drawer open: freeze the page behind it so backdrop touches don't scroll it */
+body.menu-open {
+  overflow: hidden;
 }
 
 /* Subtle mesh gradient for depth. Painted on a fixed pseudo-element instead of
@@ -737,6 +744,8 @@ tr:hover td {
     transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     z-index: 1000;
     overflow-y: auto;
+    /* reaching the drawer's end must not hand the scroll to the page behind */
+    overscroll-behavior: contain;
     padding: 24px 20px;
     background: rgba(18, 18, 20, 0.97);
     border-right: 1px solid var(--border-color);
@@ -806,6 +815,20 @@ tr:hover td {
     color: var(--primary-accent);
   }
 
+  /* Touch press feedback (replaces the browser tap flash disabled on body) */
+  .tab-item:active {
+    color: var(--text-primary);
+    transform: scale(0.92);
+  }
+
+  .nav-link:active,
+  .dash-nav-card:active,
+  .dash-mover:active,
+  .tc-card:active {
+    background: rgba(255, 255, 255, 0.08);
+    transform: scale(0.98);
+  }
+
   /* the drawer already lists everything the tab bar can't fit */
   .sidebar-footer {
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -822,6 +845,11 @@ tr:hover td {
   /* 16px inputs prevent iOS Safari from zooming on focus */
   input, select {
     font-size: 16px;
+  }
+
+  /* revealResults() scrolls these into view — clear the sticky topbar */
+  #flcl-analysis, #arima-analysis {
+    scroll-margin-top: 76px;
   }
 
   th, td {

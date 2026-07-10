@@ -245,7 +245,7 @@ const Momentum = () => {
             </span>
           </div>
           {loading ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '12px', marginBottom: '26px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(250px, 100%), 1fr))', gap: '12px', marginBottom: '26px' }}>
               {[1, 2, 3].map((i) => <div key={i} className="card" style={{ height: 160, opacity: 0.4 }} />)}
             </div>
           ) : breakouts.length === 0 ? (
@@ -253,7 +253,7 @@ const Momentum = () => {
               No fresh breakouts in the {market === 'in' ? 'Nifty' : 'US'} large-cap universe this session — the leaders below show where the sustained trends are.
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '12px', marginBottom: '26px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(250px, 100%), 1fr))', gap: '12px', marginBottom: '26px' }}>
               {breakouts.map((b) => <BreakoutCard key={b.ticker} b={b} market={market} cur={cur} />)}
             </div>
           )}

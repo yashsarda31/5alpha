@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alpha Nova — How to Use, Part Two · 30s</title>
+<style>
+  :root{
+    --gold:#F5DC8C;
+    --blue:#3EE6FF;
+    --green:#32D74B;
+    --red:#FF453A;
+    --txt:#F5F5F7;
+    --dim:#A1A1AA;
+    --faint:#6E6E73;
+    --line:rgba(255,255,255,.08);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    background:#000;
+    color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+
+  .stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+
+  .aurora{
+    position:absolute;width:130vmax;height:130vmax;border-radius:50%;
+    background:radial-gradient(circle at center, rgba(62,230,255,.07), rgba(245,220,140,.05) 34%, transparent 62%);
+    filter:blur(50px);
+    animation:aurora 30s ease-in-out infinite alternate;
+    pointer-events:none;
+  }
+  @keyframes aurora{
+    0%{transform:translate(14%,-12%) scale(1);}
+    50%{transform:translate(-12%,6%) scale(1.1);}
+    100%{transform:translate(6%,14%) scale(.95);}
+  }
+
+  /* ---------- scenes ---------- */
+  .scene{
+    position:absolute;inset:0;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:24px;
+    opacity:0;visibility:hidden;
+    transform:scale(.97);
+    filter:blur(14px);
+    transition:opacity .9s cubic-bezier(.25,.1,.25,1),
+               transform .9s cubic-bezier(.25,.1,.25,1),
+               filter .9s cubic-bezier(.25,.1,.25,1),
+               visibility 0s linear .9s;
+    will-change:opacity,transform,filter;
+  }
+  .scene.on{
+    opacity:1;visibility:visible;
+    transform:scale(1);
+    filter:blur(0);
+    transition:opacity .9s cubic-bezier(.25,.1,.25,1),
+               transform .9s cubic-bezier(.25,.1,.25,1),
+               filter .9s cubic-bezier(.25,.1,.25,1),
+               visibility 0s;
+  }
+
+  .rise{opacity:0;transform:translateY(26px);}
+  .scene.on .rise{
+    animation:rise 1s cubic-bezier(.2,.7,.2,1) forwards;
+    animation-delay:var(--d,0s);
+  }
+  @keyframes rise{to{opacity:1;transform:translateY(0);}}
+
+  .kicker{
+    font-size:clamp(11px,1.4vw,14px);
+    letter-spacing:.42em;text-transform:uppercase;
+    color:var(--gold);font-weight:600;
+    margin-bottom:22px;
+  }
+  .hero{
+    font-size:clamp(36px,6.8vw,88px);
+    font-weight:700;letter-spacing:-.03em;line-height:1.04;
+  }
+  .hero .soft{color:var(--faint);}
+  .sub{
+    margin-top:20px;
+    font-size:clamp(15px,2vw,22px);
+    color:var(--dim);font-weight:400;letter-spacing:-.01em;
+    max-width:660px;
+  }
+  .gold{color:var(--gold);}
+  .blue{color:var(--blue);}
+  .up{color:var(--green);}
+  .dn{color:var(--red);}
+
+  /* ---------- shared mock-UI card ---------- */
+  .mock{
+    margin-top:38px;
+    background:linear-gradient(180deg,#151517,#0D0D0F);
+    border:1px solid var(--line);
+    border-radius:22px;
+    padding:22px 26px;
+    box-shadow:0 30px 90px rgba(0,0,0,.7), 0 0 60px rgba(245,220,140,.05);
+    text-align:left;
+    min-width:min(580px,92vw);
+  }
+  .mhead{
+    display:flex;align-items:center;justify-content:space-between;
+    font-size:11px;letter-spacing:.28em;color:var(--faint);
+    text-transform:uppercase;margin-bottom:14px;font-weight:600;
+  }
+
+  /* --- S2 chart + VCP --- */
+  .chartline path.px{
+    fill:none;stroke:var(--blue);stroke-width:2.5;
+    stroke-dasharray:640;stroke-dashoffset:640;
+  }
+  .scene.on .chartline path.px{animation:draw 2s cubic-bezier(.4,0,.2,1) forwards;animation-delay:.9s;}
+  @keyframes draw{to{stroke-dashoffset:0;}}
+  .chartline path.vol{opacity:0;}
+  .scene.on .chartline path.vol{animation:fadein .8s ease forwards;animation-delay:2.2s;}
+  @keyframes fadein{to{opacity:1;}}
+  .vcp-badges{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;}
+  .vcp{
+    font-size:12px;letter-spacing:.1em;font-weight:800;
+    border:1px solid rgba(245,220,140,.4);color:var(--gold);
+    border-radius:999px;padding:7px 14px;
+    opacity:0;transform:scale(.8);
+  }
+  .scene.on .vcp{animation:pop .5s cubic-bezier(.3,1.4,.4,1) forwards;animation-delay:var(--d,2.4s);}
+  @keyframes pop{to{opacity:1;transform:scale(1);}}
+  .vcp.trend{border-color:rgba(50,215,75,.45);color:var(--green);}
+
+  /* --- S3 screener --- */
+  .scr-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 4px;border-top:1px solid var(--line);
+    font-size:clamp(13px,1.7vw,17px);font-weight:600;
+    opacity:0;transform:translateX(-14px);
+  }
+  .scr-row:first-of-type{border-top:none;}
+  .scene.on .scr-row{animation:slidein .6s cubic-bezier(.2,.7,.2,1) forwards;animation-delay:var(--d,1s);}
+  @keyframes slidein{to{opacity:1;transform:translateX(0);}}
+  .scr-meta{color:var(--faint);font-size:.8em;font-weight:500;}
+  .score-pill{
+    background:var(--gold);color:#000;font-weight:800;
+    border-radius:8px;padding:4px 11px;font-size:.95em;
+    box-shadow:0 0 22px rgba(245,220,140,.25);
+  }
+
+  /* --- S4 DCF --- */
+  .dcf-cols{display:flex;gap:0;margin-top:4px;}
+  .dcf-cols>div{flex:1;}
+  .dcf-lab{font-size:10px;letter-spacing:.26em;color:var(--faint);font-weight:700;margin-bottom:8px;}
+  .dcf-val{font-size:clamp(26px,4vw,40px);font-weight:800;letter-spacing:-.02em;}
+  .meter{
+    margin-top:20px;height:10px;border-radius:999px;background:rgba(255,255,255,.07);
+    overflow:hidden;
+  }
+  .meter i{
+    display:block;height:100%;width:0;border-radius:999px;
+    background:linear-gradient(90deg,rgba(50,215,75,.55),var(--green));
+  }
+  .scene.on .meter i{animation:fill 1.4s cubic-bezier(.3,.7,.3,1) forwards;animation-delay:1.3s;}
+  @keyframes fill{to{width:72%;}}
+  .dcf-verdict{
+    margin-top:16px;display:flex;align-items:center;gap:12px;
+    font-size:13px;color:var(--dim);font-weight:600;
+  }
+  .badge-under{
+    font-size:11px;letter-spacing:.18em;font-weight:800;color:#000;
+    background:var(--green);border-radius:6px;padding:5px 10px;
+    opacity:0;transform:scale(.8);
+  }
+  .scene.on .badge-under{animation:pop .5s cubic-bezier(.3,1.4,.4,1) forwards;animation-delay:2.5s;}
+
+  /* --- S5 forecast --- */
+  .fc path.hist{
+    fill:none;stroke:var(--txt);stroke-width:2.5;
+    stroke-dasharray:420;stroke-dashoffset:420;
+  }
+  .scene.on .fc path.hist{animation:draw2 1.4s cubic-bezier(.4,0,.2,1) forwards;animation-delay:.9s;}
+  @keyframes draw2{to{stroke-dashoffset:0;}}
+  .fc path.pred{
+    fill:none;stroke:var(--gold);stroke-width:2.5;stroke-dasharray:6 7;
+    opacity:0;
+  }
+  .scene.on .fc path.pred{animation:fadein .9s ease forwards;animation-delay:2.2s;}
+  .fc polygon.cone{fill:rgba(245,220,140,.12);opacity:0;}
+  .scene.on .fc polygon.cone{animation:fadein 1s ease forwards;animation-delay:2.6s;}
+  .fc line.today{stroke:rgba(255,255,255,.25);stroke-dasharray:4 6;}
+  .fc-tags{display:flex;justify-content:space-between;margin-top:10px;font-size:11px;letter-spacing:.2em;color:var(--faint);font-weight:700;}
+
+  /* --- S6 alert toast --- */
+  .toast{
+    margin-top:38px;
+    width:min(480px,92vw);
+    background:rgba(28,28,30,.96);
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:18px;
+    padding:16px 18px;
+    display:flex;align-items:center;gap:14px;text-align:left;
+    box-shadow:0 24px 70px rgba(0,0,0,.75);
+    opacity:0;transform:translateY(46px) scale(.94);
+  }
+  .scene.on .toast{animation:toastin .7s cubic-bezier(.25,1.3,.35,1) forwards;animation-delay:1.1s;}
+  @keyframes toastin{to{opacity:1;transform:translateY(0) scale(1);}}
+  .toast .appico{
+    width:44px;height:44px;border-radius:11px;flex:none;
+    background:linear-gradient(160deg,#1A1A1C,#0A0A0B);
+    border:1px solid rgba(245,220,140,.4);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:17px;color:var(--gold);
+  }
+  .toast .tbody{flex:1;min-width:0;}
+  .toast .tt{font-weight:700;font-size:15px;letter-spacing:-.01em;}
+  .toast .td{font-size:13px;color:var(--dim);margin-top:3px;}
+  .toast .tnow{font-size:11px;color:var(--faint);flex:none;align-self:flex-start;}
+  .toast2{
+    margin-top:12px;
+    opacity:0;transform:translateY(46px) scale(.94);
+  }
+  .scene.on .toast2{animation:toastin .7s cubic-bezier(.25,1.3,.35,1) forwards;animation-delay:1.9s;}
+
+  /* finale */
+  .monogram{
+    width:112px;height:112px;border-radius:28px;
+    background:linear-gradient(160deg,#1A1A1C,#0A0A0B);
+    border:1px solid rgba(245,220,140,.35);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:44px;letter-spacing:-.02em;color:var(--gold);
+    box-shadow:0 0 80px rgba(245,220,140,.16), inset 0 1px 0 rgba(255,255,255,.08);
+    margin-bottom:34px;
+  }
+  .url{
+    margin-top:26px;font-size:clamp(15px,2vw,20px);letter-spacing:.04em;
+    color:var(--gold);font-weight:600;
+  }
+  .fineprint{
+    position:absolute;bottom:104px;left:0;right:0;text-align:center;
+    font-size:10.5px;color:#48484A;letter-spacing:.03em;padding:0 40px;
+  }
+
+  .progress{
+    position:fixed;left:0;bottom:0;height:3px;width:100%;
+    background:rgba(255,255,255,.06);z-index:50;
+  }
+  .progress i{
+    display:block;height:100%;width:0;
+    background:linear-gradient(90deg,rgba(245,220,140,.5),var(--gold));
+  }
+  body.playing .progress i{animation:prog 30s linear forwards;}
+  @keyframes prog{to{width:100%;}}
+
+  .replay{
+    position:fixed;bottom:34px;left:50%;transform:translateX(-50%) translateY(14px);
+    background:transparent;border:1px solid rgba(245,220,140,.45);color:var(--gold);
+    font-family:inherit;font-weight:600;
+    font-size:13px;letter-spacing:.24em;text-transform:uppercase;
+    border-radius:999px;padding:13px 34px;cursor:pointer;
+    opacity:0;pointer-events:none;transition:opacity .8s ease, transform .8s ease, background .3s;
+    z-index:60;
+  }
+  .replay.show{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0);}
+  .replay:hover{background:rgba(245,220,140,.12);}
+
+  .counter{
+    position:fixed;top:26px;right:32px;z-index:50;
+    font-size:11px;letter-spacing:.3em;color:#3A3A3C;font-weight:600;
+    font-variant-numeric:tabular-nums;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="aurora"></div>
+
+  <!-- S1 · 0.0–2.8 · open -->
+  <section class="scene" id="s1">
+    <div class="hero rise">You know the basics.</div>
+    <div class="hero rise" style="--d:.4s"><span class="gold">Now go deeper.</span></div>
+    <div class="sub rise" style="--d:.7s">Alpha Nova — how to use it, part two.</div>
+  </section>
+
+  <!-- S2 · 2.8–7.4 · Chart Analyser / VCP -->
+  <section class="scene" id="s2">
+    <div class="kicker rise">Step 06</div>
+    <div class="hero rise" style="--d:.15s">Rate any chart. Instantly.</div>
+    <div class="sub rise" style="--d:.35s">Chart Analyser scores every stock the Minervini way — pattern, stage, trend.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="mhead"><span>CHART ANALYSER · RELIANCE</span><span>NSE · D</span></div>
+      <svg class="chartline" width="100%" height="120" viewBox="0 0 540 120" preserveAspectRatio="none">
+        <path class="vol" d="M0,120 L0,112 L30,112 L30,116 L60,116 L60,110 L90,110 L90,114 L120,114 L120,108 L150,108 L150,113 L180,113 L180,109 L210,109 L210,115 L240,115 L240,107 L270,107 L270,112 L300,112 L300,105 L330,105 L330,111 L360,111 L360,104 L390,104 L390,109 L420,109 L420,101 L450,101 L450,97 L480,97 L480,92 L510,92 L510,88 L540,88 L540,120 Z" fill="rgba(62,230,255,.12)"/>
+        <path class="px" d="M0,92 L36,80 L72,88 L108,66 L144,76 L180,60 L216,70 L252,54 L288,64 L324,50 L360,58 L396,46 L432,52 L468,40 L504,30 L540,16"/>
+      </svg>
+      <div class="vcp-badges">
+        <span class="vcp" style="--d:2.3s">VCP 8.2 / 10</span>
+        <span class="vcp trend" style="--d:2.55s">STAGE 2 · UPTREND</span>
+        <span class="vcp" style="--d:2.8s">PIVOT ₹1,342</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- S3 · 7.4–12.0 · Quant Screener -->
+  <section class="scene" id="s3">
+    <div class="kicker rise">Step 07</div>
+    <div class="hero rise" style="--d:.15s">Screen like an institution.</div>
+    <div class="sub rise" style="--d:.35s">Value, quality, growth, yield — distilled into one Alpha&nbsp;Nova&nbsp;Score.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="mhead"><span>QUANT SCREENER · NIFTY 200</span><span>ROE &gt; 15% · PE &lt; 30</span></div>
+      <div class="scr-row" style="--d:1.1s"><span>HDFCBANK <span class="scr-meta">· PE 19.4 · ROE 17%</span></span><span class="score-pill">93</span></div>
+      <div class="scr-row" style="--d:1.35s"><span>TCS <span class="scr-meta">· PE 26.1 · ROE 46%</span></span><span class="score-pill">88</span></div>
+      <div class="scr-row" style="--d:1.6s"><span>ITC <span class="scr-meta">· PE 24.8 · ROE 28%</span></span><span class="score-pill">84</span></div>
+      <div class="scr-row" style="--d:1.85s"><span>INFY <span class="scr-meta">· PE 23.2 · ROE 31%</span></span><span class="score-pill">81</span></div>
+    </div>
+  </section>
+
+  <!-- S4 · 12.0–16.6 · DCF -->
+  <section class="scene" id="s4">
+    <div class="kicker rise">Step 08</div>
+    <div class="hero rise" style="--d:.15s">Know what it's <span class="gold">really</span> worth.</div>
+    <div class="sub rise" style="--d:.35s">The DCF Calculator reverse-engineers the cash flows behind the price.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="mhead"><span>DCF VALUATION · RELIANCE</span><span>10Y · 2-STAGE</span></div>
+      <div class="dcf-cols">
+        <div><div class="dcf-lab">MARKET PRICE</div><div class="dcf-val">₹1,321</div></div>
+        <div><div class="dcf-lab">INTRINSIC VALUE</div><div class="dcf-val gold">₹1,486</div></div>
+        <div><div class="dcf-lab">MARGIN OF SAFETY</div><div class="dcf-val up">+12%</div></div>
+      </div>
+      <div class="meter"><i></i></div>
+      <div class="dcf-verdict">
+        <span class="badge-under">UNDERVALUED</span>
+        Price sits below modeled value at a 10% discount rate.
+      </div>
+    </div>
+  </section>
+
+  <!-- S5 · 16.6–21.2 · SARIMAX forecast -->
+  <section class="scene" id="s5">
+    <div class="kicker rise">Step 09</div>
+    <div class="hero rise" style="--d:.15s">See the trajectory.</div>
+    <div class="sub rise" style="--d:.35s">The SARIMAX Forecaster models where the series wants to go — with honest confidence bands.</div>
+    <div class="mock rise" style="--d:.6s">
+      <div class="mhead"><span>SARIMAX FORECASTER · NIFTY 50</span><span>30D HORIZON</span></div>
+      <svg class="fc" width="100%" height="130" viewBox="0 0 540 130" preserveAspectRatio="none">
+        <line class="today" x1="330" y1="0" x2="330" y2="130"/>
+        <polygon class="cone" points="330,58 540,18 540,86 330,66"/>
+        <path class="hist" d="M0,104 L33,96 L66,100 L99,86 L132,92 L165,78 L198,84 L231,70 L264,76 L297,64 L330,60"/>
+        <path class="pred" d="M330,60 L382,54 L434,48 L486,44 L540,38"/>
+      </svg>
+      <div class="fc-tags"><span>HISTORY</span><span>TODAY</span><span class="gold" style="color:var(--gold)">FORECAST · 95% BAND</span></div>
+    </div>
+  </section>
+
+  <!-- S6 · 21.2–25.4 · alerts -->
+  <section class="scene" id="s6">
+    <div class="kicker rise">Step 10</div>
+    <div class="hero rise" style="--d:.15s">Don't watch. Get told.</div>
+    <div class="sub rise" style="--d:.35s">New scored setups reach you as alerts — in the app, or on your phone.</div>
+    <div class="toast">
+      <div class="appico">AN</div>
+      <div class="tbody">
+        <div class="tt">⚡ LONG HDFCBANK · 72/100</div>
+        <div class="td">entry ₹1,012 · stop ₹988 · target ₹1,048</div>
+      </div>
+      <div class="tnow">now</div>
+    </div>
+    <div class="toast toast2">
+      <div class="appico">AN</div>
+      <div class="tbody">
+        <div class="tt">⚡ SHORT TATASTEEL · 64/100</div>
+        <div class="td">entry ₹148.2 · stop ₹151.9 · target ₹142.6</div>
+      </div>
+      <div class="tnow">now</div>
+    </div>
+  </section>
+
+  <!-- S7 · 25.4–30 · finale -->
+  <section class="scene" id="s7">
+    <div class="monogram rise">AN</div>
+    <div class="hero rise" style="--d:.25s">Alpha Nova.</div>
+    <div class="sub rise" style="--d:.5s">Every tool. One terminal. Free.</div>
+    <div class="url rise" style="--d:.7s">5alphav2.vercel.app</div>
+    <div class="fineprint">For educational and analytical purposes only. Not investment advice.</div>
+  </section>
+</div>
+
+<div class="counter" id="counter">00:00 / 00:30</div>
+<div class="progress"><i></i></div>
+<button class="replay" id="replay">↺&nbsp;&nbsp;Replay</button>
+
+<script>
+(function(){
+  const TIMELINE = [
+    ['s1', 0.0],
+    ['s2', 2.8],
+    ['s3', 7.4],
+    ['s4', 12.0],
+    ['s5', 16.6],
+    ['s6', 21.2],
+    ['s7', 25.4],
+  ];
+  const TOTAL = 30;
+
+  const scenes = TIMELINE.map(([id]) => document.getElementById(id));
+  const replay = document.getElementById('replay');
+  const counter = document.getElementById('counter');
+  let timers = [];
+  let tickTimer = null;
+  let t0 = 0;
+
+  function clearAll(){
+    timers.forEach(clearTimeout);
+    timers = [];
+    if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+    scenes.forEach(s => s.classList.remove('on'));
+    replay.classList.remove('show');
+    document.body.classList.remove('playing');
+  }
+
+  function fmt(s){
+    return '00:' + String(Math.min(TOTAL, Math.floor(s))).padStart(2,'0') + ' / 00:30';
+  }
+
+  function play(){
+    clearAll();
+    void document.querySelector('.progress i').offsetWidth;
+    document.body.classList.add('playing');
+    t0 = performance.now();
+
+    TIMELINE.forEach(([id, at]) => {
+      timers.push(setTimeout(() => {
+        scenes.forEach(s => s.classList.remove('on'));
+        document.getElementById(id).classList.add('on');
+      }, at * 1000));
+    });
+    timers.push(setTimeout(() => replay.classList.add('show'), (TOTAL - 1.2) * 1000));
+
+    tickTimer = setInterval(() => {
+      const el = (performance.now() - t0) / 1000;
+      counter.textContent = fmt(el);
+      if (el >= TOTAL) { clearInterval(tickTimer); tickTimer = null; }
+    }, 250);
+  }
+
+  replay.addEventListener('click', play);
+  play();
+})();
+</script>
+</body>
+</html>

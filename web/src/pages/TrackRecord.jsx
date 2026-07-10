@@ -1,8 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, StatTile, StatGrid, DataTable, Badge, EmptyState, Skeleton } from '../components/ui';
 import { useSWR } from '../lib/swrCache';
+
+// Follow the live session by default (US book 20:00–02:00 IST, IN otherwise) —
+// same clock the signals engine uses server-side.
+const sessionMarket = () => {
+  const h = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false });
+  const hour = parseInt(h, 10);
+  return (hour >= 20 || hour < 2) ? 'US' : 'IN';
+};
 
 const curOf = (market) => (market === 'US' ? '$' : '₹');
 const money = (v, market) => {
@@ -42,21 +50,47 @@ const EquityCurve = ({ points }) => {
   );
 };
 
+const MARKET_LABEL = { IN: 'NSE', US: 'US' };
+
 const TrackRecord = () => {
+  const [market, setMarket] = useState(sessionMarket);
   const { data, refreshing, error: swrError, revalidate } = useSWR(
-    'signal_portfolio',
-    () => axios.get('/api/signals/portfolio').then((r) => r.data),
+    `signal_portfolio_${market}`,
+    () => axios.get(`/api/signals/portfolio?market=${market}`).then((r) => r.data),
     60000,
   );
   const loading = !data && !swrError;
   const error = !data && swrError ? (swrError.response?.data?.detail || 'Failed to load track record.') : null;
 
+  const marketToggle = (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      {['IN', 'US'].map((m) => (
+        <button
+          key={m}
+          onClick={() => setMarket(m)}
+          aria-pressed={market === m}
+          className="secondary"
+          style={{
+            width: 'auto', padding: '8px 14px', fontSize: 12, fontWeight: 600,
+            borderRadius: 8,
+            border: `1px solid ${market === m ? 'var(--primary-gold, #F5DC8C)' : 'var(--border-color, rgba(255,255,255,0.12))'}`,
+            background: market === m ? 'rgba(245,220,140,0.12)' : 'transparent',
+            color: market === m ? 'var(--primary-gold, #F5DC8C)' : 'var(--text-secondary, #A1A1AA)',
+          }}
+        >
+          {MARKET_LABEL[m]}
+        </button>
+      ))}
+      <button className="secondary" style={{ width: 'auto', padding: '8px 16px', fontSize: 12 }} onClick={revalidate} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+    </div>
+  );
+
   const header = (
     <PageHeader
       code="TRACK"
       title="Signal Track Record"
-      subtitle="A live paper-traded model book — every scored signal, marked to market"
-      right={<button className="secondary" style={{ width: 'auto', padding: '8px 16px', fontSize: 12 }} onClick={revalidate} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>}
+      subtitle={`A live paper-traded model book — every scored ${market === 'US' ? 'US-session' : 'NSE'} signal, marked to market`}
+      right={marketToggle}
     />
   );
 

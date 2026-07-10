@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
 import InstallApp from '../components/InstallApp';
+import AppLogo from '../components/AppLogo';
 
 const Login = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -36,7 +37,7 @@ const Login = () => {
     <div className="login-container fade-in">
       <div className="login-card card">
         <div className="login-header">
-          <div className="logo-icon">AN</div>
+          <div className="logo-icon"><AppLogo size={44} /></div>
           <h1>Alpha Nova Pro</h1>
           <p>{isLogin ? 'Institutional Access' : 'Create Intelligence Account'}</p>
         </div>

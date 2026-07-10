@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { PageHeader } from '../components/ui';
+import TickerSearch from '../components/TickerSearch';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
 
 const currencyFor = (ticker) => {
@@ -55,7 +56,7 @@ const Fundamentals = () => {
     if (!data) return;
     const apiKey = localStorage.getItem('gemini_api_key');
     if (!apiKey) {
-      alert("Please enter your Gemini API Key in the sidebar first.");
+      setAiReport('**Add your Gemini API key in Settings to generate the fundamentals brief.**');
       return;
     }
 
@@ -104,12 +105,11 @@ const Fundamentals = () => {
 
       <div className="panel" style={{ marginBottom: '20px' }}>
         <form onSubmit={fetchFundamentals} style={{ display: 'flex', gap: '10px' }}>
-          <input 
-            type="text" 
-            value={ticker} 
-            onChange={(e) => setTicker(e.target.value)} 
-            placeholder="Enter Ticker (e.g. AAPL, RELIANCE.NS)"
-            style={{ flex: 1, marginBottom: 0 }}
+          <TickerSearch
+            value={ticker}
+            onChange={setTicker}
+            onSelect={(sym) => fetchFundamentals(null, sym)}
+            placeholder="Ticker or company name (e.g. Asian Paints, AAPL)"
           />
           <button type="submit" className="btn" disabled={loading} style={{ width: 'auto', padding: '12px 24px' }}>
             {loading ? 'Fetching...' : 'Fetch Fundamentals'}

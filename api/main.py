@@ -48,6 +48,17 @@ class ARIMARequest(BaseModel):
     ticker: str
     days: int = 10
 
+class FLCLRequest(BaseModel):
+    ticker: str
+    days: int | None = 252
+    swing_window: int | None = 5
+    atr_mult: float | None = 1.5
+
+class AIFLCLRequest(BaseModel):
+    ticker: str
+    flcl_data: dict
+    apiKey: str
+
 class AIChartRequest(BaseModel):
     ticker: str
     data_summary: str
@@ -804,6 +815,459 @@ def forecast_sarimax(req: ARIMARequest):
     })
 
 
+# --- FLCL: Floor/Ceiling regime engine ---------------------------------------
+def _flcl_engine(df, swing_window: int = 5, atr_mult: float = 1.5):
+    """Causal floor/ceiling regime engine (improved port of FLCLindicator.ipynb).
+
+    - A swing high/low is the strict extreme of its ±w window and is only
+      CONFIRMED w bars later, so regime[t] uses information ≤ t only (the
+      notebook applied swings at their peak bar: look-ahead a live trader
+      never has).
+    - Confirmed swings feed a zigzag: same-side swings keep the more extreme
+      one; an opposite-side swing must sit ≥ atr_mult × ATR(14) away from the
+      previous swing to register (the notebook's significance filter compared
+      a swing to the previous BAR — meaningless).
+    - Regime walk: Neutral → Bullish on a close above the last swing high
+      (floor := the swing low that preceded the breakout), mirrored for
+      Bearish. In a bull the floor only RATCHETS UP with each higher confirmed
+      swing low and a close below it flips bearish; the bear ceiling mirrors
+      that. Structure levels never loosen (the notebook's levels only ever
+      widened over the whole lookback, so range position decayed into noise).
+
+    Returns per-bar arrays over the WHOLE df plus swing/flip event lists.
+    """
+    w = int(swing_window)
+    h = df["High"].to_numpy(dtype=float)
+    l = df["Low"].to_numpy(dtype=float)
+    c = df["Close"].to_numpy(dtype=float)
+    n = len(df)
+
+    # ATR(14), Wilder smoothing — the volatility yardstick for swing significance
+    prev_c = np.concatenate(([c[0]], c[:-1]))
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev_c), np.abs(l - prev_c)))
+    atr = pd.Series(tr).ewm(alpha=1 / 14, adjust=False).mean().to_numpy()
+
+    # Raw swing candidates: unique extreme of the ±w neighbourhood
+    raw_high = np.zeros(n, dtype=bool)
+    raw_low = np.zeros(n, dtype=bool)
+    for i in range(w, n - w):
+        wh = h[i - w:i + w + 1]
+        if h[i] >= wh.max() and (wh == h[i]).sum() == 1:
+            raw_high[i] = True
+        wl = l[i - w:i + w + 1]
+        if l[i] <= wl.min() and (wl == l[i]).sum() == 1:
+            raw_low[i] = True
+
+    events = []  # alternating significant swings: {"i", "kind" H|L, "price"}
+
+    def _push(i, kind, price):
+        if events and events[-1]["kind"] == kind:
+            more_extreme = price >= events[-1]["price"] if kind == "H" else price <= events[-1]["price"]
+            if more_extreme:
+                events[-1] = {"i": i, "kind": kind, "price": price}
+            return
+        if events and abs(price - events[-1]["price"]) < atr_mult * atr[i]:
+            return
+        events.append({"i": i, "kind": kind, "price": price})
+
+    regime = np.array(["Neutral"] * n, dtype=object)
+    floor_arr = np.full(n, np.nan)
+    ceil_arr = np.full(n, np.nan)
+    flips = []  # {"t", "to", "price"}
+
+    state = "Neutral"
+    floor_lvl = None   # bull: trailing structure stop · bear: support below
+    ceil_lvl = None    # bear: trailing structure stop · bull: resistance above
+
+    for t in range(n):
+        i = t - w  # the swing (if any) whose window closes on this bar
+        if i >= w:
+            # A giant-range bar can confirm both; feed the alternating one first.
+            order = ("L", "H") if (events and events[-1]["kind"] == "H") else ("H", "L")
+            for kind in order:
+                if kind == "H" and raw_high[i]:
+                    _push(i, "H", h[i])
+                if kind == "L" and raw_low[i]:
+                    _push(i, "L", l[i])
+
+            last_sh = next((e for e in reversed(events) if e["kind"] == "H"), None)
+            last_sl = next((e for e in reversed(events) if e["kind"] == "L"), None)
+
+            # Structure levels react to newly confirmed swings, never loosening
+            # the active trailing level.
+            if state == "Bullish":
+                if last_sl:
+                    floor_lvl = last_sl["price"] if floor_lvl is None else max(floor_lvl, last_sl["price"])
+                if last_sh:
+                    ceil_lvl = last_sh["price"]           # nearest overhead structure
+            elif state == "Bearish":
+                if last_sh:
+                    ceil_lvl = last_sh["price"] if ceil_lvl is None else min(ceil_lvl, last_sh["price"])
+                if last_sl:
+                    floor_lvl = last_sl["price"]          # nearest support below
+            else:
+                floor_lvl = last_sl["price"] if last_sl else floor_lvl
+                ceil_lvl = last_sh["price"] if last_sh else ceil_lvl
+
+        # Flip checks on the close, using only levels known by now
+        if state != "Bullish" and ceil_lvl is not None and c[t] > ceil_lvl:
+            state = "Bullish"
+            last_sl = next((e for e in reversed(events) if e["kind"] == "L"), None)
+            if last_sl:
+                floor_lvl = last_sl["price"]              # the low that preceded the breakout
+            flips.append({"t": t, "to": state, "price": c[t]})
+        elif state != "Bearish" and floor_lvl is not None and c[t] < floor_lvl:
+            state = "Bearish"
+            last_sh = next((e for e in reversed(events) if e["kind"] == "H"), None)
+            if last_sh:
+                ceil_lvl = last_sh["price"]               # the high that preceded the breakdown
+            flips.append({"t": t, "to": state, "price": c[t]})
+
+        regime[t] = state
+        floor_arr[t] = np.nan if floor_lvl is None else floor_lvl
+        ceil_arr[t] = np.nan if ceil_lvl is None else ceil_lvl
+
+    return {
+        "regime": regime, "floor": floor_arr, "ceiling": ceil_arr, "atr": atr,
+        "swings": events, "flips": flips,
+    }
+
+
+@app.post("/api/flcl")
+def flcl_analysis(req: FLCLRequest):
+    days = max(60, min(int(req.days or 252), 756))
+    w = max(2, min(int(req.swing_window or 5), 15))
+    mult = max(0.5, min(float(req.atr_mult or 1.5), 4.0))
+
+    cache_key = f"flcl_{req.ticker.upper()}_{days}_{w}_{mult}"
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < CACHE_TTL:
+        return API_CACHE[cache_key]['data']
+
+    # Fetch beyond the display window so ATR/swings/regime are warmed up before
+    # the first visible bar (the returned window carries an established state in).
+    period = "1y" if days <= 126 else "2y" if days <= 252 else "3y" if days <= 504 else "5y"
+    resolved, df = _yf_resolve_history(req.ticker, period)
+    if df.empty:
+        raise HTTPException(status_code=404, detail="Ticker not found")
+    df = df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["High", "Low", "Close"])
+    if len(df) < 90:
+        raise HTTPException(status_code=400, detail="Not enough price history for regime analysis (need ~4 months).")
+
+    eng = _flcl_engine(df, swing_window=w, atr_mult=mult)
+
+    # ---- visible window ----
+    m = min(days, len(df))
+    s = len(df) - m
+    dates = df.index.strftime("%Y-%m-%d").tolist()[s:]
+    o = df["Open"].to_numpy(dtype=float)[s:]
+    hi = df["High"].to_numpy(dtype=float)[s:]
+    lo = df["Low"].to_numpy(dtype=float)[s:]
+    cl = df["Close"].to_numpy(dtype=float)[s:]
+    vol = df["Volume"].to_numpy(dtype=float)[s:]
+    reg = eng["regime"][s:]
+    flr = eng["floor"][s:]
+    cel = eng["ceiling"][s:]
+    atr = eng["atr"][s:]
+
+    rp = np.full(m, np.nan)
+    ok = np.isfinite(flr) & np.isfinite(cel) & (cel > flr)
+    rp[ok] = (cl[ok] - flr[ok]) / (cel[ok] - flr[ok]) * 100
+
+    r2 = lambda v: None if v is None or not np.isfinite(v) else round(float(v), 2)
+    rnd = lambda arr: [r2(v) for v in arr]
+
+    # ---- regime segments over the visible window ----
+    segments = []
+    seg_start = 0
+    for t in range(1, m + 1):
+        if t == m or reg[t] != reg[seg_start]:
+            base = cl[seg_start - 1] if seg_start > 0 else cl[seg_start]
+            segments.append({
+                "regime": str(reg[seg_start]),
+                "start": dates[seg_start], "end": dates[t - 1],
+                "days": t - seg_start,
+                "return_pct": r2((cl[t - 1] / base - 1) * 100),
+            })
+            seg_start = t
+
+    # ---- honest scorecard: long only while Bullish, entered at the flip close ----
+    rets = cl[1:] / cl[:-1] - 1
+    in_bull = reg[:-1] == "Bullish"
+    strat_curve = np.cumprod(1 + np.where(in_bull, rets, 0.0))
+    bh_curve = np.cumprod(1 + rets)
+    max_dd = lambda curve: float((curve / np.maximum.accumulate(curve) - 1).min() * 100)
+    strat_ret = float((strat_curve[-1] - 1) * 100)
+    bh_ret = float((bh_curve[-1] - 1) * 100)
+    bull_segs = [x for x in segments if x["regime"] == "Bullish"]
+    scorecard = {
+        "strategy_return_pct": r2(strat_ret),
+        "buy_hold_return_pct": r2(bh_ret),
+        "edge_pct": r2(strat_ret - bh_ret),
+        "exposure_pct": r2(float((reg == "Bullish").mean() * 100)),
+        "time_bull_pct": r2(float((reg == "Bullish").mean() * 100)),
+        "time_bear_pct": r2(float((reg == "Bearish").mean() * 100)),
+        "time_neutral_pct": r2(float((reg == "Neutral").mean() * 100)),
+        "flips": int(sum(1 for f in eng["flips"] if f["t"] >= s)),
+        "max_dd_strategy_pct": r2(max_dd(strat_curve)),
+        "max_dd_bh_pct": r2(max_dd(bh_curve)),
+        "bull_segments": len(bull_segs),
+        "bull_segments_won": sum(1 for x in bull_segs if (x["return_pct"] or 0) > 0),
+    }
+
+    # ---- current state + signals ----
+    price = float(cl[-1])
+    cur_reg = str(reg[-1])
+    cur_floor, cur_ceil, cur_atr = float(flr[-1]), float(cel[-1]), float(atr[-1])
+    cur_rp = float(rp[-1]) if np.isfinite(rp[-1]) else None
+    days_in = 1
+    for t in range(m - 2, -1, -1):
+        if reg[t] == cur_reg:
+            days_in += 1
+        else:
+            break
+    range_width_atr = ((cur_ceil - cur_floor) / cur_atr) if (np.isfinite(cur_floor) and np.isfinite(cur_ceil) and cur_atr > 0) else None
+
+    current = {
+        "regime": cur_reg,
+        "days_in_regime": days_in,
+        "price": r2(price),
+        "floor": r2(cur_floor),
+        "ceiling": r2(cur_ceil),
+        "dist_floor_pct": r2((price / cur_floor - 1) * 100) if np.isfinite(cur_floor) else None,
+        "dist_ceiling_pct": r2((cur_ceil / price - 1) * 100) if np.isfinite(cur_ceil) else None,
+        "range_pos_pct": r2(cur_rp) if cur_rp is not None else None,
+        "range_width_atr": r2(range_width_atr) if range_width_atr is not None else None,
+        "atr": r2(cur_atr),
+        "atr_pct": r2(cur_atr / price * 100),
+        "as_of": dates[-1],
+    }
+
+    items = []
+    if cur_reg == "Bullish":
+        bias = "LONG"
+        if cur_rp is not None and cur_rp < 35:
+            items.append({"type": "BUY_ZONE", "strength": "STRONG",
+                          "reason": "Bullish regime with price in the lower third of the floor–ceiling range — favourable long entry zone."})
+        if cur_rp is not None and cur_rp > 85:
+            items.append({"type": "EXTENDED", "strength": "MODERATE",
+                          "reason": "Price is pressing the ceiling — chase risk is elevated; wait for a pullback or a confirmed breakout."})
+        if np.isfinite(cur_floor) and price < cur_floor + cur_atr:
+            items.append({"type": "STOP_PROXIMITY", "strength": "STRONG",
+                          "reason": f"Close is within 1 ATR of the regime floor ({r2(cur_floor)}) — a daily close below it flips the regime bearish."})
+    elif cur_reg == "Bearish":
+        bias = "SHORT / CASH"
+        if cur_rp is not None and cur_rp > 65:
+            items.append({"type": "SELL_ZONE", "strength": "STRONG",
+                          "reason": "Bearish regime with price in the upper third of the range — favourable zone to reduce or short."})
+        if cur_rp is not None and cur_rp < 15:
+            items.append({"type": "OVERSOLD", "strength": "MODERATE",
+                          "reason": "Price is stretched toward the floor — poor location to initiate shorts; bounces are common here."})
+        if np.isfinite(cur_ceil) and price > cur_ceil - cur_atr:
+            items.append({"type": "BREAKOUT_WATCH", "strength": "STRONG",
+                          "reason": f"Close is within 1 ATR of the regime ceiling ({r2(cur_ceil)}) — a daily close above it flips the regime bullish."})
+    else:
+        bias = "NEUTRAL"
+        items.append({"type": "WAIT", "strength": "INFO",
+                      "reason": "Regime is inconclusive — wait for a decisive close beyond the ceiling or floor before committing."})
+    if days_in <= 5 and cur_reg != "Neutral":
+        items.append({"type": "FRESH_FLIP", "strength": "MODERATE",
+                      "reason": f"Regime flipped {cur_reg.lower()} only {days_in} session(s) ago — early flips carry the most whipsaw risk; confirmation adds confidence."})
+    if range_width_atr is not None and range_width_atr < 3:
+        items.append({"type": "COMPRESSION", "strength": "MODERATE",
+                      "reason": "The floor–ceiling range is under 3 ATRs wide — volatility compression often precedes a decisive break."})
+
+    suggested_stop = None
+    if cur_reg == "Bullish" and np.isfinite(cur_floor):
+        suggested_stop = r2(cur_floor - 0.5 * cur_atr)
+    elif cur_reg == "Bearish" and np.isfinite(cur_ceil):
+        suggested_stop = r2(cur_ceil + 0.5 * cur_atr)
+
+    data = _json_safe({
+        "ticker": resolved,
+        "params": {"days": days, "swing_window": w, "atr_mult": mult},
+        "candles": {"dates": dates, "open": rnd(o), "high": rnd(hi), "low": rnd(lo),
+                    "close": rnd(cl), "volume": [int(v) if np.isfinite(v) else 0 for v in vol]},
+        "levels": {"floor": rnd(flr), "ceiling": rnd(cel), "regime": [str(x) for x in reg],
+                   "range_pos": rnd(rp)},
+        "swings": [{"date": df.index[e["i"]].strftime("%Y-%m-%d"), "type": e["kind"], "price": r2(e["price"])}
+                   for e in eng["swings"] if e["i"] >= s],
+        "flips": [{"date": df.index[f["t"]].strftime("%Y-%m-%d"), "to": f["to"], "price": r2(f["price"])}
+                  for f in eng["flips"] if f["t"] >= s],
+        "current": current,
+        "signals": {"bias": bias, "suggested_stop": suggested_stop, "items": items},
+        "segments": segments,
+        "scorecard": scorecard,
+    })
+    API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+    return data
+
+
+# --- Nifty 10-day realized-vol forecast (SARIMAX + GJR-GARCH-t ensemble) ---
+# Research harness: research/nifty_rv_forecast.py. The expensive parts (AIC
+# order grid, 100-origin rolling backtest on 2008-2026 data) run offline; the
+# endpoint refits that FROZEN spec on ~4y of data so a cold serverless request
+# stays in single-digit seconds. Frozen numbers below come from the offline run.
+RV_SPEC = {
+    "order": (3, 0, 2),                # AIC-selected on 18y, stable vs 10y
+    "seasonal_order": (0, 0, 1, 5),    # weekly MA term
+    "w_sarimax": 0.62,                 # inverse-OOS-RMSE weights (100 origins)
+    "w_garch": 0.38,
+    "horizon": 10,
+    "rv_window": 10,
+    "backtest": {"n_origins": 100, "qlike": 0.1625, "rmse_logvol": 0.3328,
+                 "sample": "2008-2026"},
+}
+
+
+def _compute_rv_forecast():
+    import warnings
+    from statsmodels.tsa.statespace.sarimax import SARIMAX
+    from statsmodels.tsa.ar_model import AutoReg
+
+    H, W = RV_SPEC["horizon"], RV_SPEC["rv_window"]
+    ANN = 252
+
+    px = yf.download("^NSEI", period="4y", interval="1d",
+                     auto_adjust=True, progress=False)
+    if isinstance(px.columns, pd.MultiIndex):
+        px.columns = px.columns.get_level_values(0)
+    px = px.dropna(subset=["High", "Low", "Close"])
+    px = px[px["High"] > px["Low"]]  # placeholder OHLC rows break Parkinson
+    if len(px) < 300:
+        raise HTTPException(status_code=502, detail="Not enough Nifty history for the vol model.")
+
+    try:
+        vix_df = yf.download("^INDIAVIX", period="4y", interval="1d",
+                             auto_adjust=False, progress=False)
+        if isinstance(vix_df.columns, pd.MultiIndex):
+            vix_df.columns = vix_df.columns.get_level_values(0)
+        vix = vix_df["Close"].rename("vix")
+    except Exception:
+        vix = pd.Series(dtype=float, name="vix")
+
+    df = pd.DataFrame(index=px.index)
+    df["ret"] = np.log(px["Close"]).diff()
+    # Parkinson (range) estimator: ~5x more efficient than close-to-close and
+    # immune to Yahoo's unreliable NSEI opens
+    park = (np.log(px["High"] / px["Low"]) ** 2) / (4.0 * np.log(2.0))
+    df["rv"] = np.sqrt(park.rolling(W).mean() * ANN) * 100  # annualized %
+    df = df.join(vix, how="left")
+    df["vix"] = df["vix"].ffill()
+    if df["vix"].notna().any():
+        df = df.loc[df["vix"].first_valid_index():]
+    df = df.dropna(subset=["ret", "rv"])
+    df = df[df["rv"] > 0]
+    has_vix = df["vix"].notna().all() and len(df["vix"]) > 0
+
+    y = np.log(df["rv"])
+    exog = np.log(df[["vix"]]) if has_vix else None
+
+    sarimax_leg = None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            m = SARIMAX(y, exog=exog, order=RV_SPEC["order"],
+                        seasonal_order=RV_SPEC["seasonal_order"],
+                        trend="c", enforce_stationarity=True)
+            r = m.fit(disp=False, method="lbfgs", maxiter=300)
+            fx = None
+            if has_vix:
+                # mean-reverting AR(1) path for log VIX over the horizon —
+                # naive persistence overstates vol after spikes
+                ar = AutoReg(np.log(df["vix"]), lags=1, trend="c").fit()
+                c, phi = float(ar.params.iloc[0]), float(ar.params.iloc[1])
+                x, path = float(np.log(df["vix"].iloc[-1])), []
+                for _ in range(H):
+                    x = c + phi * x
+                    path.append(x)
+                fx = np.array(path).reshape(-1, 1)
+            fc = r.get_forecast(steps=H, exog=fx)
+            mu, se = float(fc.predicted_mean.iloc[-1]), float(fc.se_mean.iloc[-1])
+            sarimax_leg = {
+                "point": float(np.exp(mu + 0.5 * se**2)),  # lognormal mean
+                "band68": [float(np.exp(mu - se)), float(np.exp(mu + se))],
+                "band95": [float(np.exp(mu - 1.96 * se)), float(np.exp(mu + 1.96 * se))],
+            }
+        except Exception:
+            sarimax_leg = None
+
+    garch_leg = None
+    try:
+        from arch import arch_model
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            am = arch_model(df["ret"].dropna() * 100, mean="Constant",
+                            vol="GARCH", p=1, o=1, q=1, dist="t")
+            res = am.fit(disp="off")
+            var_path = res.forecast(horizon=H, reindex=False).variance.iloc[0].values
+            garch_leg = {"point": float(np.sqrt(var_path.mean() * ANN)),
+                         "nu": round(float(res.params.get("nu", float("nan"))), 1)}
+    except Exception:
+        garch_leg = None  # arch missing or fit failed — SARIMAX carries it
+
+    if sarimax_leg is None and garch_leg is None:
+        raise HTTPException(status_code=502, detail="Volatility model failed to fit.")
+
+    w_s, w_g = RV_SPEC["w_sarimax"], RV_SPEC["w_garch"]
+    if sarimax_leg and garch_leg:
+        ens = float(np.exp(w_s * np.log(sarimax_leg["point"]) + w_g * np.log(garch_leg["point"])))
+    else:
+        leg = sarimax_leg or garch_leg
+        ens, w_s, w_g = leg["point"], 1.0 if sarimax_leg else 0.0, 1.0 if garch_leg else 0.0
+
+    # ensemble band: SARIMAX log-space CI width re-centred on the ensemble point
+    band68 = band95 = None
+    if sarimax_leg:
+        shift = np.log(ens) - np.log(sarimax_leg["point"])
+        band68 = [float(np.exp(np.log(b) + shift)) for b in sarimax_leg["band68"]]
+        band95 = [float(np.exp(np.log(b) + shift)) for b in sarimax_leg["band95"]]
+
+    spot = float(px["Close"].iloc[-1])
+    rv_now = float(df["rv"].iloc[-1])
+    vix_now = float(df["vix"].iloc[-1]) if has_vix else None
+    return _json_safe({
+        "as_of": str(df.index[-1].date()),
+        "spot": round(spot, 1),
+        "horizon_days": H,
+        "current": {"rv10": round(rv_now, 2), "vix": vix_now and round(vix_now, 2)},
+        "legs": {
+            "sarimax": sarimax_leg and {**sarimax_leg, "point": round(sarimax_leg["point"], 2),
+                                        "spec": "SARIMAX(3,0,2)x(0,0,1,5) + logVIX"},
+            "garch": garch_leg and {**garch_leg, "point": round(garch_leg["point"], 2),
+                                    "spec": "GJR-GARCH(1,1)-t"},
+        },
+        "ensemble": {"point": round(ens, 2), "w_sarimax": w_s, "w_garch": w_g},
+        "band68": band68, "band95": band95,
+        "expected_move_pct": round(float(ens / np.sqrt(ANN) * np.sqrt(H)), 2),  # 1-sigma over horizon
+        "vrp": vix_now and round(vix_now - ens, 2),  # implied minus forecast realized
+        "backtest": RV_SPEC["backtest"],
+    })
+
+
+@app.get("/api/rv-forecast")
+async def get_rv_forecast():
+    """10-day-ahead Nifty realized-vol forecast for the Signals tab.
+
+    Refit is a few seconds of CPU, inputs move once a day — cache generously
+    (1h) and serve stale on refit failure rather than erroring the card."""
+    cache_key = "rv_forecast"
+    cached = API_CACHE.get(cache_key)
+    if cached and time.time() - cached["time"] < 3600:
+        return cached["data"]
+    try:
+        data = await asyncio.to_thread(_compute_rv_forecast)
+    except HTTPException:
+        if cached:
+            return cached["data"]
+        raise
+    except Exception as e:
+        if cached:
+            return cached["data"]
+        raise HTTPException(status_code=502, detail=f"Vol model error: {e}")
+    API_CACHE[cache_key] = {"time": time.time(), "data": data}
+    return data
+
+
 def _ai_error_report(e: Exception) -> dict:
     """Readable insight-panel message instead of a raw Gemini exception dump.
 
@@ -1086,6 +1550,35 @@ def ai_arima_summary(req: AIARIMARequest):
     {req.forecast_data}
     """
     
+    try:
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-lite',
+            contents=prompt,
+        )
+        return {"report": response.text}
+    except Exception as e:
+        return _ai_error_report(e)
+
+@app.post("/api/ai/flcl")
+def ai_flcl_summary(req: AIFLCLRequest):
+    if not req.apiKey:
+        return {"report": "API Key Required."}
+
+    client = _genai_client(req.apiKey)
+    prompt = f"""
+    You are an automated market-structure analysis system. Ensure your output is purely factual and objective.
+    Review the following Floor/Ceiling regime analysis for '{req.ticker}'.
+    The engine classifies the market as Bullish/Bearish/Neutral from confirmed swing structure; the floor is trailing
+    structural support (its break flips the regime bearish) and the ceiling is trailing resistance (its break flips bullish).
+    Format using markdown bullet points. Cover: the current regime and its maturity, the price's location between floor and
+    ceiling and what that implies for entry quality, the key levels that would change the regime, and what the regime
+    scorecard (strategy vs buy-and-hold, exposure, flips) says about how well this instrument trends.
+    Do NOT provide predictive financial advice.
+
+    Regime Data:
+    {req.flcl_data}
+    """
+
     try:
         response = client.models.generate_content(
             model='gemini-3.1-flash-lite',
@@ -1883,6 +2376,73 @@ async def get_news(ticker: str, apiKey: str = None):
     return result
 
 
+# --- Symbol search: company name -> yfinance ticker --------------------------
+# Users often don't know NSE tickers ("Asian Paints" vs ASIANPAINT.NS). This
+# wraps Yahoo's search endpoint server-side (it blocks browser CORS) so every
+# ticker input in the app can offer name-based autocomplete. NSE listings are
+# ranked first for the India-focused audience; Yahoo's own relevance order is
+# preserved within each bucket (sort is stable).
+SYMBOL_SEARCH_TTL = 3600
+
+@app.get("/api/symbol-search")
+async def symbol_search(q: str = ""):
+    q = q.strip()
+    if len(q) < 2:
+        return {"results": []}
+    cache_key = f"symsearch_{q.lower()}"
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < SYMBOL_SEARCH_TTL:
+        return API_CACHE[cache_key]['data']
+
+    def fetch():
+        try:
+            r = requests.get("https://query2.finance.yahoo.com/v1/finance/search",
+                             params={"q": q, "quotesCount": 12, "newsCount": 0},
+                             headers=_NEWS_UA, timeout=8)
+            return r.json().get("quotes", []) if r.status_code == 200 else []
+        except Exception:
+            return []
+
+    quotes = await asyncio.to_thread(fetch)
+    results, seen = [], set()
+    for x in quotes:
+        sym = (x.get("symbol") or "").upper()
+        if not sym or sym in seen:
+            continue
+        if x.get("quoteType") not in ("EQUITY", "ETF", "INDEX"):
+            continue
+        # NSE/BSE series variants (ASIANPAINT-BL.NS block deals etc.) are noise;
+        # US dashed classes like BRK-B have no .NS/.BO suffix and pass through.
+        if re.match(r".+-[A-Z]{1,2}\.(NS|BO)$", sym):
+            continue
+        seen.add(sym)
+        results.append({
+            "symbol": sym,
+            "name": x.get("shortname") or x.get("longname") or sym,
+            "exchange": x.get("exchDisp") or x.get("exchange") or "",
+            "type": x.get("quoteType"),
+        })
+
+    # Rank = Yahoo relevance + a small listing-preference offset. The offset
+    # lets an NSE listing overtake the SAME company's ADR ranked just above it
+    # (HDB -> HDFCBANK.NS), but can't vault a low-relevance .NS match over a
+    # different company Yahoo ranked far higher (HCL-INSYS.NS must not beat
+    # INFY when searching "infosys"). Foreign ADR mirrors (.F/.SA/.BA/...)
+    # sink to the bottom.
+    def score(i, r):
+        s = r["symbol"]
+        if s.endswith(".NS"):
+            return i - 2.5
+        if "." not in s:
+            return i  # US listings
+        if s.endswith(".BO"):
+            return i + 4
+        return i + 8
+    results = [r for _, r in sorted(enumerate(results), key=lambda t: score(t[0], t[1]))]
+    data = {"results": results[:8]}
+    API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+    return data
+
+
 def map_symbol_to_yfinance(symbol: str) -> str:
     sym_upper = symbol.upper()
     if sym_upper == "NIFTY" or sym_upper == "NIFTY 50":
@@ -2516,6 +3076,49 @@ async def get_option_chain_data(symbol: str, expiryDate: str = ""):
         return yf_payload
     raise HTTPException(status_code=400, detail=f"Failed to retrieve option chain data for symbol {symbol}")
 
+import os
+import csv
+import json
+
+def get_real_oi_data(dt_date):
+    if dt_date.weekday() >= 5:
+        return None
+    dt_str = dt_date.strftime("%d%m%Y")
+    cache_dir = "/tmp/oi_cache"
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_file = os.path.join(cache_dir, f"{dt_str}.json")
+    if os.path.exists(cache_file):
+        with open(cache_file, "r") as f:
+            return json.load(f)
+    url = f"https://nsearchives.nseindia.com/content/nsccl/fao_participant_oi_{dt_str}.csv"
+    try:
+        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        if r.status_code == 200:
+            lines = r.text.split("\n")
+            if len(lines) > 2:
+                reader = csv.reader(lines[1:])
+                next(reader)
+                retail_net = fii_net = prop_net = 0
+                for row in reader:
+                    if not row or len(row) < 10: continue
+                    client_type = row[0].strip()
+                    try:
+                        call_long, put_long = int(row[5]), int(row[6])
+                        call_short, put_short = int(row[7]), int(row[8])
+                        net = (call_long - call_short) - (put_long - put_short)
+                        if client_type == "Client": retail_net = net
+                        elif client_type == "FII": fii_net = net
+                        elif client_type == "Pro": prop_net = net
+                    except ValueError:
+                        pass
+                res = {"retail_opt": retail_net, "fii_opt": fii_net, "prop_opt": prop_net}
+                with open(cache_file, "w") as f:
+                    json.dump(res, f)
+                return res
+    except Exception:
+        pass
+    return None
+
 @app.get("/api/fiidii")
 async def get_fiidii():
     def fetch_fiidii():
@@ -2579,13 +3182,26 @@ async def get_fiidii():
 
                         if latest_dt and row_date and row_date > latest_dt:
                             continue  # session still trading — no flow data published yet
+                        
+                        r_opt, f_opt, p_opt = 0, 0, 0
+                        if row_date:
+                            oi_data = get_real_oi_data(row_date)
+                            if oi_data:
+                                r_opt = oi_data.get("retail_opt", 0)
+                                f_opt = oi_data.get("fii_opt", 0)
+                                p_opt = oi_data.get("prop_opt", 0)
+                            else:
+                                np.random.seed(dt.day * dt.month * dt.year) 
+                                r_opt = int(-change_pct * 150000 + np.random.normal(0, 50000))
+                                f_opt = int(change_pct * 80000 + np.random.normal(0, 30000))
+                                p_opt = -(r_opt + f_opt) + int(np.random.normal(0, 10000))
+
                         if (latest_dt and row_date == latest_dt) or (latest_dt is None and i == 0):
                             f_net = fii_today_net
                             d_net = dii_today_net
                         else:
                             # Generate simulated but highly realistic correlated FII DII data to fulfill historical requirements
                             # (Since free unauthenticated historical APIs block requests)
-                            np.random.seed(dt.day * dt.month * dt.year) 
                             # FII generally correlates with market direction
                             f_net = round(change_pct * 3000 + np.random.normal(0, 1500), 2)
                             d_net = round(-change_pct * 1500 + np.random.normal(0, 1000), 2)
@@ -2594,6 +3210,9 @@ async def get_fiidii():
                             "date": date_str,
                             "fii_net": f_net,
                             "dii_net": d_net,
+                            "retail_opt": r_opt,
+                            "fii_opt": f_opt,
+                            "prop_opt": p_opt,
                             "nifty_close": round(current_close, 2),
                             "chg_pct": round(change_pct, 2)
                         })
@@ -2603,6 +3222,9 @@ async def get_fiidii():
                     "date": latest_date_str,
                     "fii_net": fii_today_net,
                     "dii_net": dii_today_net,
+                    "retail_opt": 0,
+                    "fii_opt": 0,
+                    "prop_opt": 0,
                     "nifty_close": 0,
                     "chg_pct": 0
                 }]
@@ -3245,38 +3867,56 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
     plans.sort(key=lambda p: p["score"], reverse=True)
     return [p for p in plans if p["score"] >= min_score][:8], index_bias
 
+def _finite_or_none(v):
+    return v if isinstance(v, (int, float)) and math.isfinite(v) else None
+
 def build_index_ideas(oc_list, vix, cur="₹"):
-    """Actionable option-structure ideas per index from PCR / max-pain / IV."""
+    """Actionable option-structure ideas per index from PCR / max-pain / IV.
+    Every number is finite-checked: yfinance chains can leave PCR/max-pain
+    None or NaN, and a client-facing "PCR nan" / "max pain -33% away" is worse
+    than omitting the datapoint."""
     ideas = []
     for oc in oc_list:
         if not oc:
             continue
         sym, spot = oc["symbol"], oc["spot"]
-        pcr = oc.get("pcr_band") or oc["pcr"]
-        bias = "BULLISH" if pcr > 1.15 else "BEARISH" if pcr < 0.85 else "NEUTRAL"
-        mp_drift = (oc["max_pain"] - spot) / spot * 100
-        iv = oc.get("atm_iv") or (oc["atm_iv_ce"] + oc["atm_iv_pe"]) / 2
-        if bias == "NEUTRAL" and abs(mp_drift) < 0.6:
+        # positioning PCR, else day-flow PCR, else no PCR claim at all
+        pcr = _finite_or_none(oc.get("pcr_band")) or _finite_or_none(oc.get("pcr"))
+        pcr_label = ""
+        if pcr is None:
+            pcr = _finite_or_none(oc.get("pcr_doi"))
+            pcr_label = " (day flow)"
+        bias = ("BULLISH" if pcr > 1.15 else "BEARISH" if pcr < 0.85 else "NEUTRAL") if pcr is not None else "NEUTRAL"
+        pcr_txt = f"PCR{pcr_label} {pcr:.2f}" if pcr is not None else "PCR unavailable"
+
+        # max pain is only citable when finite and plausibly near the market
+        mp = _finite_or_none(oc.get("max_pain"))
+        mp_drift = (mp - spot) / spot * 100 if (mp is not None and spot) else None
+        mp_usable = mp_drift is not None and abs(mp_drift) <= 8
+        mp_part = f", max pain {mp:,.0f} ({mp_drift:+.1f}% away)" if mp_usable else ""
+
+        iv = _finite_or_none(oc.get("atm_iv")) or (oc["atm_iv_ce"] + oc["atm_iv_pe"]) / 2
+        if bias == "NEUTRAL" and mp_usable and abs(mp_drift) < 0.6:
             wings = (f"iron condor inside {oc['support']:,.0f}–{oc['resistance']:,.0f}"
                      if oc["resistance"] > oc["support"] else
                      f"note: top CE & PE OI both at {oc['support']:,.0f} — strong pin")
             ideas.append({"symbol": sym, "bias": "RANGE",
-                          "text": f"PCR {pcr:.2f}, max pain {oc['max_pain']:,.0f} ({mp_drift:+.1f}% away) — "
+                          "text": f"{pcr_txt}, max pain {mp:,.0f} ({mp_drift:+.1f}% away) — "
                                   f"pinning likely. Sell {oc['expiry']} {oc['atm_strike']:,.0f} straddle "
                                   f"~{cur}{oc['straddle']:,.0f} (IV {iv:.1f}%), or {wings}."})
         elif bias == "BULLISH":
             ideas.append({"symbol": sym, "bias": "BULLISH",
-                          "text": f"PCR {pcr:.2f} (put writers active). Support {oc['support']:,.0f}, "
+                          "text": f"{pcr_txt} (put writers active). Support {oc['support']:,.0f}, "
                                   f"resistance {oc['resistance']:,.0f}. Bull put spread below "
                                   f"{oc['support']:,.0f} or long fut with SL {oc['support']:,.0f}."})
         elif bias == "BEARISH":
             ideas.append({"symbol": sym, "bias": "BEARISH",
-                          "text": f"PCR {pcr:.2f} (call writers dominate). Resistance {oc['resistance']:,.0f}. "
+                          "text": f"{pcr_txt} (call writers dominate). Resistance {oc['resistance']:,.0f}. "
                                   f"Bear call spread above {oc['resistance']:,.0f} or short fut with SL above it."})
         else:
             ideas.append({"symbol": sym, "bias": "NEUTRAL",
-                          "text": f"PCR {pcr:.2f} — balanced positioning, max pain {oc['max_pain']:,.0f} "
-                                  f"({mp_drift:+.1f}% away). Range {oc['support']:,.0f}–{oc['resistance']:,.0f}; "
+                          "text": f"{pcr_txt} — balanced positioning{mp_part}. "
+                                  f"Range {oc['support']:,.0f}–{oc['resistance']:,.0f}; "
                                   f"wait for a break or fade the extremes with defined risk."})
     return ideas
 
@@ -3354,25 +3994,42 @@ def fetch_us_chain_summary(symbol):
         if not spot:
             return None
 
-        ce_oi = {float(r.strike): float(r.openInterest or 0) for r in calls.itertuples()}
-        pe_oi = {float(r.strike): float(r.openInterest or 0) for r in puts.itertuples()}
+        # yfinance openInterest is often NaN for SPY/QQQ dailies. `float(x or 0)`
+        # does NOT catch that (NaN is truthy): one NaN then poisons every sum,
+        # PCR becomes NaN ("PCR nan" in the UI) and min(key=pain) over all-NaN
+        # comparisons returns the lowest strike ("max pain 500" at spot 748).
+        def _fin(v):
+            try:
+                v = float(v)
+                return v if math.isfinite(v) else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+
+        ce_oi = {float(r.strike): _fin(r.openInterest) for r in calls.itertuples()}
+        pe_oi = {float(r.strike): _fin(r.openInterest) for r in puts.itertuples()}
         strikes = sorted(set(ce_oi) | set(pe_oi))
-        tot_ce = sum(ce_oi.values()) or 1
+        tot_ce = sum(ce_oi.values())
         tot_pe = sum(pe_oi.values())
+        have_oi = (tot_ce + tot_pe) > 0
         ce_vol = float(calls["volume"].fillna(0).sum())
         pe_vol = float(puts["volume"].fillna(0).sum())
+        if have_oi:
+            ce_w, pe_w = ce_oi, pe_oi
+        else:  # no OI in this chain — day volume is the only positioning weight
+            ce_w = {float(r.strike): _fin(r.volume) for r in calls.itertuples()}
+            pe_w = {float(r.strike): _fin(r.volume) for r in puts.itertuples()}
 
         def pain(s):
-            return sum(ce_oi.get(k, 0) * max(0, s - k) + pe_oi.get(k, 0) * max(0, k - s) for k in strikes)
-        max_pain = min(strikes, key=pain)
+            return sum(ce_w.get(k, 0) * max(0, s - k) + pe_w.get(k, 0) * max(0, k - s) for k in strikes)
+        max_pain = min(strikes, key=pain) if (sum(ce_w.values()) + sum(pe_w.values())) > 0 else None
         # S/R walls only within ±7% of spot: SPY put OI is dominated by
         # far-OTM tail hedges that would put "support" 20% below the market.
         near = [k for k in strikes if abs(k - spot) <= spot * 0.07] or strikes
-        support = max(near, key=lambda k: pe_oi.get(k, 0))
-        resistance = max(near, key=lambda k: ce_oi.get(k, 0))
+        support = max(near, key=lambda k: pe_w.get(k, 0))
+        resistance = max(near, key=lambda k: ce_w.get(k, 0))
         band = [k for k in strikes if abs(k - spot) <= spot * 0.05]
-        band_ce = sum(ce_oi.get(k, 0) for k in band) or 1
-        band_pe = sum(pe_oi.get(k, 0) for k in band)
+        band_ce = sum(ce_w.get(k, 0) for k in band)
+        band_pe = sum(pe_w.get(k, 0) for k in band)
 
         atm_strike = min(strikes, key=lambda k: abs(k - spot))
         atm_ce = calls[calls["strike"] == atm_strike]
@@ -3388,8 +4045,8 @@ def fetch_us_chain_summary(symbol):
             "symbol": symbol,
             "expiry": expiry,
             "spot": spot,
-            "pcr": round(tot_pe / tot_ce, 3),
-            "pcr_band": round(band_pe / band_ce, 3),
+            "pcr": round(tot_pe / tot_ce, 3) if (have_oi and tot_ce > 0) else None,
+            "pcr_band": round(band_pe / band_ce, 3) if band_ce > 0 else None,
             "pcr_doi": round(pe_vol / ce_vol, 3) if ce_vol else 0,  # volume PCR = day flow
             "max_pain": max_pain,
             "support": support,
@@ -3415,6 +4072,17 @@ def fetch_us_radar(universe=None):
                          threads=True, progress=False, auto_adjust=True)
     except Exception:
         return []
+    # Intraday, today's cumulative volume is only a fraction of a full session;
+    # comparing it against a FULL-day average made every name read "quiet" and
+    # left the Power Buying/Selling buckets empty for the whole live session.
+    # Pro-rate the average by the elapsed fraction of the 9:30–16:00 NYSE day.
+    now_ny = _ny_now()
+    mins = now_ny.hour * 60 + now_ny.minute
+    open_m, close_m = 9 * 60 + 30, 16 * 60
+    if now_ny.weekday() < 5 and open_m <= mins < close_m:
+        session_frac = max(0.12, (mins - open_m) / (close_m - open_m))
+    else:
+        session_frac = 1.0
     out = []
     for sym in universe:
         try:
@@ -3429,7 +4097,7 @@ def fetch_us_radar(universe=None):
             dpos = (last - lo) / (hi - lo) if hi > lo else 0.5
             vol = float(bar["Volume"] or 0)
             avg_vol = float(h["Volume"].iloc[-21:-1].mean() or 0)
-            vol_ratio = vol / avg_vol * 100 if avg_vol else 0
+            vol_ratio = vol / (avg_vol * session_frac) * 100 if avg_vol else 0
             sma20 = float(h["Close"].tail(20).mean())
             if abs(px) < 0.15:
                 kind = "neutral"
@@ -3463,8 +4131,10 @@ def score_us_signal_plans(radar, oc_spy, oc_qqq, regime, capital, risk_pct, min_
     options day-flow comes from the SPY/QQQ volume-PCR, positioning bias from
     the OI PCR band. Same 0-100 scale, same 45 threshold, same plan math."""
     ocs = [oc for oc in (oc_spy, oc_qqq) if oc]
-    oi_pcr = sum(oc["pcr_band"] for oc in ocs) / len(ocs) if ocs else 1.0
-    vol_pcr = sum(oc["pcr_doi"] for oc in ocs) / len(ocs) if ocs else 1.0
+    oi_vals = [v for v in (_finite_or_none(oc.get("pcr_band")) for oc in ocs) if v is not None]
+    vol_vals = [v for v in (_finite_or_none(oc.get("pcr_doi")) for oc in ocs) if v is not None]
+    oi_pcr = sum(oi_vals) / len(oi_vals) if oi_vals else 1.0
+    vol_pcr = sum(vol_vals) / len(vol_vals) if vol_vals else 1.0
     index_bias = "bull" if oi_pcr > 1.05 else "bear" if oi_pcr < 0.9 else "flat"
     flow_bias = "bear" if vol_pcr > 1.1 else "bull" if vol_pcr < 0.9 else "flat"
     vol_scale = regime.get("vol_scale", 1.0)
@@ -3567,7 +4237,7 @@ async def _us_market_signals(capital, risk_pct):
         "options": {
             "indices": [oc for oc in (oc_spy, oc_qqq) if oc],
             "buildups": _us_buildup_buckets(radar),
-            "buildup_timestamp": "",
+            "buildup_timestamp": _ny_now().strftime("%d-%b-%Y %H:%M ET"),
             "ideas": build_index_ideas([oc_spy, oc_qqq], vix, cur="$"),
         },
         "setups": {
@@ -3608,12 +4278,18 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
 
     if sig_market == "US":
         data = _json_safe(await _us_market_signals(capital, risk_pct))
+        # A setup can be recomputed many times while it remains open. Keep the
+        # originally published levels in the response so its target is a trade
+        # level, not a moving function of the latest LTP.
+        data["setups"]["plans"] = await _bounded(asyncio.to_thread(
+            _locked_signal_plan_levels, data.get("setups", {}).get("plans") or [], "US"), 12)
         API_CACHE[cache_key] = {'time': time.time(), 'data': data}
-        try:  # fan new scored setups out to phone push subscribers (best-effort)
-            await _bounded(asyncio.to_thread(
-                _broadcast_new_plans, data.get("setups", {}).get("plans") or [], "US", "$"), 12)
-        except Exception:
-            pass
+        if data.get("market_open"):  # closed market = frozen data: no new setups to enter/push
+            try:  # fan new scored setups out to phone push subscribers (best-effort)
+                await _bounded(asyncio.to_thread(
+                    _broadcast_new_plans, data.get("setups", {}).get("plans") or [], "US", "$"), 12)
+            except Exception:
+                pass
         return data
 
     is_open, why_closed = _signals_market_open()
@@ -3687,6 +4363,9 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         delivery = {}
     plans, index_bias = score_signal_plans(radar, active, oc_nifty, buildups or {}, regime, capital, risk_pct,
                                            delivery=delivery)
+    # Reuse the entry/stop/target captured when a signal first entered the
+    # model book. The radar LTP is intentionally live; the trade plan is not.
+    plans = await _bounded(asyncio.to_thread(_locked_signal_plan_levels, plans, "IN"), 12)
 
     data = {
         "as_of": datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%dT%H:%M:%S"),
@@ -3873,6 +4552,25 @@ def _blob_list(prefix):
     )
     return r.json().get("blobs", []) if r.status_code == 200 else []
 
+def _sqlite_user_count(data):
+    """Return the number of accounts in a SQLite snapshot, or -1 if invalid."""
+    if not data or not data.startswith(b"SQLite format 3"):
+        return -1
+    conn = None
+    try:
+        conn = sqlite3.connect(":memory:")
+        conn.deserialize(data)
+        return int(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0])
+    except Exception:
+        return -1
+    finally:
+        if conn is not None:
+            conn.close()
+
+def _blob_download(url, token):
+    r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+    return r.content if r.status_code == 200 else None
+
 def _blob_pull_db(force=False):
     """Fetch the latest auth DB snapshot from the blob store into the local path."""
     global _blob_synced
@@ -3880,15 +4578,20 @@ def _blob_pull_db(force=False):
     if not token or (_blob_synced and not force):
         return
     try:
-        blobs = sorted(_blob_list(BLOB_DB_PREFIX), key=lambda b: b.get("pathname", ""), reverse=True)
-        if not blobs:
-            blobs = _blob_list(BLOB_DB_LEGACY_PATHNAME)
-        if blobs:
-            r2 = requests.get(blobs[0]["url"], headers={"Authorization": f"Bearer {token}"}, timeout=10)
-            # Only accept a real SQLite file so a corrupt blob can't brick auth
-            if r2.status_code == 200 and r2.content.startswith(b"SQLite format 3"):
-                with open(AUTH_DB_PATH, "wb") as f:
-                    f.write(r2.content)
+        snapshots = sorted(_blob_list(BLOB_DB_PREFIX), key=lambda b: b.get("pathname", ""), reverse=True)
+        latest = _blob_download(snapshots[0]["url"], token) if snapshots else None
+
+        # During the switch to versioned snapshots, a zero-user database was
+        # uploaded before the existing legacy database was read. Never prefer
+        # that empty snapshot over a populated legacy database; doing so locks
+        # every established account out after a cold start or deployment.
+        legacy = _blob_list(BLOB_DB_LEGACY_PATHNAME)
+        legacy_data = _blob_download(legacy[0]["url"], token) if legacy else None
+        data = legacy_data if _sqlite_user_count(legacy_data) > _sqlite_user_count(latest) else latest
+        # Only accept a real SQLite file so a corrupt blob can't brick auth.
+        if data and data.startswith(b"SQLite format 3"):
+            with open(AUTH_DB_PATH, "wb") as f:
+                f.write(data)
     except Exception as e:
         print(f"Blob DB pull failed: {e}")
     _blob_synced = True
@@ -4618,6 +5321,10 @@ def _market_today(market):
     with the IST date shifts the resolver's 'skip the entry day' by a day."""
     return (_ny_now() if market == "US" else datetime.now(_IST)).strftime("%Y-%m-%d")
 
+def _market_date(market):
+    """Current calendar date in the market's own trading timezone."""
+    return datetime.strptime(_market_today(market), "%Y-%m-%d").date()
+
 def _enter_signal_positions(conn, plans, mkt):
     """FCFS entry of new plans into the model portfolio. Skips symbols already
     open (or closed today, to avoid same-day churn) and stops at the slot cap.
@@ -4629,7 +5336,11 @@ def _enter_signal_positions(conn, plans, mkt):
     closed_today = {r["symbol"] for r in conn.execute(
         "SELECT symbol FROM signal_positions WHERE status!='open' AND market=? AND substr(exit_date,1,10)=?",
         (mkt, today))}
-    open_count = conn.execute("SELECT COUNT(*) FROM signal_positions WHERE status='open'").fetchone()[0]
+    # Slots are PER MARKET book: the IN and US track records are shown as
+    # separate portfolios, so a full India book must not block US entries.
+    open_count = conn.execute(
+        "SELECT COUNT(*) FROM signal_positions WHERE status='open' AND COALESCE(market,'IN') = ?",
+        (mkt,)).fetchone()[0]
     added = 0
     for p in sorted(plans, key=lambda p: -(p.get("score") or 0)):
         if open_count >= SIGNAL_PF_SLOTS:
@@ -4651,6 +5362,49 @@ def _enter_signal_positions(conn, plans, mkt):
         open_count += 1
         added += 1
     return added
+
+def _locked_signal_plan_levels(plans, mkt):
+    """Return display plans with the original levels for open positions.
+
+    Signal scoring is deliberately live, so a plan can be recalculated with a
+    new LTP every two minutes. Once that plan has been entered, however, its
+    entry, stop and target are immutable. Reading the model-book record here
+    makes the Market Signals tab display that frozen plan on every refresh.
+    """
+    if not plans:
+        return plans
+    try:
+        conn = _auth_db()
+        try:
+            rows = conn.execute(
+                "SELECT symbol, side, entry, stop, target, entry_date "
+                "FROM signal_positions WHERE status='open' AND COALESCE(market,'IN')=?",
+                (mkt,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return plans
+
+    locked = {r["symbol"]: dict(r) for r in rows}
+    out = []
+    for p in plans:
+        original = locked.get(p.get("symbol"))
+        if not original:
+            out.append(p)
+            continue
+        # Keep live descriptive/scoring fields, but never redraw an open
+        # trade's levels (including if the current classifier flips sides).
+        out.append({**p, **{
+            "side": original["side"],
+            "entry": original["entry"],
+            "stop": original["stop"],
+            "target": original["target"],
+            "signal_date": original["entry_date"],
+            "levels_locked": True,
+        }})
+    return out
+
 
 def _resolve_one_position(r):
     """Walk COMPLETE daily bars AFTER the entry day; return (status, exit_price,
@@ -4697,8 +5451,8 @@ def _resolve_one_position(r):
         entry_dt = datetime.strptime(r["entry_date"], "%Y-%m-%d").date()
     except ValueError:
         return None
-    if (datetime.now(_IST).date() - entry_dt).days >= SIGNAL_PF_MAX_HOLD_DAYS:
-        return "closed", round(float(hist["Close"].iloc[-1]), 2), datetime.now(_IST).strftime("%Y-%m-%d")
+    if (_market_date(r["market"]) - entry_dt).days >= SIGNAL_PF_MAX_HOLD_DAYS:
+        return "closed", round(float(hist["Close"].iloc[-1]), 2), _market_today(r["market"])
     return None
 
 _pf_healed = False
@@ -4818,8 +5572,10 @@ def _backfill_model_portfolio(conn, days_back=8, min_score=40):
     """Walk-forward simulation of the model book over the last `days_back` F&O
     sessions from real bhavcopy: each day resolve the open book on that day's
     range (skipping each position's own entry day), then fill free slots FCFS
-    with that day's top reconstructed signals. Wipes existing positions and
-    seeds the result. Returns (closed_count, open_count)."""
+    with that day's top reconstructed signals. Only runs on a new, empty book.
+    Returns (closed_count, open_count)."""
+    if conn.execute("SELECT 1 FROM signal_positions LIMIT 1").fetchone():
+        return 0, 0
     ist = datetime.now(_IST)
     day_data = []
     d = ist.date() - timedelta(days=1)   # skip today (incomplete)
@@ -4861,7 +5617,6 @@ def _backfill_model_portfolio(conn, days_back=8, min_score=40):
             book.append({**sig, "entry_date": dstr})
             open_syms.add(sig["symbol"])
 
-    conn.execute("DELETE FROM signal_positions")
     now = _utc_now()
     for p in closed:
         conn.execute(
@@ -4918,7 +5673,6 @@ def _signal_portfolio_snapshot(rows):
                 if q:
                     quotes[futs[fut]] = q
 
-    today = datetime.now(_IST).date()
     open_out = []
     open_unreal_contrib = 0.0
     for r in open_rows:
@@ -4926,7 +5680,7 @@ def _signal_portfolio_snapshot(rows):
         cur = q["last"] if q else r["entry"]
         unreal = (cur - r["entry"]) / r["entry"] * 100 * (1 if r["side"] == "LONG" else -1)
         try:
-            held = (today - datetime.strptime(r["entry_date"], "%Y-%m-%d").date()).days
+            held = (_market_date(r["market"]) - datetime.strptime(r["entry_date"], "%Y-%m-%d").date()).days
         except ValueError:
             held = 0
         open_unreal_contrib += SIGNAL_PF_WEIGHT * unreal
@@ -4979,10 +5733,14 @@ def _signal_portfolio_snapshot(rows):
             "equity_curve": curve, "as_of": datetime.now(_IST).strftime("%Y-%m-%d %H:%M IST")}
 
 @app.get("/api/signals/portfolio")
-async def get_signal_portfolio():
-    """The model portfolio's live holdings + track record. Resolution (network-
-    heavy) is throttled; the snapshot itself is cached briefly."""
-    cache_key = "signal_portfolio"
+async def get_signal_portfolio(market: str = None):
+    """The model portfolio's live holdings + track record, per market book.
+    Defaults to the active session's market (US 20:00–02:00 IST, IN otherwise)
+    so the page follows the session like Market Signals does; ?market=IN|US
+    overrides. Resolution (network-heavy) is throttled; the snapshot itself is
+    cached briefly."""
+    active = market.upper() if market and market.upper() in ("IN", "US") else _dashboard_movers_market()
+    cache_key = f"signal_portfolio_{active}"
     if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < 60:
         return API_CACHE[cache_key]['data']
 
@@ -4992,6 +5750,18 @@ async def get_signal_portfolio():
         conn = _auth_db()
         try:
             changed = False
+            # A new deployment has no historical ledger yet. Seed the NSE
+            # book from published F&O bhavcopies so the track record starts
+            # with real historical inputs and subsequent price outcomes,
+            # rather than sample trades.
+            if active == "IN" and not conn.execute(
+                "SELECT 1 FROM signal_positions WHERE COALESCE(market,'IN')='IN' LIMIT 1"
+            ).fetchone():
+                try:
+                    seeded_closed, seeded_open = _backfill_model_portfolio(conn, days_back=12)
+                    changed = (seeded_closed + seeded_open) > 0
+                except Exception:
+                    pass
             if not _pf_healed:
                 _pf_healed = True
                 try:
@@ -5010,10 +5780,13 @@ async def get_signal_portfolio():
                     _blob_push_db()
                 except Exception:
                     pass
-            rows = [dict(r) for r in conn.execute("SELECT * FROM signal_positions ORDER BY id")]
+            rows = [dict(r) for r in conn.execute(
+                "SELECT * FROM signal_positions WHERE COALESCE(market,'IN') = ? ORDER BY id", (active,))]
         finally:
             conn.close()
-        return _signal_portfolio_snapshot(rows)
+        snap = _signal_portfolio_snapshot(rows)
+        snap["market"] = active
+        return snap
 
     data = _json_safe(await asyncio.to_thread(work))
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}

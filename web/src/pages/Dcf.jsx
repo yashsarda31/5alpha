@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
+import TickerSearch from '../components/TickerSearch';
+import ShareButton from '../components/ShareButton';
 import './Dcf.css';
 
 // Steppers accumulate float noise (6.88 - 0.1 -> 6.7799...94) without rounding
@@ -90,12 +92,14 @@ const Dcf = () => {
   // AI State
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReport, setAiReport] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
 
   const currency = currencyFor(ticker);
 
   const fetchDcfData = async (t) => {
     setLoading(true);
     setAiReport(null);
+    setFetchError(null);
     try {
       const res = await axios.get(`/api/dcf/data/${t}`);
       const data = res.data;
@@ -119,7 +123,8 @@ const Dcf = () => {
       }
       
     } catch (err) {
-      alert("Error fetching data: " + (err.response?.data?.detail || err.message));
+      // Inline error — alert() freezes the preview renderer and interrupts flows
+      setFetchError(err.response?.data?.detail || err.message);
     }
     setLoading(false);
   };
@@ -192,7 +197,7 @@ const Dcf = () => {
     if (!stockData) return;
     const apiKey = localStorage.getItem('gemini_api_key');
     if (!apiKey) {
-      alert("Please enter your Gemini API Key in the sidebar first.");
+      setAiReport('**Add your Gemini API key in Settings to generate the valuation brief.**');
       return;
     }
 
@@ -224,7 +229,7 @@ const Dcf = () => {
   useAutoAiInsight(stockData, runAiAnalysis);
 
   return (
-    <div className="dcf-calculator fade-in">
+    <div id="dcf-analysis" className="dcf-calculator fade-in">
       {/* Top Header */}
       <div className="dcf-header card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -237,20 +242,33 @@ const Dcf = () => {
               )}
             </div>
             <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
-              <input 
-                type="text" 
-                placeholder="Switch Ticker (e.g. MSFT)"
+              <TickerSearch
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                onKeyDown={handleSearch}
-                className="search-input"
+                onChange={setSearchInput}
+                onSelect={(sym) => fetchDcfData(sym)}
+                placeholder="Ticker or company name…"
+                inputProps={{ className: 'search-input', onKeyDown: handleSearch }}
               />
               <button className="primary-btn" onClick={() => fetchDcfData(searchInput.toUpperCase())}>Load Ticker</button>
+              {stockData && (
+                <ShareButton
+                  label="Share"
+                  filename={`alpha-nova-dcf-${ticker.replace(/\W+/g, '-')}.png`}
+                  shareText={`${ticker} DCF valuation — Alpha Nova`}
+                  capture={() => document.getElementById('dcf-analysis')}
+                />
+              )}
             </div>
+            {fetchError && (
+              <div style={{ color: 'var(--red-loss)', padding: '12px 14px', background: 'rgba(255,69,58,0.1)', borderRadius: 10, marginTop: 12, fontSize: 13 }}>
+                <strong>Could not load {'"'}{searchInput}{'"'}:</strong> {fetchError}
+              </div>
+            )}
         </div>
         {stockData && !loading && (
-          <button 
-            onClick={runAiAnalysis} 
+          <button
+            data-noshare=""
+            onClick={runAiAnalysis}
             disabled={aiLoading}
             style={{ 
               width: 'auto', 
