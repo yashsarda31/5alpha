@@ -54,12 +54,13 @@ const quadOf = (p) => (p.x >= 100
   ? (p.y >= 100 ? 'Leading' : 'Weakening')
   : (p.y >= 100 ? 'Improving' : 'Lagging'));
 
-// Quadrant crossings over the visible tail — "what actually changed" without
-// reading the chart. Uses only data the API already returns.
+// Quadrant crossings between the two most recent weekly points — "what
+// actually changed this week" without reading the chart. Uses only data the
+// API already returns.
 const rotationsFrom = (sectors) => sectors
   .map((s) => {
     if (!s.tail || s.tail.length < 2) return null;
-    const from = quadOf(s.tail[0]);
+    const from = quadOf(s.tail[s.tail.length - 2]);
     const to = s.quadrant || quadOf(s.tail[s.tail.length - 1]);
     return from !== to ? { name: s.name, from, to } : null;
   })
@@ -283,7 +284,7 @@ const SectorRotation = () => {
                 key={r.name}
                 className="sr-rot-chip"
                 style={{ color: (QUAD[r.to] || {}).color, borderColor: 'currentColor' }}
-                title={`${r.name}: ${r.from} → ${r.to} over the tail window`}
+                title={`${r.name}: ${r.from} → ${r.to} vs last week`}
               >
                 {r.name.replace('Nifty ', '')} → {r.to}
               </span>
