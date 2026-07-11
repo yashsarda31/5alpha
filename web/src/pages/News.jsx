@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, Badge } from '../components/ui';
 import TickerSearch from '../components/TickerSearch';
@@ -31,7 +32,8 @@ const ProviderTag = ({ provider }) => (
 );
 
 const News = () => {
-  const [ticker, setTicker] = useState('RELIANCE');
+  const [searchParams] = useSearchParams();
+  const [ticker, setTicker] = useState(() => searchParams.get('symbol') || 'RELIANCE');
   const [newsApiKey, setNewsApiKey] = useState(() => localStorage.getItem('news_api_key') || '');
   const [news, setNews] = useState([]);
   const [sentiment, setSentiment] = useState(null);
@@ -69,10 +71,22 @@ const News = () => {
     }
   };
 
-  // Load the default ticker's feed on arrival — the page shouldn't open empty.
+  // Load a feed on arrival — the page shouldn't open empty. A ?symbol= link
+  // (e.g. a watchlist row's News action) wins over the default ticker, and
+  // in-app navigations that change the param re-fetch for the new symbol.
   const autoFetched = useRef(false);
+  const lastParamSym = useRef(null);
   useEffect(() => {
-    if (autoFetched.current) return;
+    const sym = searchParams.get('symbol');
+    if (sym && sym !== lastParamSym.current) {
+      lastParamSym.current = sym;
+      autoFetched.current = true;
+      setTicker(sym);
+      fetchNews(null, sym);
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (autoFetched.current || searchParams.get('symbol')) return;
     autoFetched.current = true;
     fetchNews();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
