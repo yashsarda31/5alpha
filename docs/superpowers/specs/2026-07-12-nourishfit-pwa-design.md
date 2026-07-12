@@ -20,6 +20,8 @@ Create a standalone React/Vite project under `nourishfit/` so the existing finan
 
 Use a versioned local-storage repository as the only persistence layer. Users can export all data to JSON, import a valid NourishFit backup, or reset the app. Seed the food catalog with a useful set of common Indian foods and transparent nutrition values per serving. No server, sign-in, paid API, photo recognition, or cloud synchronization is included.
 
+When a searched food is unavailable, the diary offers a custom-food fallback requiring only a name and calories. The estimate assigns all calories to carbohydrates at four calories per gram, marks half of those carbohydrate grams as sugar included within the carbohydrate total, and assigns zero protein, fat, and fibre. Custom entries are labelled as estimates and can be removed normally.
+
 ## Data and Calculations
 
 Store profile goals, dated food entries, water, weight, steps, workouts, and lightweight preferences. Derive daily calorie and macro totals from diary entries. Derive streaks and weekly summaries from dates with meaningful logging activity. Validate numeric ranges and backup schema before saving or importing.
