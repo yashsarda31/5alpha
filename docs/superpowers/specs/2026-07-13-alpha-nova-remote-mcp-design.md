@@ -94,7 +94,7 @@ Inputs:
 - `max_candidates`: integer from 3 to 20, default 10
 - optional minimum momentum, ROE, EPS growth, and Alpha Nova score filters
 
-Uses the quantitative screener, momentum leaders, sector rotation, Focus List, and deal activity. It must not read Signals even when a symbol appears there.
+Uses the quantitative screener, momentum leaders, sector rotation, and deal activity. The existing Focus List is excluded because its backend is derived from the Signals engine.
 
 Returns normalized candidates with discovery reasons, liquidity indicators, sector context, raw factor values, data timestamps, and warnings.
 
