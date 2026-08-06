@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import yfinance as yf
@@ -16,6 +16,38 @@ import concurrent.futures
 import time
 import io
 import re
+from contextlib import asynccontextmanager
+
+try:
+    from api.stock_pro import calculate_stock_pro_signal
+except ImportError:  # local `uvicorn main:app` with api/ as working directory
+    from stock_pro import calculate_stock_pro_signal
+
+try:
+    from api.fundamentals_gateway import (
+        fetch_openbb_fundamentals,
+        normalize_yfinance_fundamentals,
+    )
+except ImportError:  # local `uvicorn main:app` with api/ as working directory
+    from fundamentals_gateway import (
+        fetch_openbb_fundamentals,
+        normalize_yfinance_fundamentals,
+    )
+
+try:
+    from api.superstar_portfolios import (
+        build_investor_detail,
+        build_superstar_payload,
+        empty_snapshot,
+        refresh_snapshot,
+    )
+except ImportError:
+    from superstar_portfolios import (
+        build_investor_detail,
+        build_superstar_payload,
+        empty_snapshot,
+        refresh_snapshot,
+    )
 
 # statsmodels (scipy chain), google.genai and PIL are imported lazily inside the
 # endpoints that need them — importing them at module level adds seconds to every
@@ -27,7 +59,22 @@ def _genai_client(api_key):
 API_CACHE = {}
 CACHE_TTL = 900 # 15 minutes
 
-app = FastAPI(title="Alpha Nova API V2", description="Institutional Analytics API")
+_mcp_server_instance = None
+@asynccontextmanager
+async def _app_lifespan(_app):
+    server = globals().get("_mcp_server_instance")
+    if server is None:
+        yield
+        return
+    async with server.session_manager.run():
+        yield
+
+
+app = FastAPI(
+    title="Alpha Nova API V2",
+    description="Institutional Analytics API",
+    lifespan=_app_lifespan,
+)
 
 # Connect React Frontend. The app is same-origin in prod (Vercel serves both),
 # so CORS only matters for the local vite dev/preview proxies and Vercel preview
@@ -42,6 +89,60 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+class _LocalMetricsCorsMiddleware:
+    """Allow a disk-opened owner dashboard to call only the metrics route."""
+
+    _PATH = "/api/admin/metrics"
+    _ALLOW_HEADERS = "X-Admin-Metrics-Key"
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or scope.get("path") != self._PATH:
+            await self.app(scope, receive, send)
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        if headers.get(b"origin") != b"null":
+            await self.app(scope, receive, send)
+            return
+
+        cors_headers = {
+            "Access-Control-Allow-Origin": "null",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": self._ALLOW_HEADERS,
+            "Access-Control-Max-Age": "600",
+            "Vary": "Origin",
+        }
+        if scope.get("method") == "OPTIONS":
+            requested_method = headers.get(b"access-control-request-method", b"").decode().upper()
+            requested_headers = {
+                item.strip().lower()
+                for item in headers.get(b"access-control-request-headers", b"").decode().split(",")
+                if item.strip()
+            }
+            if requested_method != "GET" or requested_headers - {"x-admin-metrics-key"}:
+                response = Response("Disallowed CORS request", status_code=400)
+            else:
+                response = Response(status_code=204, headers=cors_headers)
+            await response(scope, receive, send)
+            return
+
+        async def send_with_cors(message):
+            if message.get("type") == "http.response.start":
+                message.setdefault("headers", []).extend(
+                    (key.lower().encode("latin-1"), value.encode("latin-1"))
+                    for key, value in cors_headers.items()
+                )
+            await send(message)
+
+        await self.app(scope, receive, send_with_cors)
+
+
+app.add_middleware(_LocalMetricsCorsMiddleware)
+
 # --- Edge CDN caching --------------------------------------------------------
 # Vercel's CDN honors s-maxage / stale-while-revalidate on function responses,
 # serving repeats from the visitor's nearest edge (bom1 for most users) instead
@@ -53,13 +154,19 @@ app.add_middleware(
 # endpoints' internal API_CACHE TTLs: the CDN absorbs the request fan-in, the
 # internal cache still bounds actual recompute work.
 _EDGE_STATIC_RULES = {
-    "/api/momentum": (300, 900),
+    # Momentum already uses a 15-minute internal snapshot. Matching that at the
+    # edge avoids repeating the expensive 50-symbol Yahoo batch across regions.
+    "/api/momentum": (900, 3600),
     "/api/sectors": (600, 1800),
     "/api/fiidii": (600, 1800),
     "/api/deals": (600, 1800),
+    "/api/superstar-portfolios": (21600, 86400),
     "/api/rv-forecast": (900, 3600),
     "/api/symbol-search": (3600, 86400),
     "/api/signals/portfolio": (60, 300),
+    # The signed-out gate's proof panel. Every ad click hits it, and it only
+    # changes when the engine publishes, so let the CDN absorb the fan-in.
+    "/api/signals/preview": (120, 900),
     # public since 2026-07-10 (guests browse the community board); signed-in
     # requests carry Authorization so the middleware already bypasses them
     "/api/leaderboard": (120, 600),
@@ -67,6 +174,7 @@ _EDGE_STATIC_RULES = {
 _EDGE_PREFIX_RULES = (
     ("/api/news/", 300, 900),
     ("/api/fundamentals/", 600, 1800),
+    ("/api/superstar-portfolios/", 21600, 86400),
     ("/api/chart/", 60, 300),
     ("/api/dcf/data/", 300, 900),
     ("/api/option-chain/expiries/", 300, 900),
@@ -76,8 +184,7 @@ _EDGE_PREFIX_RULES = (
 def _edge_cache_ttl(path, query_market):
     """(s-maxage, stale-while-revalidate) for a cacheable public path, else None."""
     if path == "/api/dashboard":
-        live = _is_indian_market_open() or _dashboard_movers_market() == "US"
-        return (120, 600) if live else (900, 1800)
+        return _dashboard_edge_cache_ttl()
     if path == "/api/signals":
         mkt = query_market.upper() if query_market and query_market.upper() in ("IN", "US") \
             else _dashboard_movers_market()
@@ -129,6 +236,87 @@ def _validate_symbol(sym: str) -> str:
     if not _TICKER_PATH_RE.match(s):
         raise HTTPException(status_code=400, detail="Invalid ticker symbol.")
     return s
+
+
+_SUPERSTAR_CACHE_TTL = 21600
+_SUPERSTAR_UNAVAILABLE = (
+    "Shareholding filings have not been ingested yet. The refresh job populates "
+    "them from the exchange filing archive."
+)
+_INVESTOR_ID_RE = re.compile(r"^[a-z0-9-]{1,120}$")
+
+
+@app.get("/api/superstar-portfolios")
+async def get_superstar_portfolios():
+    cache_key = "superstar_portfolios"
+    cached = API_CACHE.get(cache_key)
+    if cached and time.time() - cached["time"] < _SUPERSTAR_CACHE_TTL:
+        return cached["data"]
+    snapshot = await asyncio.to_thread(_shp_snapshot_load)
+    if not snapshot or not snapshot.get("filings"):
+        raise HTTPException(status_code=503, detail=_SUPERSTAR_UNAVAILABLE)
+    try:
+        data = await asyncio.to_thread(build_superstar_payload, snapshot)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    API_CACHE[cache_key] = {"time": time.time(), "data": _json_safe(data)}
+    return API_CACHE[cache_key]["data"]
+
+
+@app.get("/api/superstar-portfolios/{investor_id}")
+async def get_superstar_investor(investor_id: str):
+    if not _INVESTOR_ID_RE.match(investor_id or ""):
+        raise HTTPException(status_code=400, detail="Invalid investor identifier.")
+    cache_key = f"superstar_investor_{investor_id}"
+    cached = API_CACHE.get(cache_key)
+    if cached and time.time() - cached["time"] < _SUPERSTAR_CACHE_TTL:
+        return cached["data"]
+    snapshot = await asyncio.to_thread(_shp_snapshot_load)
+    if not snapshot or not snapshot.get("filings"):
+        raise HTTPException(status_code=503, detail=_SUPERSTAR_UNAVAILABLE)
+    try:
+        data = await asyncio.to_thread(build_investor_detail, snapshot, investor_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    API_CACHE[cache_key] = {"time": time.time(), "data": _json_safe(data)}
+    return API_CACHE[cache_key]["data"]
+
+
+# Deliberately NOT under /api/superstar-portfolios/: that prefix is edge-cached
+# for six hours, and a cached response would mean the cron stops doing any work.
+@app.get("/api/superstar/refresh")
+async def refresh_superstar_portfolios(request: Request, key: str = None,
+                                       batch: int = None, quarters: int = 2):
+    """Pull newly filed shareholding patterns into the snapshot.
+
+    Driven by a daily cron. Each run only fetches filings the snapshot has not
+    seen, because NSE's archive blocks an IP that sweeps the whole universe.
+    Filings for a quarter arrive over several weeks, so the backlog drains
+    across runs rather than in one pass.
+
+    Auth matches the other cron endpoints (`Authorization: Bearer $CRON_SECRET`).
+    An ADMIN_METRICS_KEY query param is also accepted so a refresh can be run by
+    hand without the cron secret. Gating this on the admin key ALONE would have
+    silently 403'd every cron invocation, since Vercel sends no query string.
+    """
+    admin_key = os.environ.get("ADMIN_METRICS_KEY")
+    if not (key and admin_key and hmac.compare_digest(key, admin_key)):
+        _require_cron(request.headers.get("authorization"))
+    snapshot = await asyncio.to_thread(_shp_snapshot_load) or empty_snapshot()
+    try:
+        stats = await asyncio.to_thread(
+            refresh_snapshot, snapshot, None, batch or 240, max(1, min(quarters, 2)))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if stats["ingested"]:
+        await asyncio.to_thread(_shp_snapshot_save, snapshot)
+        for stale in [k for k in API_CACHE if k.startswith("superstar_")]:
+            API_CACHE.pop(stale, None)
+    return {"ok": True, **stats,
+            "filings_held": len(snapshot.get("filings", {})),
+            "updated_at": snapshot.get("updated_at")}
 
 # --- Models ---
 class DCFRequest(BaseModel):
@@ -497,7 +685,27 @@ async def get_chart(ticker: str):
         # Fetch 2y to ensure 200-day MA and 52-week high/low have enough data
         return _yf_resolve_history(ticker, "2y")
 
-    resolved, df = await asyncio.to_thread(fetch_data)
+    history_task = asyncio.create_task(asyncio.to_thread(fetch_data))
+    # Explicit NSE symbols can begin their flow lookup immediately. Bare symbols
+    # must first be resolved by Yahoo (NVDA is US; RELIANCE may become .NS).
+    flow_task = None
+    if ticker.upper().endswith((".NS", ".BO")):
+        flow_task = asyncio.create_task(asyncio.wait_for(
+            asyncio.to_thread(_stock_pro_context_for_symbol, ticker), timeout=3.0
+        ))
+    resolved, df = await history_task
+    try:
+        flow_context = await (flow_task or asyncio.wait_for(
+            asyncio.to_thread(_stock_pro_context_for_symbol, resolved), timeout=3.0
+        ))
+    except Exception:
+        flow_context = {
+            "flow": {
+                "status": "unavailable", "alignment": "unavailable",
+                "evidence": "Options flow unavailable", "stale": False,
+            },
+            "regime": {"status": "unavailable", "direction": "flat"},
+        }
 
     if df.empty:
         raise HTTPException(status_code=404, detail="Ticker not found")
@@ -564,6 +772,7 @@ async def get_chart(ticker: str):
         return [round(float(v), nd) if math.isfinite(float(v)) else None
                 for v in series.tolist()]
 
+    pro_signal = calculate_stock_pro_signal(df, flow_context)
     payload = {
         "ticker": resolved.upper(),
         "dates": df_1y.index.tolist(),
@@ -574,7 +783,8 @@ async def get_chart(ticker: str):
         "volume": [int(v) if math.isfinite(float(v)) else 0 for v in df_1y['Volume'].tolist()],
         "sma20": _r2list(df_1y['SMA_20']),
         "rsi": _r2list(df_1y['RSI']),
-        "vcp_rating": vcp_rating
+        "vcp_rating": pro_signal.get("vcp", {}).get("rating", vcp_rating),
+        "pro_signal": pro_signal,
     }
     return payload
 
@@ -2129,65 +2339,29 @@ async def get_fundamentals(ticker: str):
     ticker = _validate_symbol(ticker)
     def fetch_fundamentals():
         try:
-            resolved, stock, info = _yf_resolve_info(ticker)
+            metrics = fetch_openbb_fundamentals(ticker)
+        except Exception as openbb_error:
+            resolved, _stock, info = _yf_resolve_info(ticker)
             if not (info.get("currentPrice") or info.get("regularMarketPrice") or info.get("marketCap")):
                 return {"error": f"Ticker '{ticker}' not found on Yahoo Finance"}
 
-            _eps = info.get("trailingEps")
-            _pe = info.get("trailingPE")
-            _rev = info.get("revenueGrowth")
-            _roe = info.get("returnOnEquity")
-            _margin = info.get("profitMargins")
-            _eg = info.get("earningsGrowth")
-            _price = info.get("currentPrice", info.get("regularMarketPrice", info.get("previousClose", 0)))
-            
-            alpha_score = _alpha_nova_score(
-                _price, _eps, _pe if _pe else None,
-                _eg * 100 if _eg is not None else None,
-                rev_growth_pct=_rev * 100 if _rev is not None else None,
-                roe_pct=_roe * 100 if _roe is not None else None,
-                margin_pct=_margin * 100 if _margin is not None else None,
-                dte_pct=info.get("debtToEquity"),
-                div_pct=info.get("dividendYield")
+            metrics = normalize_yfinance_fundamentals(
+                ticker=resolved,
+                info=info,
+                warning=f"OpenBB unavailable: {type(openbb_error).__name__}",
             )
-            
-            # Percent conversions (x * 100) and raw Yahoo ratios both carry
-            # float noise (12.000000000000002) — round every numeric metric.
-            def _r2(v, nd=2):
-                if isinstance(v, (int, float)) and math.isfinite(v):
-                    return round(v, nd)
-                return v
-
-            # Extract relevant metrics
-            metrics = {
-                "alphaScore": alpha_score,
-                "ticker": resolved,
-                "name": info.get("shortName", resolved),
-                "sector": info.get("sector", "N/A"),
-                "industry": info.get("industry", "N/A"),
-                "marketCap": info.get("marketCap", 0),
-                "trailingPE": _r2(info.get("trailingPE", "N/A")),
-                "forwardPE": _r2(info.get("forwardPE", "N/A")),
-                "pegRatio": _r2(info.get("pegRatio", "N/A")),
-                "priceToBook": _r2(info.get("priceToBook", "N/A")),
-                "dividendYield": _r2(info.get("dividendYield", 0) if info.get("dividendYield") else 0),
-                "profitMargin": _r2(info.get("profitMargins", 0) * 100 if info.get("profitMargins") else 0),
-                "operatingMargin": _r2(info.get("operatingMargins", 0) * 100 if info.get("operatingMargins") else 0),
-                "returnOnAssets": _r2(info.get("returnOnAssets", 0) * 100 if info.get("returnOnAssets") else 0),
-                "returnOnEquity": _r2(info.get("returnOnEquity", 0) * 100 if info.get("returnOnEquity") else 0),
-                "revenueGrowth": _r2(info.get("revenueGrowth", 0) * 100 if info.get("revenueGrowth") else 0),
-                "earningsGrowth": _r2(info.get("earningsGrowth", 0) * 100 if info.get("earningsGrowth") else 0),
-                "trailingEps": _r2(info.get("trailingEps", "N/A")),
-                "forwardEps": _r2(info.get("forwardEps", "N/A")),
-                "debtToEquity": _r2(info.get("debtToEquity", "N/A")),
-                "currentRatio": _r2(info.get("currentRatio", "N/A")),
-                "totalCash": info.get("totalCash", 0),
-                "totalDebt": info.get("totalDebt", 0),
-                "freeCashflow": info.get("freeCashflow", 0)
-            }
-            return metrics
-        except Exception as e:
-            return {"error": str(e)}
+        metrics["alphaScore"] = _alpha_nova_score(
+            metrics.get("lastPrice"),
+            metrics.get("trailingEps"),
+            metrics.get("trailingPE"),
+            metrics.get("earningsGrowth"),
+            rev_growth_pct=metrics.get("revenueGrowth"),
+            roe_pct=metrics.get("returnOnEquity"),
+            margin_pct=metrics.get("profitMargin"),
+            dte_pct=metrics.get("debtToEquity"),
+            div_pct=metrics.get("dividendYield"),
+        )
+        return metrics
 
     data = await asyncio.to_thread(fetch_fundamentals)
     if "error" in data:
@@ -3218,7 +3392,6 @@ def get_real_oi_data(dt_date):
         pass
     return None
 
-@app.get("/api/fiidii")
 async def get_fiidii():
     def fetch_fiidii():
         try:
@@ -3336,6 +3509,194 @@ async def get_fiidii():
     if "error" in res:
         raise HTTPException(status_code=500, detail=res["error"])
     return res
+
+
+# Fast stale-first FII/DII feed. The legacy implementation above documents the
+# original calculation, but made up to ~60 NSE archive calls serially on every
+# cold function and could block the page for 19 seconds. This version persists
+# the last successful snapshot, enriches only recent sessions concurrently and
+# serves stale data rather than an empty page when an upstream source is slow.
+_FIIDII_BLOB_PREFIX = "analytics/fiidii-v/"
+_FIIDII_TTL = 900
+_FIIDII_RECENT_OI_DAYS = 8
+
+def _fiidii_blob_load():
+    cached = API_CACHE.get("fiidii_snapshot")
+    if cached:
+        return cached.get("data")
+    token = os.environ.get("BLOB_READ_WRITE_TOKEN")
+    if not token:
+        return None
+    try:
+        listed = requests.get(
+            f"https://vercel.com/api/blob?prefix={_FIIDII_BLOB_PREFIX}&limit=5",
+            headers={"Authorization": f"Bearer {token}", "x-api-version": "12"},
+            timeout=1.4,
+        )
+        blobs = listed.json().get("blobs", []) if listed.status_code == 200 else []
+        newest = max(blobs, key=lambda item: item.get("pathname", ""), default=None)
+        if not newest:
+            return None
+        downloaded = requests.get(
+            newest["url"], headers={"Authorization": f"Bearer {token}"}, timeout=1.4
+        )
+        snapshot = downloaded.json() if downloaded.status_code == 200 else None
+        if isinstance(snapshot, dict) and isinstance(snapshot.get("data"), list):
+            API_CACHE["fiidii_snapshot"] = {"time": time.time(), "data": snapshot}
+            return snapshot
+    except Exception:
+        pass
+    return None
+
+def _fiidii_blob_store(snapshot):
+    token = os.environ.get("BLOB_READ_WRITE_TOKEN")
+    if not token:
+        return
+    try:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        pathname = f"{_FIIDII_BLOB_PREFIX}{stamp}.json"
+        payload = json.dumps(snapshot, separators=(",", ":")).encode("utf-8")
+        response = requests.put(
+            f"https://vercel.com/api/blob/?pathname={pathname}",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {token}", "x-api-version": "12",
+                "x-vercel-blob-access": "private", "x-add-random-suffix": "0",
+                "x-content-type": "application/json",
+            },
+            timeout=8,
+        )
+        if response.status_code != 200:
+            return
+        listed = requests.get(
+            f"https://vercel.com/api/blob?prefix={_FIIDII_BLOB_PREFIX}&limit=20",
+            headers={"Authorization": f"Bearer {token}", "x-api-version": "12"}, timeout=5,
+        )
+        blobs = sorted(listed.json().get("blobs", []), key=lambda item: item.get("pathname", ""), reverse=True) if listed.status_code == 200 else []
+        stale_urls = [item.get("url") for item in blobs[3:] if item.get("url")]
+        if stale_urls:
+            requests.post(
+                "https://vercel.com/api/blob/delete", json={"urls": stale_urls},
+                headers={"Authorization": f"Bearer {token}", "x-api-version": "12"}, timeout=5,
+            )
+    except Exception as exc:
+        print(f"FII/DII snapshot store failed: {exc}")
+
+def _modeled_flow(row_date, change_pct):
+    seed = int(row_date.strftime("%Y%m%d")) if row_date else 1
+    rng = np.random.default_rng(seed)
+    retail_opt = int(-change_pct * 150000 + rng.normal(0, 50000))
+    fii_opt = int(change_pct * 80000 + rng.normal(0, 30000))
+    prop_opt = -(retail_opt + fii_opt) + int(rng.normal(0, 10000))
+    fii_net = round(change_pct * 3000 + rng.normal(0, 1500), 2)
+    dii_net = round(-change_pct * 1500 + rng.normal(0, 1000), 2)
+    return retail_opt, fii_opt, prop_opt, fii_net, dii_net
+
+def _build_fiidii_snapshot():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "Accept": "application/json",
+    }
+    response = requests.get("https://www.nseindia.com/api/fiidiiTradeReact", headers=headers, timeout=5)
+    live = response.json() if response.status_code == 200 else []
+    if not live:
+        raise RuntimeError("NSE institutional flow is unavailable")
+    fii_today = dii_today = 0.0
+    latest_date = ""
+    for item in live:
+        if item.get("category") == "FII/FPI":
+            fii_today = float(item.get("netValue", 0))
+            latest_date = item.get("date", "")
+        elif item.get("category") == "DII":
+            dii_today = float(item.get("netValue", 0))
+    try:
+        latest_dt = datetime.strptime(latest_date, "%d-%b-%Y").date()
+    except Exception:
+        latest_dt = None
+
+    hist = yf.Ticker("^NSEI").history(period="60d")
+    if hist.empty:
+        raise RuntimeError("Nifty history is unavailable")
+    hist = hist.iloc[::-1]
+    rows = []
+    for index in range(len(hist)):
+        row = hist.iloc[index]
+        row_date = hist.index[index].date()
+        if latest_dt and row_date > latest_dt:
+            continue
+        close = float(row["Close"])
+        previous = float(hist.iloc[index + 1]["Close"]) if index < len(hist) - 1 else float(row["Open"])
+        change = ((close - previous) / previous) * 100 if previous else 0.0
+        rows.append({"row_date": row_date, "close": close, "change": change})
+
+    recent = rows[:_FIIDII_RECENT_OI_DAYS]
+    oi_by_date = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        futures = {pool.submit(get_real_oi_data, row["row_date"]): row["row_date"] for row in recent}
+        for future, row_date in futures.items():
+            try:
+                value = future.result(timeout=5.5)
+                if value:
+                    oi_by_date[row_date] = value
+            except Exception:
+                pass
+
+    output = []
+    for row in rows:
+        r_opt, f_opt, p_opt, f_net, d_net = _modeled_flow(row["row_date"], row["change"])
+        real_oi = oi_by_date.get(row["row_date"])
+        if real_oi:
+            r_opt = real_oi.get("retail_opt", r_opt)
+            f_opt = real_oi.get("fii_opt", f_opt)
+            p_opt = real_oi.get("prop_opt", p_opt)
+        if latest_dt and row["row_date"] == latest_dt:
+            f_net, d_net = fii_today, dii_today
+        output.append({
+            "date": row["row_date"].strftime("%d-%b-%Y"),
+            "fii_net": f_net, "dii_net": d_net,
+            "retail_opt": r_opt, "fii_opt": f_opt, "prop_opt": p_opt,
+            "nifty_close": round(row["close"], 2), "chg_pct": round(row["change"], 2),
+        })
+    now = datetime.now(timezone.utc).isoformat()
+    return {"data": output, "updated_at": now, "is_stale": False, "source_status": "fresh"}
+
+def _refresh_fiidii_snapshot():
+    snapshot = _build_fiidii_snapshot()
+    API_CACHE["fiidii_snapshot"] = {"time": time.time(), "data": snapshot}
+    _fiidii_blob_store(snapshot)
+    return snapshot
+
+def _fiidii_snapshot_age(snapshot):
+    try:
+        updated = datetime.fromisoformat(snapshot.get("updated_at", "").replace("Z", "+00:00"))
+        return max(0, (datetime.now(timezone.utc) - updated).total_seconds())
+    except Exception:
+        return float("inf")
+
+@app.get("/api/fiidii")
+async def get_fiidii_fast():
+    cached = API_CACHE.get("fiidii_snapshot")
+    snapshot = cached.get("data") if cached else None
+    if not snapshot:
+        snapshot = await asyncio.to_thread(_fiidii_blob_load)
+    if snapshot:
+        age = _fiidii_snapshot_age(snapshot)
+        result = {**snapshot, "is_stale": age > _FIIDII_TTL, "source_status": "stale" if age > _FIIDII_TTL else "fresh"}
+        if age > _FIIDII_TTL:
+            asyncio.create_task(asyncio.to_thread(_refresh_fiidii_snapshot))
+        return result
+    try:
+        return await asyncio.to_thread(_refresh_fiidii_snapshot)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Institutional flow data unavailable: {exc}")
+
+@app.get("/api/fiidii/refresh")
+async def refresh_fiidii(request: Request):
+    _require_cron(request.headers.get("authorization"))
+    try:
+        return await asyncio.to_thread(_refresh_fiidii_snapshot)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"FII/DII refresh failed: {exc}")
 
 
 # --- Block / bulk deals + insider trades (NSE) ---
@@ -3491,13 +3852,43 @@ def _dashboard_movers_market(now_ist=None):
     mins = now.hour * 60 + now.minute
     return "US" if (mins >= 20 * 60 or mins < 2 * 60) else "IN"
 
-def _is_indian_market_open():
+def _is_indian_market_open(now_ist=None):
     ist = timezone(timedelta(hours=5, minutes=30))
-    now = datetime.now(ist)
+    now = now_ist or datetime.now(ist)
     if now.weekday() >= 5:
         return False
     minutes = now.hour * 60 + now.minute
-    return 9 * 60 + 15 <= minutes <= 15 * 60 + 30
+    return 9 * 60 + 15 <= minutes < 15 * 60 + 30
+
+
+def _dashboard_pulse_names(market):
+    return ["S&P 500", "NASDAQ 100"] if market == "US" else ["NIFTY 50", "BANKNIFTY"]
+
+
+def _dashboard_market_open(market=None, now_ist=None):
+    """Status for the market selected by the existing fixed Dashboard window."""
+    active_market = market or _dashboard_movers_market(now_ist)
+    return active_market == "US" or _is_indian_market_open(now_ist)
+
+
+def _dashboard_edge_cache_ttl(now_ist=None):
+    """Keep dashboard CDN snapshots from crossing a market open/close bell.
+
+    A long closed-market TTL created just before 09:15 used to keep returning
+    ``market_open=false`` well into the live session. The same issue could show
+    ``true`` after 15:30. Use a short, non-stale window near both transitions;
+    the normal live/closed TTLs remain in effect for the rest of the day.
+    """
+    ist = timezone(timedelta(hours=5, minutes=30))
+    now = now_ist or datetime.now(ist)
+    minutes = now.hour * 60 + now.minute
+    weekday = now.weekday() < 5
+    near_open = weekday and 8 * 60 + 45 <= minutes < 9 * 60 + 20
+    near_close = weekday and 15 * 60 + 25 <= minutes < 15 * 60 + 35
+    if near_open or near_close:
+        return (15, 0)
+    live = _dashboard_market_open(now_ist=now)
+    return (120, 600) if live else (900, 1800)
 
 def _yf_quote_change(ticker):
     try:
@@ -3556,6 +3947,7 @@ def _spark_closes(tickers, points=30):
 _INDEX_SPARK_SYMBOLS = {
     "NIFTY 50": "^NSEI", "BANKNIFTY": "^NSEBANK", "INDIA VIX": "^INDIAVIX",
     "USD/INR": "INR=X", "Gold ($/oz)": "GC=F", "Silver ($/oz)": "SI=F", "S&P 500": "^GSPC",
+    "NASDAQ 100": "^NDX",
 }
 
 @app.get("/api/dashboard")
@@ -3564,14 +3956,36 @@ async def get_dashboard():
     cache_key = f"dashboard_{movers_market}"
     # Live TTL during the active session; 30 min when both markets are shut and
     # the movers/indices are frozen (the polled dashboard tab stops recomputing).
-    dash_live = _is_indian_market_open() or movers_market == "US"
+    dash_live = _dashboard_market_open(movers_market)
     dash_ttl = 300 if dash_live else 1800
     if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < dash_ttl:
         data = dict(API_CACHE[cache_key]['data'])
-        data["market_open"] = _is_indian_market_open()
+        data.setdefault("pulse_names", _dashboard_pulse_names(movers_market))
+        data["market_open"] = _dashboard_market_open(movers_market)
         return data
 
     def fetch_indices():
+        if movers_market == "US":
+            # US pulse first, then the macro rows retained from the India view.
+            # Avoid NSE entirely in this branch: its two lead indices are not
+            # displayed and waiting on it only slows the US Dashboard.
+            specs = [
+                ("^GSPC", "S&P 500"), ("^NDX", "NASDAQ 100"),
+                ("^INDIAVIX", "INDIA VIX"), ("INR=X", "USD/INR"),
+                ("GC=F", "Gold ($/oz)"), ("SI=F", "Silver ($/oz)"),
+            ]
+            got = {}
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(specs)) as ex:
+                futs = {ex.submit(_yf_quote_change, sym): display for sym, display in specs}
+                for fut in concurrent.futures.as_completed(futs):
+                    q = fut.result()
+                    if q:
+                        got[futs[fut]] = q
+            return [
+                {"name": display, "last": got[display]["last"], "change_pct": got[display]["change_pct"]}
+                for _sym, display in specs if display in got
+            ]
+
         indices = []
         j = nse_get("/api/allIndices")
         want = [("NIFTY 50", "NIFTY 50"), ("NIFTY BANK", "BANKNIFTY"), ("INDIA VIX", "INDIA VIX")]
@@ -3585,8 +3999,12 @@ async def get_dashboard():
                         "last": float(row.get("last") or 0),
                         "change_pct": float(row.get("percentChange") or 0)
                     })
-        if not indices:
-            for yf_sym, display in [("^NSEI", "NIFTY 50"), ("^NSEBANK", "BANKNIFTY"), ("^INDIAVIX", "INDIA VIX")]:
+        # NSE occasionally returns a valid but partial allIndices payload. Fill
+        # each missing row independently so INDIA VIX cannot disappear merely
+        # because NIFTY 50 or BANKNIFTY succeeded.
+        present = {row["name"] for row in indices}
+        for yf_sym, display in [("^NSEI", "NIFTY 50"), ("^NSEBANK", "BANKNIFTY"), ("^INDIAVIX", "INDIA VIX")]:
+            if display not in present:
                 q = _yf_quote_change(yf_sym)
                 if q:
                     indices.append({"name": display, "last": q["last"], "change_pct": q["change_pct"]})
@@ -3646,10 +4064,11 @@ async def get_dashboard():
         "indices": indices,
         "movers": movers,
         "movers_market": movers_market,
+        "pulse_names": _dashboard_pulse_names(movers_market),
     })
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
     data = dict(data)
-    data["market_open"] = _is_indian_market_open()
+    data["market_open"] = _dashboard_market_open(movers_market)
     return data
 
 
@@ -3659,11 +4078,58 @@ async def get_dashboard():
 # futures-radar trade plans with entry/stop/target).
 
 SIGNALS_CACHE_TTL = 120  # seconds — near-live without hammering NSE
+SIGNAL_MODEL_VERSION = "signals-v2.1-quality"
+SIGNAL_BACKFILL_MODEL_VERSION = "signals-backfill-eod-v1"
+SIGNAL_PUBLISH_MIN_SCORE = 65
+SIGNAL_MIN_COVERAGE_PCT = 80.0
 # When the market is closed the underlying feeds are frozen until the next open,
 # so recomputing every 2 min just burns serverless duration + NSE calls for an
 # identical payload. Serve the last snapshot far longer while closed; it still
 # refreshes the instant the market reopens (the live TTL takes over then).
 SIGNALS_CLOSED_TTL = 900  # 15 min
+
+
+def _apply_signal_quality_gate(plans, min_score=SIGNAL_PUBLISH_MIN_SCORE,
+                               min_coverage=SIGNAL_MIN_COVERAGE_PCT, limit=8):
+    """Publish candidates with strong conviction and sufficient live data.
+
+    LONG and SHORT candidates are treated identically. Rejections are retained
+    for the decision ledger so the gate can be evaluated instead of hiding its
+    misses.
+    """
+    published, rejected = [], []
+    reason_counts = {}
+    for original in plans or []:
+        plan = dict(original)
+        reasons = []
+        if float(plan.get("score") or 0) < min_score:
+            reasons.append("low_score")
+        if float(plan.get("coverage_pct") or 0) < min_coverage:
+            reasons.append("incomplete_data")
+        plan["actionable"] = not reasons
+        plan["rejection_reasons"] = reasons
+        if reasons:
+            rejected.append(plan)
+            for reason in reasons:
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        elif len(published) < limit:
+            published.append(plan)
+        else:
+            plan["actionable"] = False
+            plan["rejection_reasons"] = ["rank_limit"]
+            rejected.append(plan)
+            reason_counts["rank_limit"] = reason_counts.get("rank_limit", 0) + 1
+    quality = {
+        "model_version": SIGNAL_MODEL_VERSION,
+        "min_score": min_score,
+        "min_coverage_pct": min_coverage,
+        "candidates": len(published) + len(rejected),
+        "published": len(published),
+        "rejected": len(rejected),
+        "rejection_counts": reason_counts,
+        "directions": ["LONG", "SHORT"],
+    }
+    return published, rejected, quality
 
 def _signals_live(sig_market):
     """Is the market that /api/signals is currently reporting on actually live?
@@ -3834,12 +4300,25 @@ def _contract_desc(c):
     side = "CE" if c.get("optionType") == "Call" else "PE"
     return f"{(c.get('strikePrice') or 0):,.0f}{side} {(c.get('expiryDate') or '')[:6]}"
 
+def _futures_by_underlying(active):
+    """Pick the most-liquid contract for each futures underlying."""
+    selected = {}
+    for contract in active or []:
+        symbol = contract.get("underlying")
+        if not symbol:
+            continue
+        rank = tuple(float(contract.get(key) or 0) for key in ("noOfTrades", "turnover", "volume"))
+        current = selected.get(symbol)
+        if current is None or rank > current[0]:
+            selected[symbol] = (rank, contract)
+    return {symbol: ranked[1] for symbol, ranked in selected.items()}
+
 def build_futures_radar(spurts, active):
     """Merge OI-spurt underlyings (OI change) with most-active futures (price
     change) to classify stock-level buildups across liquid F&O names."""
     oi = {r.get("symbol"): r for r in spurts}
     out = []
-    for f in active:
+    for f in _futures_by_underlying(active).values():
         sym = f.get("underlying")
         s = oi.get(sym)
         ltp = f.get("lastPrice") or 0
@@ -3860,6 +4339,165 @@ def build_futures_radar(spurts, active):
                     "vol": f.get("volume") or 0, "kind": kind, "dpos": dpos})
     out.sort(key=lambda r: abs(r["oi_pct"]) * abs(r["px"]), reverse=True)
     return out
+
+
+STOCK_PRO_FLOW_TTL = 300
+
+
+def _stock_pro_symbol(symbol):
+    return (symbol or "").upper().replace(".NS", "").replace(".BO", "")
+
+
+def _latest_signal_regime(market="IN"):
+    prefix = f"signals_{market}_"
+    candidates = [entry for key, entry in API_CACHE.items()
+                  if key.startswith(prefix) and isinstance(entry, dict) and entry.get("data")]
+    if not candidates:
+        return None
+    newest = max(candidates, key=lambda entry: entry.get("time", 0))
+    return (newest.get("data") or {}).get("regime")
+
+
+def _cache_stock_pro_context(buildups, buildup_ts, radar, delivery, regime, index_bias="flat"):
+    """Retain complete symbol flow before /api/signals truncates display rows."""
+    symbols = {}
+    for row in radar or []:
+        symbol = _stock_pro_symbol(row.get("symbol"))
+        kind = row.get("kind")
+        if not symbol or kind == "neutral":
+            continue
+        bias = "bear" if kind in ("short_buildup", "long_unwinding") else "bull"
+        item = symbols.setdefault(symbol, {"evidence": [], "biases": []})
+        item["biases"].append(bias)
+        item["evidence"].append(
+            f"{kind.replace('_', ' ').title()}: price {float(row.get('px') or 0):+.1f}%, "
+            f"OI {float(row.get('oi_pct') or 0):+.1f}%"
+        )
+
+    option_contracts = []
+    for bucket in ("long_buildup", "short_buildup"):
+        option_contracts.extend((buildups or {}).get(bucket, []))
+    option_contracts.sort(
+        key=lambda row: abs(float(row.get("pChangeInOI") or 0)) *
+        max(abs(float(row.get("pChange") or 0)), 0.1), reverse=True,
+    )
+    seen_options = set()
+    for contract in option_contracts:
+        if contract.get("instrumentType") != "OPTSTK":
+            continue
+        symbol = _stock_pro_symbol(contract.get("symbol"))
+        if not symbol or symbol in seen_options:
+            continue
+        px_change = float(contract.get("pChange") or 0)
+        if not px_change:
+            continue
+        is_call = contract.get("optionType") == "Call"
+        bullish = (is_call and px_change > 0) or (not is_call and px_change < 0)
+        bias = "bull" if bullish else "bear"
+        item = symbols.setdefault(symbol, {"evidence": [], "biases": []})
+        item["biases"].append(bias)
+        side = "Call" if is_call else "Put"
+        item["evidence"].append(
+            f"{side} flow: premium {px_change:+.1f}%, "
+            f"OI {float(contract.get('pChangeInOI') or 0):+.1f}%"
+        )
+        seen_options.add(symbol)
+
+    for item in symbols.values():
+        biases = set(item.pop("biases", []))
+        item["directional_bias"] = next(iter(biases)) if len(biases) == 1 else "mixed"
+        item["evidence"] = "; ".join(item["evidence"][:2])
+
+    delivery_context = {}
+    for symbol, row in (delivery or {}).items():
+        clv = float(row.get("clv01") or 0.5)
+        spurt = float(row.get("spurt") or 0)
+        bias = "bull" if clv >= 0.6 else "bear" if clv <= 0.4 else "mixed"
+        delivery_context[_stock_pro_symbol(symbol)] = {
+            "directional_bias": bias,
+            "spurt": round(spurt, 2),
+            "clv01": round(clv, 3),
+        }
+
+    API_CACHE["stock_pro_flow_IN"] = {
+        "time": time.time(),
+        "data": {
+            "symbols": symbols,
+            "delivery": delivery_context,
+            "as_of": buildup_ts or datetime.now(timezone(timedelta(hours=5, minutes=30))).isoformat(),
+            "regime": regime or {},
+            "index_bias": index_bias,
+        },
+    }
+
+
+def _refresh_stock_pro_context():
+    """Cold-cache best effort; callers impose a strict outer deadline."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        buildup_future = executor.submit(fetch_signal_buildups)
+        active_future = executor.submit(
+            lambda: (nse_get("/api/liveEquity-derivatives?index=stock_fut") or {}).get("data", []))
+        spurt_future = executor.submit(
+            lambda: (nse_get("/api/live-analysis-oi-spurts-underlyings") or {}).get("data", []))
+        buildup_pair = buildup_future.result()
+        active = active_future.result() or []
+        spurts = spurt_future.result() or []
+    buildups, buildup_ts = buildup_pair if buildup_pair else ({}, "")
+    radar = build_futures_radar(spurts, active)
+    try:
+        delivery = _delivery_signals()
+    except Exception:
+        delivery = {}
+    regime = _latest_signal_regime("IN") or {}
+    _cache_stock_pro_context(buildups, buildup_ts, radar, delivery, regime)
+
+
+def _stock_pro_context_for_symbol(symbol):
+    normalized = _stock_pro_symbol(symbol)
+    upper = (symbol or "").upper()
+    is_india = upper.endswith((".NS", ".BO"))
+    if not is_india:
+        regime = _latest_signal_regime("US") or {}
+        return {
+            "flow": {
+                "status": "unavailable", "alignment": "unavailable",
+                "evidence": "Stock options flow unavailable for this US symbol",
+                "as_of": None, "stale": False,
+            },
+            "delivery": {},
+            "regime": {
+                "status": "available" if regime.get("dir") else "unavailable",
+                "direction": regime.get("dir") or "flat",
+                "vix": regime.get("vix"), "stale": False,
+            },
+        }
+
+    cached = API_CACHE.get("stock_pro_flow_IN")
+    if not cached or time.time() - cached.get("time", 0) > STOCK_PRO_FLOW_TTL:
+        _refresh_stock_pro_context()
+        cached = API_CACHE.get("stock_pro_flow_IN")
+    data = (cached or {}).get("data") or {}
+    age = time.time() - (cached or {}).get("time", 0) if cached else float("inf")
+    raw_flow = (data.get("symbols") or {}).get(normalized)
+    flow = {
+        "status": "available" if raw_flow else "unavailable",
+        "directional_bias": (raw_flow or {}).get("directional_bias"),
+        "evidence": (raw_flow or {}).get("evidence") or "No current stock-level options/OI flow",
+        "as_of": data.get("as_of"),
+        "stale": age > STOCK_PRO_FLOW_TTL,
+    }
+    regime = data.get("regime") or _latest_signal_regime("IN") or {}
+    return {
+        "flow": flow,
+        "delivery": (data.get("delivery") or {}).get(normalized) or {},
+        "regime": {
+            "status": "available" if regime.get("dir") else "unavailable",
+            "direction": regime.get("dir") or "flat",
+            "vix": regime.get("vix"),
+            "stale": age > SIGNALS_CLOSED_TTL,
+        },
+    }
+
 
 def _signal_trend_metrics(closes):
     """SMA distances, momentum, 52w-range position from daily closes."""
@@ -3916,7 +4554,9 @@ def _signal_vol_regime(vix, vix_closes):
             scale = min(scale, 0.25)
         elif vix >= 20:
             scale = min(scale, 0.5)
-        return {"label": label, "play": f"{play} ({pct:.0f}th pctile 1y)", "scale": scale}
+        pct_rounded = round(pct)
+        suffix = "th" if 10 <= pct_rounded % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(pct_rounded % 10, "th")
+        return {"label": label, "play": f"{play} ({pct_rounded}{suffix} pctile 1y)", "scale": scale}
     bands = ((12, "COMPLACENT", "premium cheap — own gamma, beware vol spikes", 1.0),
              (15, "CALM", "mild premium — directional debit spreads work", 1.0),
              (20, "NORMAL", "balanced — trade buildups; hedged selling ok", 1.0),
@@ -3949,7 +4589,7 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
             target 1.5R, qty sized so a stop-out loses risk_pct% of capital
             (scaled down in ELEVATED/EXTREME vol regimes).
     """
-    fut = {c.get("underlying"): c for c in active}
+    fut = _futures_by_underlying(active)
 
     # Which symbols' option flow agrees with a direction: fresh-OI premium
     # rise = aggressive buying, fresh-OI premium fall = writing
@@ -3962,8 +4602,20 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
         bullish = (is_call and px_up) or (not is_call and not px_up)
         (opt_bull if bullish else opt_bear).add(c.get("symbol"))
 
-    pcr = oc_nifty["pcr_band"] if oc_nifty else 1.0
-    index_bias = "bull" if pcr > 1.1 else "bear" if pcr < 0.9 else "flat"
+    pcr_value = _finite_or_none((oc_nifty or {}).get("pcr_band"))
+    pcr = pcr_value if pcr_value is not None else 1.0
+    index_bias = ("unknown" if pcr_value is None else
+                  "bull" if pcr > 1.1 else "bear" if pcr < 0.9 else "flat")
+    coverage_weight = 60.0
+    if buildups:
+        coverage_weight += 15.0
+    if pcr_value is not None:
+        coverage_weight += 10.0
+    if (regime.get("nifty") or {}).get("label") not in (None, "", "N/A"):
+        coverage_weight += 5.0
+    if delivery:
+        coverage_weight += 10.0
+    coverage_pct = min(100.0, coverage_weight)
 
     plans = []
     for r in radar:
@@ -3983,13 +4635,23 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
         s_opt = 15 if r["symbol"] in (opt_bull if side == "LONG" else opt_bear) else 0
         s_idx = {"bull": 10 if side == "LONG" else 0,
                  "bear": 10 if side == "SHORT" else 0,
-                 "flat": 5}[index_bias]
+                 "flat": 5, "unknown": 0}[index_bias]
         # Intraday trend: longs should close near day highs, shorts near lows
         dpos = r.get("dpos", 0.5)
         s_intra = round((dpos if side == "LONG" else 1 - dpos) * 10)
         s_trend = 5 if regime.get("dir") == ("bull" if side == "LONG" else "bear") else 0
         s_dlv = _delivery_score((delivery or {}).get(r["symbol"]), side)
-        score = round(s_oi + s_px + s_liq + s_opt + s_idx + s_intra + s_trend + s_dlv)
+        components = {
+            "oi_intensity": round(s_oi, 2),
+            "price_momentum": round(s_px, 2),
+            "liquidity": round(s_liq, 2),
+            "options_flow": round(s_opt, 2),
+            "index_bias": round(s_idx, 2),
+            "intraday_alignment": round(s_intra, 2),
+            "regime_alignment": round(s_trend, 2),
+            "delivery_conviction": round(s_dlv, 2),
+        }
+        score = round(sum(components.values()))
 
         entry = f.get("lastPrice") or 0
         rng = max((f.get("highPrice") or entry) - (f.get("lowPrice") or entry), entry * 0.006)
@@ -4019,9 +4681,10 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
         plans.append({"symbol": r["symbol"], "side": side, "kind": kind,
                       "score": score, "entry": entry, "stop": round(stop, 2),
                       "target": round(target, 2), "risk": round(risk, 2),
-                      "qty": qty, "why": why})
+                      "qty": qty, "why": why, "score_components": components,
+                      "coverage_pct": coverage_pct, "model_version": SIGNAL_MODEL_VERSION})
     plans.sort(key=lambda p: p["score"], reverse=True)
-    return [p for p in plans if p["score"] >= min_score][:8], index_bias
+    return [p for p in plans if p["score"] >= min_score][:24], index_bias
 
 def _finite_or_none(v):
     return v if isinstance(v, (int, float)) and math.isfinite(v) else None
@@ -4291,11 +4954,21 @@ def score_us_signal_plans(radar, oc_spy, oc_qqq, regime, capital, risk_pct, min_
     vol_vals = [v for v in (_finite_or_none(oc.get("pcr_doi")) for oc in ocs) if v is not None]
     oi_pcr = sum(oi_vals) / len(oi_vals) if oi_vals else 1.0
     vol_pcr = sum(vol_vals) / len(vol_vals) if vol_vals else 1.0
-    index_bias = "bull" if oi_pcr > 1.05 else "bear" if oi_pcr < 0.9 else "flat"
-    flow_bias = "bear" if vol_pcr > 1.1 else "bull" if vol_pcr < 0.9 else "flat"
+    index_bias = ("unknown" if not oi_vals else
+                  "bull" if oi_pcr > 1.05 else "bear" if oi_pcr < 0.9 else "flat")
+    flow_bias = ("unknown" if not vol_vals else
+                 "bear" if vol_pcr > 1.1 else "bull" if vol_pcr < 0.9 else "flat")
     vol_scale = regime.get("vol_scale", 1.0)
     ranked_liq = sorted(radar, key=lambda r: r["dollar_vol"], reverse=True)
     liq_rank = {r["symbol"]: i for i, r in enumerate(ranked_liq)}
+    coverage_weight = 70.0
+    if vol_vals:
+        coverage_weight += 15.0
+    if oi_vals:
+        coverage_weight += 10.0
+    if (regime.get("nifty") or {}).get("label") not in (None, "", "N/A"):
+        coverage_weight += 5.0
+    coverage_pct = min(100.0, coverage_weight)
 
     plans = []
     for r in radar:
@@ -4315,7 +4988,17 @@ def score_us_signal_plans(radar, oc_spy, oc_qqq, regime, capital, risk_pct, min_
         s_trend = 5 if regime.get("dir") == want else 0
         above20 = r["ltp"] > r["sma20"]
         s_sma = 10 if (side == "LONG") == above20 else 0
-        score = round(s_move + s_vol + s_liq + s_flow + s_bias + s_intra + s_trend + s_sma)
+        components = {
+            "price_momentum": round(s_move, 2),
+            "relative_volume": round(s_vol, 2),
+            "liquidity": round(s_liq, 2),
+            "options_flow": round(s_flow, 2),
+            "index_bias": round(s_bias, 2),
+            "intraday_alignment": round(s_intra, 2),
+            "regime_alignment": round(s_trend, 2),
+            "sma_alignment": round(s_sma, 2),
+        }
+        score = round(sum(components.values()))
 
         entry = round(r["ltp"], 2)
         raw_stop = r["lo"] if side == "LONG" else r["hi"]
@@ -4341,9 +5024,11 @@ def score_us_signal_plans(radar, oc_spy, oc_qqq, regime, capital, risk_pct, min_
         plans.append({"symbol": r["symbol"], "side": side, "kind": r["kind"],
                       "score": score, "entry": entry, "stop": round(stop, 2),
                       "target": round(target, 2), "risk": round(risk, 2),
-                      "qty": qty, "why": why, "currency": "$"})
+                      "qty": qty, "why": why, "currency": "$",
+                      "score_components": components, "coverage_pct": coverage_pct,
+                      "model_version": SIGNAL_MODEL_VERSION})
     plans.sort(key=lambda p: p["score"], reverse=True)
-    return [p for p in plans if p["score"] >= min_score][:8], index_bias
+    return [p for p in plans if p["score"] >= min_score][:24], index_bias
 
 async def _us_market_signals(capital, risk_pct):
     """Assemble the US response with the exact shape of the India one."""
@@ -4384,7 +5069,8 @@ async def _us_market_signals(capital, risk_pct):
         "iv": _signal_iv_regime(oc_spy, vix),
     }
 
-    plans, index_bias = score_us_signal_plans(radar, oc_spy, oc_qqq, regime, capital, risk_pct)
+    candidates, index_bias = score_us_signal_plans(radar, oc_spy, oc_qqq, regime, capital, risk_pct)
+    plans, rejected, quality = _apply_signal_quality_gate(candidates)
     return {
         "as_of": datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%dT%H:%M:%S"),
         "market_open": is_open,
@@ -4402,7 +5088,9 @@ async def _us_market_signals(capital, risk_pct):
             "risk_pct": risk_pct,
             "plans": plans,
             "radar_size": len(radar),
+            "quality": quality,
         },
+        "_signal_candidates": plans + rejected,
         "signals_market": "US",
         "index_names": {"primary": "S&P 500", "secondary": "NASDAQ 100"},
         "currency": "$",
@@ -4422,6 +5110,25 @@ def _json_safe(o):
         return [_json_safe(v) for v in o]
     return o
 
+def _signal_breadth(idx_json):
+    """Return breadth from one named NSE index, never cross-index totals."""
+    if not idx_json:
+        return {"adv": 0, "dec": 0}
+    rows = {
+        str(row.get("index") or "").strip().upper(): row
+        for row in idx_json.get("data", [])
+        if isinstance(row, dict)
+    }
+    for name in ("NIFTY TOTAL MARKET", "NIFTY 500", "NIFTY 200", "NIFTY 100", "NIFTY 50"):
+        row = rows.get(name)
+        if not row:
+            continue
+        adv = row.get("advances")
+        dec = row.get("declines")
+        if adv is not None and dec is not None and float(adv or 0) + float(dec or 0) > 0:
+            return {"adv": int(float(adv or 0)), "dec": int(float(dec or 0)), "source": name}
+    return {"adv": 0, "dec": 0}
+
 @app.get("/api/signals")
 async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, market: str = None):
     # 20:00–02:00 IST → the US engine takes over (same window as dashboard
@@ -4433,7 +5140,9 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         return API_CACHE[cache_key]['data']
 
     if sig_market == "US":
-        data = _json_safe(await _us_market_signals(capital, risk_pct))
+        raw = await _us_market_signals(capital, risk_pct)
+        candidates = raw.pop("_signal_candidates", raw.get("setups", {}).get("plans") or [])
+        data = _json_safe(raw)
         # A setup can be recomputed many times while it remains open. Keep the
         # originally published levels in the response so its target is a trade
         # level, not a moving function of the latest LTP.
@@ -4443,7 +5152,8 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         if data.get("market_open"):  # closed market = frozen data: no new setups to enter/push
             try:  # fan new scored setups out to phone push subscribers (best-effort)
                 await _bounded(asyncio.to_thread(
-                    _broadcast_new_plans, data.get("setups", {}).get("plans") or [], "US", "$"), 12)
+                    _broadcast_new_plans, data.get("setups", {}).get("plans") or [], "US", "$",
+                    candidates, data.get("as_of")), 12)
             except Exception:
                 pass
         return data
@@ -4471,7 +5181,7 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
     vix = 0.0
     breadth = {"adv": 0, "dec": 0}
     if idx_json:
-        breadth = {"adv": idx_json.get("advances") or 0, "dec": idx_json.get("declines") or 0}
+        breadth = _signal_breadth(idx_json)
         for row in idx_json.get("data", []):
             if row.get("index") == "INDIA VIX":
                 vix = float(row.get("last") or 0)
@@ -4517,8 +5227,10 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         delivery = _delivery_signals()
     except Exception:
         delivery = {}
-    plans, index_bias = score_signal_plans(radar, active, oc_nifty, buildups or {}, regime, capital, risk_pct,
-                                           delivery=delivery)
+    candidates, index_bias = score_signal_plans(
+        radar, active, oc_nifty, buildups or {}, regime, capital, risk_pct, delivery=delivery)
+    plans, rejected, quality = _apply_signal_quality_gate(candidates)
+    _cache_stock_pro_context(buildups or {}, buildup_ts, radar, delivery, regime, index_bias)
     # Reuse the entry/stop/target captured when a signal first entered the
     # model book. The radar LTP is intentionally live; the trade plan is not.
     plans = await _bounded(asyncio.to_thread(_locked_signal_plan_levels, plans, "IN"), 12)
@@ -4540,6 +5252,7 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
             "risk_pct": risk_pct,
             "plans": plans,
             "radar_size": len(radar),
+            "quality": quality,
         },
         "signals_market": "IN",
         "currency": "₹",
@@ -4548,7 +5261,8 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
     if is_open:  # no new setups form after close — skip the broadcast's blob ops
         try:  # fan new scored setups out to phone push subscribers (best-effort)
-            await _bounded(asyncio.to_thread(_broadcast_new_plans, plans, "IN", "₹"), 12)
+            await _bounded(asyncio.to_thread(
+                _broadcast_new_plans, plans, "IN", "₹", plans + rejected, data.get("as_of")), 12)
         except Exception:
             pass
     return data
@@ -4685,6 +5399,7 @@ SESSION_TTL_DAYS = 30
 # uploaded after every auth write. The BLOB_READ_WRITE_TOKEN env var is injected
 # automatically because the store is linked to the project.
 BLOB_API = "https://vercel.com/api/blob"
+BLOB_API_VERSION = "11"
 # Each snapshot is written to a UNIQUE timestamp-named pathname instead of
 # overwriting one file: Vercel Blob download URLs are CDN-cached, so re-reading
 # an overwritten URL can return stale bytes for up to a minute. That window let
@@ -4699,14 +5414,27 @@ _blob_synced = False
 def _blob_token():
     return os.environ.get("BLOB_READ_WRITE_TOKEN")
 
+def _blob_api_headers(token, **extra):
+    """Build the request contract used by the current Vercel Blob SDK."""
+    parts = token.split("_")
+    store_id = parts[3] if len(parts) > 3 else "unknown"
+    return {
+        "Authorization": f"Bearer {token}",
+        "x-api-version": BLOB_API_VERSION,
+        "x-api-blob-request-id": f"{store_id}:{int(time.time() * 1000)}:{secrets.token_hex(4)}",
+        "x-api-blob-request-attempt": "0",
+        **extra,
+    }
+
 def _blob_list(prefix):
     token = _blob_token()
     r = requests.get(
         f"{BLOB_API}?prefix={prefix}&limit=1000",
-        headers={"Authorization": f"Bearer {token}", "x-api-version": "12"},
+        headers=_blob_api_headers(token),
         timeout=10
     )
-    return r.json().get("blobs", []) if r.status_code == 200 else []
+    r.raise_for_status()
+    return r.json().get("blobs", [])
 
 def _sqlite_user_count(data):
     """Return the number of accounts in a SQLite snapshot, or -1 if invalid."""
@@ -4738,12 +5466,16 @@ def _blob_pull_db(force=False):
         latest = _blob_download(snapshots[0]["url"], token) if snapshots else None
 
         # During the switch to versioned snapshots, a zero-user database was
-        # uploaded before the existing legacy database was read. Never prefer
-        # that empty snapshot over a populated legacy database; doing so locks
-        # every established account out after a cold start or deployment.
+        # uploaded before the existing legacy database was read. The legacy DB
+        # is now migration-only: once a versioned DB has any users it also owns
+        # all newer sessions and tables (including signal_positions). Comparing
+        # raw user counts here used to select the larger, stale July legacy DB,
+        # silently dropping newer sessions and the entire Track Record ledger.
         legacy = _blob_list(BLOB_DB_LEGACY_PATHNAME)
         legacy_data = _blob_download(legacy[0]["url"], token) if legacy else None
-        data = legacy_data if _sqlite_user_count(legacy_data) > _sqlite_user_count(latest) else latest
+        latest_users = _sqlite_user_count(latest)
+        legacy_users = _sqlite_user_count(legacy_data)
+        data = legacy_data if latest_users <= 0 < legacy_users else latest
         # Only accept a real SQLite file so a corrupt blob can't brick auth.
         if data and data.startswith(b"SQLite format 3"):
             with open(AUTH_DB_PATH, "wb") as f:
@@ -4756,7 +5488,7 @@ def _blob_push_db():
     """Mirror the auth DB to the blob store as a new timestamped snapshot."""
     token = _blob_token()
     if not token:
-        return
+        return True
     try:
         with open(AUTH_DB_PATH, "rb") as f:
             data = f.read()
@@ -4765,19 +5497,19 @@ def _blob_push_db():
         r = requests.put(
             f"{BLOB_API}/?pathname={pathname}",
             data=data,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "x-api-version": "12",
+            headers=_blob_api_headers(token, **{
                 "x-vercel-blob-access": "private",
                 "x-add-random-suffix": "0",
                 "x-content-type": "application/octet-stream",
-            },
+            }),
             timeout=15
         )
-        if r.status_code == 200:
-            _blob_prune_snapshots()
+        r.raise_for_status()
+        _blob_prune_snapshots()
+        return True
     except Exception as e:
         print(f"Blob DB push failed: {e}")
+        return False
 
 def _blob_prune_snapshots():
     """Best-effort delete of all but the newest snapshots (failure is harmless)."""
@@ -4786,14 +5518,94 @@ def _blob_prune_snapshots():
         blobs = sorted(_blob_list(BLOB_DB_PREFIX), key=lambda b: b.get("pathname", ""), reverse=True)
         stale = [b["url"] for b in blobs[BLOB_KEEP_SNAPSHOTS:] if b.get("url")]
         if stale:
-            requests.post(
+            r = requests.post(
                 f"{BLOB_API}/delete",
                 json={"urls": stale},
-                headers={"Authorization": f"Bearer {token}", "x-api-version": "12"},
+                headers=_blob_api_headers(token),
                 timeout=10
             )
+            r.raise_for_status()
     except Exception as e:
         print(f"Blob snapshot prune failed: {e}")
+
+# --- Superstar shareholding snapshot ---
+# Held as its own blob object rather than inside the auth DB. It is a few MB of
+# holdings, and the auth DB is pulled on every cold start ahead of login --
+# folding this into it would put megabytes on the critical path for signing in.
+SHP_BLOB_PREFIX = "shareholding/superstar-v/"
+SHP_SNAPSHOT_PATH = os.path.join(AUTH_DB_DIR, "superstar_snapshot.json")
+SHP_KEEP_SNAPSHOTS = 3
+_shp_cache = {"data": None, "time": 0.0}
+
+
+def _shp_snapshot_load():
+    """Newest snapshot, preferring the in-process cache, then blob, then disk."""
+    if _shp_cache["data"] and time.time() - _shp_cache["time"] < _SUPERSTAR_CACHE_TTL:
+        return _shp_cache["data"]
+    data = None
+    token = _blob_token()
+    if token:
+        try:
+            blobs = sorted(_blob_list(SHP_BLOB_PREFIX),
+                           key=lambda b: b.get("pathname", ""), reverse=True)
+            raw = _blob_download(blobs[0]["url"], token) if blobs else None
+            if raw:
+                data = json.loads(raw.decode("utf-8"))
+        except Exception as e:
+            print(f"Superstar snapshot pull failed: {e}")
+    if data is None and os.path.exists(SHP_SNAPSHOT_PATH):
+        try:
+            with open(SHP_SNAPSHOT_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"Superstar snapshot read failed: {e}")
+    if data is not None:
+        _shp_cache.update(data=data, time=time.time())
+    return data
+
+
+def _shp_snapshot_save(snapshot):
+    """Persist locally and, on the cloud, as a new timestamped blob object."""
+    try:
+        os.makedirs(AUTH_DB_DIR, exist_ok=True)
+        with open(SHP_SNAPSHOT_PATH, "w", encoding="utf-8") as f:
+            json.dump(snapshot, f, separators=(",", ":"))
+    except Exception as e:
+        print(f"Superstar snapshot write failed: {e}")
+    token = _blob_token()
+    if token:
+        try:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+            pathname = f"{SHP_BLOB_PREFIX}{stamp}-{secrets.token_hex(4)}.json"
+            r = requests.put(
+                f"{BLOB_API}/?pathname={pathname}",
+                data=json.dumps(snapshot, separators=(",", ":")).encode("utf-8"),
+                headers=_blob_api_headers(token, **{
+                    "x-vercel-blob-access": "private",
+                    "x-add-random-suffix": "0",
+                    "x-content-type": "application/json",
+                }),
+                timeout=45
+            )
+            r.raise_for_status()
+            _shp_prune_snapshots()
+        except Exception as e:
+            print(f"Superstar snapshot push failed: {e}")
+    _shp_cache.update(data=snapshot, time=time.time())
+    return True
+
+
+def _shp_prune_snapshots():
+    try:
+        blobs = sorted(_blob_list(SHP_BLOB_PREFIX),
+                       key=lambda b: b.get("pathname", ""), reverse=True)
+        stale = [b["url"] for b in blobs[SHP_KEEP_SNAPSHOTS:] if b.get("url")]
+        if stale:
+            requests.post(f"{BLOB_API}/delete", json={"urls": stale},
+                          headers=_blob_api_headers(_blob_token()), timeout=10).raise_for_status()
+    except Exception as e:
+        print(f"Superstar snapshot prune failed: {e}")
+
 
 def _auth_db():
     _blob_pull_db()
@@ -4813,6 +5625,15 @@ def _auth_db():
         user_id INTEGER NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS auth_identities (
+        provider TEXT NOT NULL,
+        provider_subject TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (provider, provider_subject),
+        UNIQUE (provider, user_id),
+        FOREIGN KEY (user_id) REFERENCES users(id)
     )""")
     conn.execute("""CREATE TABLE IF NOT EXISTS watchlist (
         user_id INTEGER NOT NULL,
@@ -4878,9 +5699,47 @@ def _auth_db():
         exit_date TEXT,
         ret_pct REAL,
         last_price REAL,
-        updated_at TEXT
+        updated_at TEXT,
+        source TEXT NOT NULL DEFAULT 'legacy_mixed',
+        model_version TEXT NOT NULL DEFAULT 'legacy',
+        signal_at TEXT,
+        coverage_pct REAL
     )""")
+    # Existing production snapshots predate provenance. Preserve them as an
+    # explicitly mixed legacy sample instead of guessing which rows were live.
+    for ddl in (
+        "ALTER TABLE signal_positions ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy_mixed'",
+        "ALTER TABLE signal_positions ADD COLUMN model_version TEXT NOT NULL DEFAULT 'legacy'",
+        "ALTER TABLE signal_positions ADD COLUMN signal_at TEXT",
+        "ALTER TABLE signal_positions ADD COLUMN coverage_pct REAL",
+    ):
+        try:
+            conn.execute(ddl)
+        except sqlite3.OperationalError:
+            pass
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sigpos_status ON signal_positions(status)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS signal_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_key TEXT UNIQUE NOT NULL,
+        market TEXT NOT NULL,
+        market_date TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        source TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        side TEXT NOT NULL,
+        kind TEXT,
+        score REAL,
+        coverage_pct REAL,
+        actionable INTEGER NOT NULL,
+        rejection_reasons TEXT NOT NULL,
+        entry REAL,
+        stop REAL,
+        target REAL,
+        features_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sigevent_date ON signal_events(market, market_date)")
     _purge_test_accounts(conn)
     return conn
 
@@ -4907,7 +5766,7 @@ def _purge_test_accounts(conn):
         if not rows:
             return
         ids = [(r["id"],) for r in rows]
-        for table in ("sessions", "watchlist", "predictions", "streak_stats", "push_subs"):
+        for table in ("auth_identities", "sessions", "watchlist", "predictions", "streak_stats", "push_subs"):
             conn.executemany(f"DELETE FROM {table} WHERE user_id = ?", ids)
         conn.executemany("DELETE FROM users WHERE id = ?", ids)
         conn.commit()
@@ -5009,6 +5868,46 @@ def _require_cron(authorization: str):
     if secret and not hmac.compare_digest(authorization or "", f"Bearer {secret}"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
+
+def _clear_market_signal_cache(market):
+    prefix = f"signals_{market}_"
+    for key in [key for key in API_CACHE if key.startswith(prefix)]:
+        API_CACHE.pop(key, None)
+
+
+@app.get("/api/signals/run")
+async def run_signal_generation(market: str = None, authorization: str = Header(None)):
+    """Cron entrypoint so signal capture does not depend on page traffic."""
+    _require_cron(authorization)
+    requested = (market or "").upper()
+    if requested and requested not in ("IN", "US"):
+        raise HTTPException(status_code=400, detail="market must be IN or US")
+    markets = [requested] if requested else ["IN", "US"]
+    results = {}
+    for sig_market in markets:
+        is_open, note = (_us_signals_market_open() if sig_market == "US"
+                         else _signals_market_open())
+        if not is_open:
+            results[sig_market] = {"status": "skipped", "reason": note}
+            continue
+        _clear_market_signal_cache(sig_market)
+        data = await get_market_signals(market=sig_market)
+        setups = data.get("setups") or {}
+        quality = setups.get("quality") or {}
+        results[sig_market] = {
+            "status": "generated",
+            "as_of": data.get("as_of"),
+            "published": len(setups.get("plans") or []),
+            "rejected": quality.get("rejected", 0),
+        }
+    return {"ok": True, "model_version": SIGNAL_MODEL_VERSION, "markets": results}
+
+
+@app.get("/api/signals/run/{market_code}")
+async def run_signal_generation_for_market(market_code: str,
+                                           authorization: str = Header(None)):
+    return await run_signal_generation(market=market_code, authorization=authorization)
+
 def _rate_limit(request: Request, bucket: str, limit: int, window_s: int):
     """Raise 429 when `limit` calls from this IP land inside `window_s`."""
     if not _RL_ENABLED:
@@ -5028,6 +5927,29 @@ class AuthCredentials(BaseModel):
     email: str
     password: str
     displayName: str | None = None  # explicit null must not 422 (pydantic v2)
+
+class GoogleAuthCredential(BaseModel):
+    credential: str
+
+def _verify_google_credential(credential: str):
+    """Verify a Google ID token and return its signed claims."""
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured yet.")
+    try:
+        from google.auth.transport import requests as google_auth_requests
+        from google.oauth2 import id_token
+        return id_token.verify_oauth2_token(
+            credential,
+            google_auth_requests.Request(),
+            client_id,
+        )
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Google sign-in could not be verified.")
+
+def _google_email_is_authoritative(email: str, claims: dict) -> bool:
+    domain = email.rsplit("@", 1)[-1]
+    return domain in {"gmail.com", "googlemail.com"} or bool(claims.get("hd"))
 
 @app.post("/api/auth/signup")
 def auth_signup(req: AuthCredentials, request: Request):
@@ -5060,7 +5982,11 @@ def auth_signup(req: AuthCredentials, request: Request):
             raise HTTPException(status_code=400, detail="An account with that email already exists. Try logging in.")
         token = _create_session(conn, cur.lastrowid)
         conn.commit()
-        _blob_push_db()
+        if not _blob_push_db():
+            raise HTTPException(
+                status_code=503,
+                detail="Account storage is temporarily unavailable. Please try again.",
+            )
         row = conn.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
         return {"token": token, "user": _public_user(row)}
     finally:
@@ -5087,8 +6013,101 @@ def auth_login(req: AuthCredentials, request: Request):
         conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (_utc_now(), row["id"]))
         token = _create_session(conn, row["id"])
         conn.commit()
-        _blob_push_db()
+        if not _blob_push_db():
+            raise HTTPException(
+                status_code=503,
+                detail="Account storage is temporarily unavailable. Please try again.",
+            )
         return {"token": token, "user": _public_user(row)}
+    finally:
+        conn.close()
+
+@app.post("/api/auth/google")
+def auth_google(req: GoogleAuthCredential, request: Request):
+    _rate_limit(request, "google-auth", limit=20, window_s=300)
+    credential = req.credential.strip()
+    if not credential or len(credential) > 8192:
+        raise HTTPException(status_code=400, detail="Invalid Google sign-in response.")
+
+    claims = _verify_google_credential(credential)
+    subject = str(claims.get("sub") or "").strip()
+    email = str(claims.get("email") or "").strip().lower()
+    email_verified = claims.get("email_verified") is True or str(
+        claims.get("email_verified", "")
+    ).lower() == "true"
+    if not subject or len(subject) > 255 or not email or not email_verified:
+        raise HTTPException(status_code=401, detail="Google did not provide a verified email address.")
+    if len(email) > 254 or "@" not in email:
+        raise HTTPException(status_code=401, detail="Google returned an invalid email address.")
+
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        row = conn.execute(
+            """SELECT u.* FROM auth_identities i
+               JOIN users u ON u.id = i.user_id
+               WHERE i.provider = 'google' AND i.provider_subject = ?""",
+            (subject,),
+        ).fetchone()
+        is_new_user = False
+
+        if not row:
+            row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+            if row and not _google_email_is_authoritative(email, claims):
+                raise HTTPException(
+                    status_code=409,
+                    detail="This email already has an account. Sign in with email and password instead.",
+                )
+            if row:
+                linked = conn.execute(
+                    "SELECT provider_subject FROM auth_identities WHERE provider = 'google' AND user_id = ?",
+                    (row["id"],),
+                ).fetchone()
+                if linked and linked["provider_subject"] != subject:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="This account is already linked to another Google identity.",
+                    )
+            else:
+                salt = secrets.token_hex(16)
+                unusable_password = secrets.token_urlsafe(48)
+                display_name = (str(claims.get("name") or "").strip() or email.split("@", 1)[0])[:80]
+                cur = conn.execute(
+                    """INSERT INTO users
+                       (email, password_hash, salt, display_name, created_at, last_login_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        email,
+                        _hash_password(unusable_password, salt),
+                        salt,
+                        display_name,
+                        _utc_now(),
+                        _utc_now(),
+                    ),
+                )
+                row = conn.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
+                is_new_user = True
+
+            conn.execute(
+                """INSERT OR IGNORE INTO auth_identities
+                   (provider, provider_subject, user_id, created_at)
+                   VALUES ('google', ?, ?, ?)""",
+                (subject, row["id"], _utc_now()),
+            )
+
+        conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (_utc_now(), row["id"]))
+        token = _create_session(conn, row["id"])
+        conn.commit()
+        if not _blob_push_db():
+            raise HTTPException(
+                status_code=503,
+                detail="Account storage is temporarily unavailable. Please try again.",
+            )
+        refreshed = conn.execute("SELECT * FROM users WHERE id = ?", (row["id"],)).fetchone()
+        return {"token": token, "user": _public_user(refreshed), "isNewUser": is_new_user}
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="That Google account is already linked.")
     finally:
         conn.close()
 
@@ -5114,6 +6133,30 @@ def auth_logout(authorization: str = Header(None)):
         finally:
             conn.close()
     return {"ok": True}
+
+@app.delete("/api/auth/account")
+def auth_delete_account(authorization: str = Header(None)):
+    """Permanently remove the signed-in user and every user-scoped record."""
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        row, conn = _require_user(conn, authorization)
+        user_id = row["id"]
+        for table in (
+            "auth_identities", "sessions", "watchlist", "predictions",
+            "streak_stats", "push_subs",
+        ):
+            conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+        if not _blob_push_db():
+            raise HTTPException(
+                status_code=503,
+                detail="Account deletion could not be confirmed. Please try again.",
+            )
+        return {"deleted": True}
+    finally:
+        conn.close()
 
 
 # --- Watchlist (per-user, blob-mirrored like auth) ---
@@ -5404,7 +6447,49 @@ def _push_send_one(sub_row, payload_json):
         pass
     return None
 
-def _broadcast_new_plans(plans, mkt, currency):
+def _record_signal_events(conn, candidates, mkt, observed_at=None, source="live_engine"):
+    """Persist the first rejected and first actionable state per symbol/day.
+
+    The ledger records inputs and versioning for reproducibility. Its unique key
+    permits a candidate to transition from rejected to actionable once, while
+    repeated five-minute observations remain idempotent.
+    """
+    market_date = _market_today(mkt)
+    observed_at = observed_at or _utc_now()
+    added = 0
+    for plan in candidates or []:
+        symbol = plan.get("symbol")
+        side = (plan.get("side") or "").upper()
+        if not symbol or side not in ("LONG", "SHORT"):
+            continue
+        actionable = 1 if plan.get("actionable", True) else 0
+        model_version = plan.get("model_version") or SIGNAL_MODEL_VERSION
+        event_key = f"{market_date}|{mkt}|{symbol}|{side}|{model_version}|{actionable}"
+        reasons = list(plan.get("rejection_reasons") or [])
+        features = {
+            "score_components": plan.get("score_components") or {},
+            "why": plan.get("why") or "",
+            "risk": plan.get("risk"),
+            "qty": plan.get("qty"),
+        }
+        added += conn.execute(
+            """INSERT OR IGNORE INTO signal_events
+               (event_key, market, market_date, observed_at, source, model_version,
+                symbol, side, kind, score, coverage_pct, actionable,
+                rejection_reasons, entry, stop, target, features_json, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (event_key, mkt, market_date, observed_at, source, model_version,
+             symbol, side, plan.get("kind"), float(plan.get("score") or 0),
+             float(plan.get("coverage_pct") or 0), actionable,
+             json.dumps(reasons, separators=(",", ":")), plan.get("entry"),
+             plan.get("stop"), plan.get("target"),
+             json.dumps(_json_safe(features), sort_keys=True, separators=(",", ":")),
+             _utc_now()),
+        ).rowcount
+    return added
+
+
+def _broadcast_new_plans(plans, mkt, currency, candidates=None, observed_at=None):
     """Process a fresh batch of scored plans in ONE blob transaction:
       1. Enter qualifying new plans into the model portfolio (FCFS, 10% each,
          max 10 concurrent) — _enter_signal_positions.
@@ -5415,7 +6500,8 @@ def _broadcast_new_plans(plans, mkt, currency):
          `tag` makes the phone tray dedupe them.
     Sharing the transaction keeps this off the per-compute blob-op budget.
     """
-    if not plans:
+    candidates = candidates if candidates is not None else plans
+    if not plans and not candidates:
         return
     try:
         # Fresh pull is load-bearing: this runs on warm instances whose snapshot
@@ -5430,6 +6516,13 @@ def _broadcast_new_plans(plans, mkt, currency):
     fresh = []
     subs = []
     try:
+        # Record the full decision set before entering/pushing only the calls
+        # that cleared the quality gate.
+        try:
+            if _record_signal_events(conn, candidates, mkt, observed_at) > 0:
+                changed = True
+        except Exception:
+            pass
         # (1) Model-portfolio entry — independent of push config (VAPID keys).
         try:
             if _enter_signal_positions(conn, plans, mkt) > 0:
@@ -5571,9 +6664,12 @@ def _enter_signal_positions(conn, plans, mkt):
         conn.execute(
             """INSERT INTO signal_positions
                (market, symbol, side, kind, score, entry, stop, target, entry_date,
-                status, last_price, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?, 'open', ?, ?)""",
-            (mkt, sym, side, p.get("kind"), float(p.get("score") or 0), e, s, t, today, e, _utc_now()))
+                status, last_price, updated_at, source, model_version, signal_at,
+                coverage_pct)
+               VALUES (?,?,?,?,?,?,?,?,?, 'open', ?, ?, 'live_engine', ?, ?, ?)""",
+            (mkt, sym, side, p.get("kind"), float(p.get("score") or 0), e, s, t,
+             today, e, _utc_now(), p.get("model_version") or SIGNAL_MODEL_VERSION,
+             p.get("signal_at") or _utc_now(), float(p.get("coverage_pct") or 0)))
         open_syms.add(sym)
         open_count += 1
         added += 1
@@ -5593,7 +6689,7 @@ def _locked_signal_plan_levels(plans, mkt):
         conn = _auth_db()
         try:
             rows = conn.execute(
-                "SELECT symbol, side, entry, stop, target, entry_date "
+                "SELECT symbol, side, kind, score, entry, stop, target, entry_date "
                 "FROM signal_positions WHERE status='open' AND COALESCE(market,'IN')=?",
                 (mkt,),
             ).fetchall()
@@ -5609,15 +6705,19 @@ def _locked_signal_plan_levels(plans, mkt):
         if not original:
             out.append(p)
             continue
-        # Keep live descriptive/scoring fields, but never redraw an open
-        # trade's levels (including if the current classifier flips sides).
+        # An open row is the originally published trade. Live recomputation can
+        # flip direction, so its score, kind and drivers must not be relabelled
+        # onto that older position either.
         out.append({**p, **{
             "side": original["side"],
+            "kind": original["kind"],
+            "score": original["score"],
             "entry": original["entry"],
             "stop": original["stop"],
             "target": original["target"],
             "signal_date": original["entry_date"],
             "levels_locked": True,
+            "why": f"Open position · levels locked since {original['entry_date']}",
         }})
     return out
 
@@ -5788,10 +6888,9 @@ def _backfill_model_portfolio(conn, days_back=8, min_score=40):
     """Walk-forward simulation of the model book over the last `days_back` F&O
     sessions from real bhavcopy: each day resolve the open book on that day's
     range (skipping each position's own entry day), then fill free slots FCFS
-    with that day's top reconstructed signals. Only runs on a new, empty book.
-    Returns (closed_count, open_count)."""
-    if conn.execute("SELECT 1 FROM signal_positions LIMIT 1").fetchone():
-        return 0, 0
+    with that day's top reconstructed signals. Existing live calls are preserved;
+    historical rows are deduplicated by market/symbol/entry date and only use
+    currently free open slots. Returns counts of rows actually added."""
     ist = datetime.now(_IST)
     day_data = []
     d = ist.date() - timedelta(days=1)   # skip today (incomplete)
@@ -5834,21 +6933,53 @@ def _backfill_model_portfolio(conn, days_back=8, min_score=40):
             open_syms.add(sig["symbol"])
 
     now = _utc_now()
+    existing_keys = {
+        (r["market"] or "IN", r["symbol"], r["entry_date"])
+        for r in conn.execute("SELECT market, symbol, entry_date FROM signal_positions")
+    }
+    existing_open = conn.execute(
+        "SELECT COUNT(*) FROM signal_positions WHERE status='open' AND COALESCE(market,'IN')='IN'"
+    ).fetchone()[0]
+    existing_open_syms = {
+        r["symbol"] for r in conn.execute(
+            "SELECT symbol FROM signal_positions WHERE status='open' AND COALESCE(market,'IN')='IN'"
+        )
+    }
+    closed_added = 0
     for p in closed:
+        key = ("IN", p["symbol"], p["entry_date"])
+        if key in existing_keys:
+            continue
         conn.execute(
             """INSERT INTO signal_positions (market, symbol, side, kind, score, entry, stop, target,
-               entry_date, status, exit, exit_date, ret_pct, last_price, updated_at)
-               VALUES ('IN',?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               entry_date, status, exit, exit_date, ret_pct, last_price, updated_at,
+               source, model_version, signal_at, coverage_pct)
+               VALUES ('IN',?,?,?,?,?,?,?,?,?,?,?,?,?,?,'backfill_eod',?,?,60)""",
             (p["symbol"], p["side"], p["kind"], p["score"], p["entry"], p["stop"], p["target"],
-             p["entry_date"], p["status"], p["exit"], p["exit_date"], p["ret_pct"], p["exit"], now))
-    for p in book:
+             p["entry_date"], p["status"], p["exit"], p["exit_date"], p["ret_pct"], p["exit"], now,
+             SIGNAL_BACKFILL_MODEL_VERSION, p["entry_date"] + "T15:30:00+05:30"))
+        existing_keys.add(key)
+        closed_added += 1
+    open_added = 0
+    free_slots = max(0, SIGNAL_PF_SLOTS - existing_open)
+    for p in sorted(book, key=lambda row: -(row.get("score") or 0)):
+        if open_added >= free_slots:
+            break
+        key = ("IN", p["symbol"], p["entry_date"])
+        if key in existing_keys or p["symbol"] in existing_open_syms:
+            continue
         conn.execute(
             """INSERT INTO signal_positions (market, symbol, side, kind, score, entry, stop, target,
-               entry_date, status, last_price, updated_at)
-               VALUES ('IN',?,?,?,?,?,?,?,?, 'open', ?, ?)""",
+               entry_date, status, last_price, updated_at, source, model_version, signal_at,
+               coverage_pct)
+               VALUES ('IN',?,?,?,?,?,?,?,?, 'open', ?, ?, 'backfill_eod', ?, ?, 60)""",
             (p["symbol"], p["side"], p["kind"], p["score"], p["entry"], p["stop"], p["target"],
-             p["entry_date"], p["entry"], now))
-    return len(closed), len(book)
+             p["entry_date"], p["entry"], now, SIGNAL_BACKFILL_MODEL_VERSION,
+             p["entry_date"] + "T15:30:00+05:30"))
+        existing_keys.add(key)
+        existing_open_syms.add(p["symbol"])
+        open_added += 1
+    return closed_added, open_added
 
 def _resolve_signal_positions(conn):
     """Close any open positions whose target/stop was touched (or time-stopped).
@@ -5906,6 +7037,9 @@ def _signal_portfolio_snapshot(rows):
             "stop": r["stop"], "target": r["target"], "current": round(cur, 2),
             "unreal_pct": round(unreal, 2), "entry_date": r["entry_date"],
             "days_held": held, "weight_pct": round(SIGNAL_PF_WEIGHT * 100),
+            "source": r.get("source") or "legacy_mixed",
+            "model_version": r.get("model_version") or "legacy",
+            "signal_at": r.get("signal_at"), "coverage_pct": r.get("coverage_pct"),
         })
     open_out.sort(key=lambda x: -x["unreal_pct"])
 
@@ -5921,11 +7055,21 @@ def _signal_portfolio_snapshot(rows):
         cum += SIGNAL_PF_WEIGHT * (r["ret_pct"] or 0)
         curve.append({"date": (r["exit_date"] or "")[:10], "cum_pct": round(cum, 2)})
 
+    peak = 0.0
+    max_drawdown = 0.0
+    for point in curve:
+        peak = max(peak, point["cum_pct"])
+        max_drawdown = min(max_drawdown, point["cum_pct"] - peak)
+    inception_date = min((r["entry_date"] for r in rows if r["entry_date"]), default=None)
+
     closed_out = [{
         "symbol": r["symbol"], "market": r["market"], "side": r["side"],
         "kind": r["kind"], "score": r["score"], "entry": r["entry"],
         "exit": r["exit"], "ret_pct": r["ret_pct"], "result": r["status"],
         "entry_date": r["entry_date"], "exit_date": (r["exit_date"] or "")[:10],
+        "source": r.get("source") or "legacy_mixed",
+        "model_version": r.get("model_version") or "legacy",
+        "signal_at": r.get("signal_at"), "coverage_pct": r.get("coverage_pct"),
     } for r in reversed(closed_sorted)]  # newest first
 
     avg = lambda xs: round(sum(xs) / len(xs), 2) if xs else 0.0
@@ -5944,7 +7088,37 @@ def _signal_portfolio_snapshot(rows):
         "total_pct": round(realized_contrib + open_unreal_contrib, 2),
         "best": max((r["ret_pct"] for r in closed_sorted), default=None),
         "worst": min((r["ret_pct"] for r in closed_sorted), default=None),
+        "inception_date": inception_date,
+        "max_drawdown_pct": round(max_drawdown, 2),
     }
+    def segment_stats(segment):
+        completed = [r for r in segment if r["status"] != "open"]
+        segment_wins = [r for r in completed if (r.get("ret_pct") or 0) > 0]
+        segment_losses = [r for r in completed if (r.get("ret_pct") or 0) <= 0]
+        count = len(completed)
+        return {
+            "closed": count,
+            "wins": len(segment_wins),
+            "losses": len(segment_losses),
+            "win_rate": round(len(segment_wins) / count * 100, 1) if count else None,
+            "avg_trade": avg([r.get("ret_pct") or 0 for r in completed]),
+        }
+
+    sources = {}
+    for row in rows:
+        source = row.get("source") or "legacy_mixed"
+        sources[source] = sources.get(source, 0) + 1
+    stats.update({
+        "provenance": dict(sorted(sources.items())),
+        "forward": segment_stats([r for r in rows if (r.get("source") or "legacy_mixed") == "live_engine"]),
+        "backfill": segment_stats([r for r in rows if (r.get("source") or "legacy_mixed") == "backfill_eod"]),
+        "legacy_mixed": segment_stats([r for r in rows if (r.get("source") or "legacy_mixed") == "legacy_mixed"]),
+        "by_side": {
+            "LONG": segment_stats([r for r in rows if r.get("side") == "LONG"]),
+            "SHORT": segment_stats([r for r in rows if r.get("side") == "SHORT"]),
+        },
+        "validation_note": "Forward, reconstructed backfill, and legacy mixed samples are reported separately.",
+    })
     return {"stats": stats, "open": open_out, "closed": closed_out[:50],
             "equity_curve": curve, "as_of": datetime.now(_IST).strftime("%Y-%m-%d %H:%M IST")}
 
@@ -5966,12 +7140,14 @@ async def get_signal_portfolio(market: str = None):
         conn = _auth_db()
         try:
             changed = False
-            # A new deployment has no historical ledger yet. Seed the NSE
-            # book from published F&O bhavcopies so the track record starts
-            # with real historical inputs and subsequent price outcomes,
-            # rather than sample trades.
+            # Seed history whenever the NSE book has no call older than today.
+            # Checking for an entirely empty table was wrong: Market Signals
+            # normally writes today's calls before anyone opens Track Record,
+            # which permanently skipped the historical replay.
             if active == "IN" and not conn.execute(
-                "SELECT 1 FROM signal_positions WHERE COALESCE(market,'IN')='IN' LIMIT 1"
+                """SELECT 1 FROM signal_positions
+                   WHERE COALESCE(market,'IN')='IN' AND entry_date < ? LIMIT 1""",
+                (_market_today("IN"),),
             ).fetchone():
                 try:
                     seeded_closed, seeded_open = _backfill_model_portfolio(conn, days_back=12)
@@ -5981,7 +7157,7 @@ async def get_signal_portfolio(market: str = None):
             if not _pf_healed:
                 _pf_healed = True
                 try:
-                    changed = _heal_intraday_closures(conn) > 0
+                    changed = (_heal_intraday_closures(conn) > 0) or changed
                 except Exception:
                     pass
             if time.time() - _last_pf_resolve > 900:
@@ -6003,6 +7179,68 @@ async def get_signal_portfolio(market: str = None):
         snap = _signal_portfolio_snapshot(rows)
         snap["market"] = active
         return snap
+
+    data = _json_safe(await asyncio.to_thread(work))
+    API_CACHE[cache_key] = {'time': time.time(), 'data': data}
+    return data
+
+
+# How many published calls the signed-out gate shows as proof. Mirrors
+# GUEST_PREVIEW_SETUPS in web/src/lib/accessGate.js.
+SIGNAL_PREVIEW_SETUPS = 3
+
+
+@app.get("/api/signals/preview")
+async def get_signals_preview(market: str = None):
+    """The last calls the engine actually published, for the signed-out gate.
+
+    The gate sells "see live scores now", but the live engine publishes nothing
+    outside market hours or when no candidate clears the quality bar — roughly
+    three quarters of the clock — so paid traffic was landing on a signup wall
+    reading "No qualifying setups yet". This serves the most recent published
+    calls instead, newest session first, so the proof panel is never empty.
+
+    Levels stay server-side: entry/stop/target are the reason to create an
+    account, so the payload carries only symbol, side, score and date.
+    """
+    active = market.upper() if market and market.upper() in ("IN", "US") else _dashboard_movers_market()
+    cache_key = f"signals_preview_{active}"
+    if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < 300:
+        return API_CACHE[cache_key]['data']
+
+    def work():
+        _blob_pull_db()
+        conn = _auth_db()
+        try:
+            rows = [dict(r) for r in conn.execute(
+                """SELECT symbol, side, score, entry_date FROM signal_positions
+                   WHERE COALESCE(market,'IN') = ?
+                   ORDER BY entry_date DESC, score DESC, id DESC""",
+                (active,))]
+        finally:
+            conn.close()
+        # One row per symbol: the engine can publish several sides/kinds for the
+        # same stock, and a three-card panel repeating a ticker wastes the proof.
+        setups, seen = [], set()
+        for r in rows:
+            symbol = r.get("symbol")
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            setups.append({
+                "symbol": symbol,
+                "side": r.get("side"),
+                "score": r.get("score"),
+                "entry_date": r.get("entry_date"),
+            })
+            if len(setups) >= SIGNAL_PREVIEW_SETUPS:
+                break
+        return {
+            "market": active,
+            "source": "recent",
+            "as_of": setups[0]["entry_date"] if setups else None,
+            "setups": setups,
+        }
 
     data = _json_safe(await asyncio.to_thread(work))
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
@@ -6312,7 +7550,7 @@ def _parse_ts(value):
     except (ValueError, AttributeError):
         return None
 
-def _admin_metrics_data(growth_days=60, recent_limit=25):
+def _admin_metrics_data(growth_days=90, recent_limit=25):
     _blob_pull_db(force=True)  # newest snapshot from the blob before reading
     conn = _auth_db()
     try:
@@ -6335,6 +7573,14 @@ def _admin_metrics_data(growth_days=60, recent_limit=25):
     total = len(users)
     new_7d = sum(1 for u in users if within(u["created_at"], 7))
     new_30d = sum(1 for u in users if within(u["created_at"], 30))
+    new_previous_7d = sum(
+        1 for u in users
+        if (dt := _parse_ts(u["created_at"])) and timedelta(days=7) <= now - dt < timedelta(days=14)
+    )
+    new_previous_30d = sum(
+        1 for u in users
+        if (dt := _parse_ts(u["created_at"])) and timedelta(days=30) <= now - dt < timedelta(days=60)
+    )
     active_7d = sum(1 for u in users if within(u["last_login_at"], 7))
     active_30d = sum(1 for u in users if within(u["last_login_at"], 30))
     ever_logged_in = sum(1 for u in users if _parse_ts(u["last_login_at"]))
@@ -6369,6 +7615,8 @@ def _admin_metrics_data(growth_days=60, recent_limit=25):
             "users": total,
             "new_7d": new_7d,
             "new_30d": new_30d,
+            "new_previous_7d": new_previous_7d,
+            "new_previous_30d": new_previous_30d,
             "active_7d": active_7d,
             "active_30d": active_30d,
             "active_sessions": active_sessions,
@@ -6379,8 +7627,8 @@ def _admin_metrics_data(growth_days=60, recent_limit=25):
     }
 
 @app.get("/api/admin/metrics")
-def admin_metrics(key: str = None):
-    _require_admin(key)
+def admin_metrics(request: Request, key: str = None):
+    _require_admin(request.headers.get("x-admin-metrics-key") or key)
     return _admin_metrics_data()
 
 
@@ -6579,6 +7827,38 @@ def delivery_refresh(authorization: str = Header(None)):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Delivery refresh failed: {e}")
     return result
+
+
+# --- Claude remote MCP (read-only research, OAuth protected) -----------------
+try:
+    from api.mcp_server import build_mcp_server
+except ImportError:  # local `uvicorn main:app` with api/ as the working directory
+    from mcp_server import build_mcp_server
+
+_mcp_server_instance = build_mcp_server()
+_mcp_asgi_app = _mcp_server_instance.streamable_http_app()
+_MCP_PATHS = {
+    "/mcp", "/authorize", "/token", "/revoke", "/register", "/mcp-login",
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-protected-resource/mcp",
+}
+
+
+class _MCPPathDispatcher:
+    """Send only the allowlisted MCP/OAuth paths through the SDK ASGI app."""
+
+    def __init__(self, app, mcp_app):
+        self.app = app
+        self.mcp_app = mcp_app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and scope.get("path") in _MCP_PATHS:
+            await self.mcp_app(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(_MCPPathDispatcher, mcp_app=_mcp_asgi_app)
 
 
 # --- Static File Serving (Production) ---
