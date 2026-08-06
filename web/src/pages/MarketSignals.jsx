@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, StatusPill } from '../components/ui';
 import ShareButton from '../components/ShareButton';
+import SignalsPortfolio from '../components/SignalsPortfolio';
 import { useSWR } from '../lib/swrCache';
 import './MarketSignals.css';
 
@@ -354,6 +355,8 @@ const MarketSignals = () => {
         Signals are analytics, not investment advice.
       </p>
       </div>
+
+      <SignalsPortfolio market={isUS ? 'US' : 'IN'} />
     </div>
   );
 };
