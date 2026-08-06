@@ -30,3 +30,6 @@ api/niftytrader_loaded.png
 
 # Brainstorming visual companion
 .superpowers/
+
+# Local feature worktrees
+.worktrees/
