@@ -1,8 +1,7 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { Badge, DataTable, EmptyState } from './ui';
-import { useAuth } from '../AuthContext';
 import { useSWR } from '../lib/swrCache';
 
 const currencyOf = (market) => (market === 'US' ? '$' : '₹');
@@ -29,8 +28,6 @@ const toneOf = (value) => (
 );
 
 const SignalsPortfolio = ({ market }) => {
-  const { currentUser } = useAuth();
-  const location = useLocation();
   const { data, error, revalidate } = useSWR(
     `signal_portfolio_${market}`,
     () => axios.get(`/api/signals/portfolio?market=${market}`).then((response) => response.data),
@@ -78,24 +75,6 @@ const SignalsPortfolio = ({ market }) => {
     heldColumn,
     { key: 'weight_pct', label: 'Weight', align: 'right', render: (row) => `${row.weight_pct}%` },
   ];
-  const guestColumns = [
-    symbolColumn,
-    sideColumn,
-    pnlColumn,
-    heldColumn,
-    {
-      key: 'locked',
-      label: 'Trade plan',
-      align: 'right',
-      render: () => (
-        <Link to="/login?mode=signup" state={{ from: location }} style={{ fontWeight: 700 }}>
-          Unlock active levels
-        </Link>
-      ),
-    },
-  ];
-  const columns = currentUser ? fullColumns : guestColumns;
-
   return (
     <section className="signals-portfolio" aria-labelledby="signals-portfolio-title">
       <div className="signals-section-title" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -118,7 +97,7 @@ const SignalsPortfolio = ({ market }) => {
         </EmptyState>
       ) : (
         <DataTable
-          columns={columns}
+          columns={fullColumns}
           rows={data?.open || []}
           rowKey={(row) => `${row.market}-${row.symbol}`}
           loading={!data}
