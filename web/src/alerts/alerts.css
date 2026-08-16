@@ -181,3 +181,39 @@
   color: #000;
   font-weight: 700;
 }
+
+.auth-intent-prompt {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1200;
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
+  border-radius: 12px;
+  background: var(--surface-grad), var(--bg-panel);
+  box-shadow: var(--shadow-raised);
+}
+
+.auth-intent-prompt strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.auth-intent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.auth-intent-actions button {
+  width: auto;
+}
+
+@media (max-width: 900px) {
+  .auth-intent-prompt {
+    right: 16px;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+}

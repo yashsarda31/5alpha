@@ -35,3 +35,11 @@ test('the app mounts the post-login intent handler inside account providers', ()
   const app = source('../App.jsx');
   assert.match(app, /<AuthIntentHandler \/>/);
 });
+
+test('signed-out Settings starts the notification auth intent', () => {
+  const settings = source('../components/SettingsSheet.jsx');
+  assert.match(settings, /notificationIntent\(\)/);
+  assert.match(settings, /authState\(location, notificationIntent\(\)\)/);
+  assert.match(settings, /Save watchlist &amp; enable alerts/);
+  assert.doesNotMatch(settings, /Browsing as guest/);
+});
