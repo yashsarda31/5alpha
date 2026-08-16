@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { X, Bell, BellOff, Trophy, EyeOff, Send } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { useSignalAlerts } from '../alerts/SignalAlertProvider';
 import { usePrediction } from '../PredictionContext';
+import { authState, notificationIntent } from '../lib/authIntent';
 import InstallApp from './InstallApp';
 
 const AlertBell = () => {
@@ -124,6 +125,7 @@ const LeaderboardOptOut = () => {
 // the nav column stays pure navigation.
 const SettingsSheet = ({ open, onClose }) => {
   const { currentUser, logout } = useAuth();
+  const location = useLocation();
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
 
   useEffect(() => {
@@ -171,20 +173,24 @@ const SettingsSheet = ({ open, onClose }) => {
           ) : (
             <div className="settings-account">
               <div>
-                <div className="settings-account-label">Browsing as guest</div>
-                <div className="settings-account-email">A free account adds watchlist, alerts &amp; the daily call</div>
+                <div className="settings-account-label">Save your setup</div>
+                <div className="settings-account-email">Keep your watchlist across devices and enable signal alerts.</div>
               </div>
-              <Link to="/login?mode=signup" style={{ textDecoration: 'none' }} onClick={onClose}>
+              <Link
+                to="/login?mode=signup"
+                state={authState(location, notificationIntent())}
+                style={{ textDecoration: 'none' }}
+                onClick={onClose}
+              >
                 <button type="button" style={{ width: 'auto', padding: '8px 16px', fontSize: '12px' }}>
-                  Sign up free
+                  Save watchlist &amp; enable alerts
                 </button>
               </Link>
             </div>
           )}
         </div>
 
-        {/* Alerts, push tests and leaderboard visibility all act on the signed-in
-            user's account — meaningless (and 401-prone) for guests. */}
+        {/* Alerts, push tests and leaderboard visibility act on the signed-in account. */}
         {currentUser && (
           <div className="settings-section">
             <div className="settings-section-title">Notifications &amp; visibility</div>

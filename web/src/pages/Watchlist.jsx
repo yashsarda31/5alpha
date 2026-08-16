@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, DataTable, StatusPill, EmptyState } from '../components/ui';
 import TickerSearch from '../components/TickerSearch';
@@ -7,6 +7,7 @@ import Sparkline from '../components/Sparkline';
 import { useWatchlist } from '../WatchlistContext';
 import { useAuth } from '../AuthContext';
 import { getCached, subscribe } from '../lib/swrCache';
+import { authState, watchlistIntent } from '../lib/authIntent';
 import './Watchlist.css';
 
 const TOKEN_KEY = 'alphanova_auth_token';
@@ -32,7 +33,7 @@ const useLiveSetupSymbols = () => {
   }, [data]);
 };
 
-const AddBox = ({ onAdd, error, onClearError }) => {
+const AddBox = ({ onAdd, onRequireAuth, isAuthenticated, error, onClearError }) => {
   const [value, setValue] = useState('');
   const [market, setMarket] = useState('IN');
   const [busy, setBusy] = useState(false);
@@ -41,6 +42,10 @@ const AddBox = ({ onAdd, error, onClearError }) => {
     e.preventDefault();
     const v = value.trim();
     if (!v) return;
+    if (!isAuthenticated) {
+      onRequireAuth(v, market);
+      return;
+    }
     setBusy(true);
     try {
       await onAdd(v, market);
@@ -130,11 +135,18 @@ const SummaryBar = ({ rows }) => {
 const Watchlist = () => {
   const { currentUser } = useAuth();
   const { items, symbols, loading, error, add, remove, clearError } = useWatchlist();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [quotes, setQuotes] = useState({}); // symbol -> {last, change_pct, day_low, day_high, spark}
   const [marketOpen, setMarketOpen] = useState(null);
   const [sortKey, setSortKey] = useState(null); // null = user's saved order
   const [sortDir, setSortDir] = useState('desc');
   const liveSetups = useLiveSetupSymbols();
+
+  const requireWatchlistAuth = (symbol, market) => {
+    const intent = watchlistIntent(symbol, market);
+    navigate('/login?mode=signup', { state: authState(location, intent) });
+  };
 
   const symbolsKey = symbols.join(',');
 
@@ -262,37 +274,13 @@ const Watchlist = () => {
     },
   ];
 
-  // Guests see what a watchlist is for and one obvious way to get it —
-  // not an add-form whose writes can only 401.
-  if (!currentUser) {
-    return (
-      <div className="fade-in">
-        <PageHeader
-          code="WL"
-          title="Watchlist"
-          subtitle="Your tracked stocks — live prices, one glance"
-        />
-        <EmptyState title="Your watchlist lives in your free account">
-          Track stocks across NSE &amp; US with live prices, and tap the ☆ anywhere in the
-          terminal to save one. Free account — no credit card.
-          <div style={{ marginTop: 18 }}>
-            <Link to="/login?mode=signup">
-              <button type="button" style={{ width: 'auto', padding: '10px 22px' }}>Create free account</button>
-            </Link>
-          </div>
-        </EmptyState>
-      </div>
-    );
-  }
-
   const inRows = sortRows(rows.filter((r) => r.market !== 'US'));
   const usRows = sortRows(rows.filter((r) => r.market === 'US'));
   const mixed = inRows.length > 0 && usRows.length > 0;
   const tableProps = { columns, rowKey: (r) => r.symbol, sortKey, sortDir, onSort };
   const empty = (
     <EmptyState title="Your watchlist is empty">
-      Track your stocks: tap the ☆ on any Chart, Screener result, Momentum leader,
-      or a mover on your Dashboard — or add one by symbol above.
+      Track stocks across NSE and US. Add a symbol above or tap ☆ anywhere in Alpha Nova.
     </EmptyState>
   );
 
@@ -306,7 +294,13 @@ const Watchlist = () => {
       />
 
       <div style={{ marginBottom: 20 }}>
-        <AddBox onAdd={add} error={error} onClearError={clearError} />
+        <AddBox
+          onAdd={add}
+          onRequireAuth={requireWatchlistAuth}
+          isAuthenticated={Boolean(currentUser)}
+          error={error}
+          onClearError={clearError}
+        />
       </div>
 
       <SummaryBar rows={rows} />

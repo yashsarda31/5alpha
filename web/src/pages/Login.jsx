@@ -1,22 +1,21 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useAuth } from '../AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import InstallApp from '../components/InstallApp';
 import AppLogo from '../components/AppLogo';
+import { continuationFromAuth } from '../lib/authIntent';
 
 // What a free account actually gets you — shown in signup mode. Keep these
 // concrete (features that exist today), not aspirational marketing.
 const SIGNUP_PERKS = [
-  'Live NSE & US F&O signals with entry, stop and target',
-  'Push alerts the moment a new setup scores',
-  'Your watchlist across NSE & US with live prices',
-  'Every signal tracked in a published model portfolio',
+  'Save your NSE & US watchlist across devices',
+  'Enable browser alerts for newly published signals',
 ];
 
 const Login = () => {
   const location = useLocation();
-  // Guests arrive from in-app CTAs with ?mode=signup; direct /login visits are
-  // returning users (anonymous visitors land on the dashboard now, not here).
+  // Benefit-led actions arrive with ?mode=signup; direct /login visits are
+  // returning users.
   const [isLogin, setIsLogin] = useState(
     () => new URLSearchParams(location.search).get('mode') !== 'signup'
   );
@@ -29,6 +28,11 @@ const Login = () => {
   const { loginWithEmail, signupWithEmail } = useAuth();
   const navigate = useNavigate();
 
+  const continueAfterAuth = useCallback(() => {
+    const continuation = continuationFromAuth(location.state);
+    navigate(continuation.to, { replace: true, state: continuation.state });
+  }, [location.state, navigate]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -39,9 +43,8 @@ const Login = () => {
       } else {
         await signupWithEmail(email, password, displayName);
       }
-      // Return the user to whatever page brought them here (watchlist star,
-      // guest banner…) so the action they wanted is one tap away.
-      navigate(location.state?.from?.pathname || '/dashboard');
+      // Return to the complete originating URL and preserve the pending action.
+      continueAfterAuth();
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Sign-in failed.');
     } finally {
@@ -55,7 +58,7 @@ const Login = () => {
         <div className="login-header">
           <div className="logo-icon"><AppLogo size={76} /></div>
           <h1>{isLogin ? 'Alpha Nova' : 'Create your free account'}</h1>
-          <p>{isLogin ? 'Welcome back — sign in to your terminal' : 'Full access · free · no credit card'}</p>
+          <p>{isLogin ? 'Welcome back — sign in to your terminal' : 'Save your watchlist and enable alerts · free · no credit card'}</p>
         </div>
 
         {!isLogin && (
