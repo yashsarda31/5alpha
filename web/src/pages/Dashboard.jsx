@@ -4,7 +4,6 @@ import axios from 'axios';
 import { PageHeader, SectionTitle, StatusPill, Badge, Skeleton } from '../components/ui';
 import { useWatchlist } from '../WatchlistContext';
 import { usePrediction } from '../PredictionContext';
-import { useAuth } from '../AuthContext';
 import WatchlistStar from '../components/WatchlistStar';
 import Sparkline from '../components/Sparkline';
 import { useSWR, getCached, subscribe } from '../lib/swrCache';
@@ -230,38 +229,12 @@ const NAV_MODULES = [
 // Daily NIFTY call — the retention hook. Pre-lock: two buttons. Locked: your
 // pick + streak. Resolved: ✓/✗ result. Placed below movers, above modules.
 const TodaysCall = () => {
-  const { currentUser } = useAuth();
   const { today, stats, submit, loading } = usePrediction();
   const [busy, setBusy] = useState(false);
-
-  // Guests get a static teaser — /api/predict/today is auth'd, and the daily
-  // call is one of the app's best reasons to sign up.
-  if (!currentUser) {
-    return (
-      <div className="tc-card">
-        <div className="tc-head">
-          <div>
-            <div className="tc-title">Today's Call</div>
-            <div className="tc-prompt">Will NIFTY close green or red today?</div>
-          </div>
-          <div className="tc-right">
-            <Link to="/leaderboard" className="dash-manage-link">Leaderboard →</Link>
-          </div>
-        </div>
-        <div className="tc-result">
-          <span style={{ color: 'var(--text-secondary)' }}>
-            One call a day — build a streak, see the community split, climb the board.
-          </span>
-          <Link to="/login?mode=signup" className="dash-manage-link">Create free account →</Link>
-        </div>
-      </div>
-    );
-  }
 
   if (loading && !today) return null;
   if (!today) return null;
 
-  const streak = stats?.current_streak || 0;
   const yourChoice = today.your_choice;         // 'UP' | 'DOWN' | null
   const outcome = today.outcome;                 // 'UP' | 'DOWN' | 'VOID' | null
   const resolved = outcome === 'UP' || outcome === 'DOWN';
@@ -273,7 +246,9 @@ const TodaysCall = () => {
     try { await submit(choice); } catch { /* context surfaces error */ } finally { setBusy(false); }
   };
 
-  const flame = <span className="tc-streak" title="Current streak">Streak {streak}</span>;
+  const flame = stats
+    ? <span className="tc-streak" title="Current streak">Streak {stats.current_streak || 0}</span>
+    : null;
   const label = (c) => (c === 'UP' ? 'GREEN' : c === 'DOWN' ? 'RED' : '—');
 
   let body;

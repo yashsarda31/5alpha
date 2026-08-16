@@ -7355,11 +7355,16 @@ class HideFlag(BaseModel):
 def predict_today(authorization: str = Header(None)):
     conn = _auth_db()
     try:
-        row, conn = _require_user(conn, authorization)
+        row, conn = _optional_user(conn, authorization)
         qdate, locked = _active_question_date()
         conn.execute("INSERT OR IGNORE INTO daily_questions (qdate, symbol) VALUES (?, 'NIFTY 50')", (qdate,))
         conn.commit()
-        pred = conn.execute("SELECT choice FROM predictions WHERE user_id=? AND qdate=?", (row["id"], qdate)).fetchone()
+        pred = None
+        if row:
+            pred = conn.execute(
+                "SELECT choice FROM predictions WHERE user_id=? AND qdate=?",
+                (row["id"], qdate),
+            ).fetchone()
         q = conn.execute("SELECT outcome, change_pct FROM daily_questions WHERE qdate=?", (qdate,)).fetchone()
         # Community split for the day — frontend reveals it only post-lock /
         # post-call so it can't anchor an open vote.

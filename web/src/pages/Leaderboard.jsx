@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Link } from 'react-router-dom';
 import { PageHeader, SectionTitle, DataTable, StatTile, StatGrid } from '../components/ui';
 import { usePrediction } from '../PredictionContext';
 import { useAuth } from '../AuthContext';
@@ -67,22 +66,16 @@ const Leaderboard = () => {
       <PageHeader
         code="NIFTY"
         title="Nifty Leaderboard"
-        subtitle="Call NIFTY green or red each morning — build a streak, climb the board"
+        subtitle="Community NIFTY calls ranked by streak and long-run accuracy"
       />
 
-      {currentUser ? (
+      {currentUser && (
         <StatGrid>
           <StatTile label="Current Streak" value={stats?.current_streak ?? 0} />
           <StatTile label="Best Streak" value={stats?.longest_streak ?? 0} />
           <StatTile label="Accuracy" value={stats?.accuracy == null ? '—' : `${stats.accuracy}%`} />
           <StatTile label="Total Calls" value={stats?.total_calls ?? 0} />
         </StatGrid>
-      ) : (
-        <p className="lb-hint">
-          You're viewing the community board as a guest — a free account lets you make the
-          daily NIFTY call, build a streak and claim a spot here.{' '}
-          <Link to="/login?mode=signup">Create free account →</Link>
-        </p>
       )}
 
       <div className="lb-toggle">
@@ -117,9 +110,7 @@ const Leaderboard = () => {
             <p className="ui-empty-body">
               {board === 'accuracy'
                 ? `Make at least ${data?.min_calls ?? 20} calls to qualify for the accuracy board.`
-                : currentUser
-                  ? 'Make your first call on the Dashboard to get on the board.'
-                  : 'Sign up free and make the first call to open the board.'}
+                : 'Make a call on the Dashboard to start today’s community challenge.'}
             </p>
           </div>
         }

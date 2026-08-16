@@ -32,8 +32,13 @@ def _lock(monkeypatch, qdate="2026-07-06"):
     return qdate
 
 
-def test_today_shape_and_auth():
-    assert client.get("/api/predict/today").status_code == 401
+def test_today_is_public_but_submit_requires_auth(monkeypatch):
+    _unlock(monkeypatch)
+    guest = client.get("/api/predict/today")
+    assert guest.status_code == 200
+    assert guest.json()["symbol"] == "NIFTY 50"
+    assert guest.json()["your_choice"] is None
+    assert client.post("/api/predict", json={"choice": "UP"}).status_code == 401
     h, _ = _new_user()
     body = client.get("/api/predict/today", headers=h).json()
     assert body["symbol"] == "NIFTY 50"

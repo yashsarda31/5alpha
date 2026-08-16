@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
+import { readLocalChoice, writeLocalChoice } from './lib/localPrediction';
 
 const PredictionContext = createContext();
 
@@ -21,28 +22,40 @@ export const PredictionProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   const reload = useCallback(async () => {
-    if (!localStorage.getItem(TOKEN_KEY)) { setLoading(false); return; }
     try {
-      const [t, m] = await Promise.all([
-        axios.get('/api/predict/today', { headers: authHeader() }),
-        axios.get('/api/predict/me', { headers: authHeader() }),
-      ]);
-      setToday(t.data);
-      setStats(m.data);
+      const todayRequest = axios.get('/api/predict/today', { headers: authHeader() });
+      if (currentUser) {
+        const [t, m] = await Promise.all([
+          todayRequest,
+          axios.get('/api/predict/me', { headers: authHeader() }),
+        ]);
+        setToday(t.data);
+        setStats(m.data);
+      } else {
+        const t = await todayRequest;
+        const localChoice = readLocalChoice(window.localStorage, t.data.qdate);
+        setToday({ ...t.data, your_choice: localChoice });
+        setStats(null);
+      }
     } catch {
       // non-fatal
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
-    if (currentUser) { setLoading(true); reload(); }
-    else { setToday(null); setStats(null); setLoading(false); }
+    setLoading(true);
+    reload();
   }, [currentUser, reload]);
 
   const submit = useCallback(async (choice) => {
     setError(null);
+    if (!currentUser) {
+      if (today?.qdate) writeLocalChoice(window.localStorage, today.qdate, choice);
+      setToday((t) => (t ? { ...t, your_choice: choice } : t));
+      return;
+    }
     const prev = today;
     setToday((t) => (t ? { ...t, your_choice: choice } : t)); // optimistic
     try {
@@ -52,7 +65,7 @@ export const PredictionProvider = ({ children }) => {
       setError(e.response?.data?.detail || 'Could not submit your call.');
       throw e;
     }
-  }, [today]);
+  }, [currentUser, today]);
 
   const setHidden = useCallback(async (hidden) => {
     setStats((s) => (s ? { ...s, hidden } : s)); // optimistic

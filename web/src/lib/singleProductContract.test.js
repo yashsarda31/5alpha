@@ -43,3 +43,10 @@ test('signed-out Settings starts the notification auth intent', () => {
   assert.match(settings, /Save watchlist &amp; enable alerts/);
   assert.doesNotMatch(settings, /Browsing as guest/);
 });
+
+test('Today’s Call and Leaderboard do not substitute guest variants', () => {
+  const dashboard = source('../pages/Dashboard.jsx');
+  const leaderboard = source('../pages/Leaderboard.jsx');
+  assert.doesNotMatch(dashboard, /Guests get a static teaser|Create free account/);
+  assert.doesNotMatch(leaderboard, /as a guest|Sign up free/);
+});
