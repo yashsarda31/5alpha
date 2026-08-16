@@ -4,18 +4,17 @@ import { readFileSync } from 'node:fs';
 
 const source = (relativePath) => readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 
-test('Signals portfolio shows public proof and gates active levels for guests', () => {
+test('Signals portfolio shows the full public model book', () => {
   const portfolio = source('../components/SignalsPortfolio.jsx');
 
   assert.match(portfolio, /`signal_portfolio_\$\{market\}`/);
   assert.match(portfolio, /`\/api\/signals\/portfolio\?market=\$\{market\}`/);
-  assert.match(portfolio, /currentUser \? fullColumns : guestColumns/);
+  assert.match(portfolio, /columns=\{fullColumns\}/);
   for (const label of ['Entry', 'Current', 'Unreal. P&L', 'Stop', 'Target', 'Held', 'Weight']) {
     const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.match(portfolio, new RegExp(`label: '${escaped}'`));
   }
-  assert.match(portfolio, /Unlock active levels/);
-  assert.match(portfolio, /state=\{\{ from: location \}\}/);
+  assert.doesNotMatch(portfolio, /guestColumns|Unlock active levels|useAuth/);
   assert.match(portfolio, /View full track record/);
   assert.match(portfolio, /Portfolio unavailable/);
   assert.match(portfolio, /The model book is all cash\./);

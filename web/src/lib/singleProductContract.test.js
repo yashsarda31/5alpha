@@ -50,3 +50,23 @@ test('Today’s Call and Leaderboard do not substitute guest variants', () => {
   assert.doesNotMatch(dashboard, /Guests get a static teaser|Create free account/);
   assert.doesNotMatch(leaderboard, /as a guest|Sign up free/);
 });
+
+test('obsolete guest-only implementation files are retired', () => {
+  const paths = [
+    '../pages/GuestGate.jsx',
+    '../pages/GuestGate.css',
+    './accessGate.js',
+    './accessGate.test.js',
+  ];
+  paths.forEach((path) => assert.equal(fs.existsSync(new URL(path, import.meta.url)), false, path));
+});
+
+test('every established product route remains declared', () => {
+  const app = source('../App.jsx');
+  [
+    '/dashboard', '/watchlist', '/leaderboard', '/dcf', '/fundamentals',
+    '/momentum', '/chart', '/flcl', '/druck-minervini', '/screener',
+    '/fiidii', '/arima', '/position-sizing', '/news', '/option-chain',
+    '/signals', '/track-record', '/sectors', '/deals', '/learn', '/trading-game',
+  ].forEach((route) => assert.match(app, new RegExp(`path="${route}"`), route));
+});
