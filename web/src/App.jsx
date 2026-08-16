@@ -13,6 +13,7 @@ import { PredictionProvider } from './PredictionContext';
 import Login from './pages/Login';
 import Disclaimer from './components/Disclaimer';
 import SettingsSheet from './components/SettingsSheet';
+import AuthIntentHandler from './components/AuthIntentHandler';
 import SignalAlertProvider from './alerts/SignalAlertProvider';
 
 // One importer map feeds both lazy() and hover-prefetch: pointing at a nav
@@ -222,6 +223,7 @@ const AppLayout = () => {
     <WatchlistProvider>
     <PredictionProvider>
     <SignalAlertProvider>
+      <AuthIntentHandler />
       <div className="mobile-topbar">
         <button className="hamburger-btn" onClick={() => setMenuOpen(true)} aria-label="Open navigation menu">☰</button>
         <span className="mobile-title">

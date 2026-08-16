@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { useWatchlist } from '../WatchlistContext';
+import { authState, watchlistIntent } from '../lib/authIntent';
 import './WatchlistStar.css';
 
 // Reusable star toggle bound to WatchlistContext. Drop it wherever a symbol
@@ -20,10 +21,9 @@ const WatchlistStar = ({ symbol, market = 'IN', size = 18, className = '', stopP
       e.preventDefault();
       e.stopPropagation();
     }
-    // Saving a stock is the highest-intent guest action — route it to signup
-    // (and back here after) instead of firing a write that can only 401.
     if (!currentUser) {
-      navigate('/login?mode=signup', { state: { from: location } });
+      const intent = watchlistIntent(symbol, market);
+      navigate('/login?mode=signup', { state: authState(location, intent) });
       return;
     }
     if (busy || !symbol) return;

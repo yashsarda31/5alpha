@@ -15,3 +15,23 @@ test('Signals always shows the full model portfolio', () => {
   assert.match(portfolio, /columns=\{fullColumns\}/);
   assert.doesNotMatch(portfolio, /guestColumns|Unlock active levels|useAuth/);
 });
+
+test('watchlist actions preserve an explicit auth intent', () => {
+  const star = source('../components/WatchlistStar.jsx');
+  const page = source('../pages/Watchlist.jsx');
+  assert.match(star, /watchlistIntent\(symbol, market\)/);
+  assert.match(star, /authState\(location, intent\)/);
+  assert.match(page, /watchlistIntent\(symbol, market\)/);
+  assert.doesNotMatch(page, /Your watchlist lives in your free account/);
+});
+
+test('login preserves the full return path and pending intent', () => {
+  const login = source('../pages/Login.jsx');
+  assert.match(login, /continuationFromAuth\(location\.state\)/);
+  assert.match(login, /navigate\(continuation\.to, \{ replace: true, state: continuation\.state \}\)/);
+});
+
+test('the app mounts the post-login intent handler inside account providers', () => {
+  const app = source('../App.jsx');
+  assert.match(app, /<AuthIntentHandler \/>/);
+});
