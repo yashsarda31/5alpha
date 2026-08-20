@@ -1,14 +1,21 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
 import TickerSearch from '../components/TickerSearch';
 import ShareButton from '../components/ShareButton';
+import {
+  calculateDcf,
+  formatDcfMoney,
+  formatDcfPercent,
+  formatDcfRatio,
+  formatMarketCap,
+  sanitizeDcfNumber,
+  selectDcfBasis,
+  stepDcfNumber,
+} from '../lib/dcfMath';
+import { createLatestRequestGuard } from '../lib/latestRequest';
 import './Dcf.css';
-
-// Steppers accumulate float noise (6.88 - 0.1 -> 6.7799...94) without rounding
-const round1 = (v) => Math.round(v * 10) / 10;
-const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
 const currencyFor = (ticker) => {
   const t = (ticker || '').toUpperCase();
@@ -17,7 +24,8 @@ const currencyFor = (ticker) => {
 
 const GaugeChart = ({ marginOfSafety, fairValue, currency = '$' }) => {
   // Clamp Margin of Safety between -1 and 1 (-100% to 100%)
-  const clampedMoS = Math.max(-1, Math.min(1, marginOfSafety));
+  const hasMargin = Number.isFinite(marginOfSafety);
+  const clampedMoS = hasMargin ? Math.max(-1, Math.min(1, marginOfSafety)) : 0;
   
   // Angle: MoS = 1 -> 0 deg (Left, Undervalued)
   // MoS = 0 -> 90 deg (Top, Fair Value)
@@ -54,7 +62,7 @@ const GaugeChart = ({ marginOfSafety, fairValue, currency = '$' }) => {
             Fair Value
           </text>
           <text x="120" y="25" fontSize="14" fontWeight="bold" textAnchor="middle" fill="var(--text-primary)">
-            {currency}{fairValue.toFixed(2)}
+            {formatDcfMoney(fairValue, currency)}
           </text>
         </svg>
         
@@ -64,7 +72,7 @@ const GaugeChart = ({ marginOfSafety, fairValue, currency = '$' }) => {
       </div>
       <div style={{ fontSize: '16px', fontWeight: 'bold', marginTop: '10px' }}>
         Margin of Safety: <span style={{ color: marginOfSafety > 0 ? '#38A169' : '#E53E3E' }}>
-          {(marginOfSafety * 100).toFixed(2)}%
+          {formatDcfPercent(marginOfSafety)}
         </span>
       </div>
     </div>
@@ -93,40 +101,43 @@ const Dcf = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReport, setAiReport] = useState(null);
   const [fetchError, setFetchError] = useState(null);
+  const requestGuardRef = useRef(createLatestRequestGuard());
 
   const currency = currencyFor(ticker);
 
   const fetchDcfData = async (t) => {
+    const requestId = requestGuardRef.current.begin();
     setLoading(true);
     setAiReport(null);
     setFetchError(null);
     try {
       const res = await axios.get(`/api/dcf/data/${t}`);
+      if (!requestGuardRef.current.isCurrent(requestId)) return;
       const data = res.data;
       setStockData(data);
       setTicker(data.ticker);
       setSearchInput(data.ticker);
       
-      // Auto-populate inputs based on what's available
-      if (data.eps) {
-        setBasedOn('EPS w/o NRI');
-        setBaseValue(parseFloat(data.eps.toFixed(3)));
-      } else if (data.fcf) {
-        setBasedOn('FCF');
-        setBaseValue(parseFloat(data.fcf.toFixed(3)));
-      }
+      const basis = selectDcfBasis(data);
+      setBasedOn(basis.basedOn);
+      setBaseValue(basis.baseValue);
       
-      setTangibleBook(parseFloat((data.tangibleBookValue || 0).toFixed(2)));
+      setTangibleBook(sanitizeDcfNumber(data.tangibleBookValue, {
+        min: -1_000_000, max: 1_000_000, precision: 2, fallback: 0,
+      }));
       
       if (data.historicalGrowthRate !== undefined && data.historicalGrowthRate !== null) {
-        setGrowthRate(data.historicalGrowthRate);
+        setGrowthRate(sanitizeDcfNumber(data.historicalGrowthRate, {
+          min: -50, max: 100, precision: 2, fallback: 15.2,
+        }));
       }
       
     } catch (err) {
+      if (!requestGuardRef.current.isCurrent(requestId)) return;
       // Inline error — alert() freezes the preview renderer and interrupts flows
       setFetchError(err.response?.data?.detail || err.message);
     }
-    setLoading(false);
+    if (requestGuardRef.current.isCurrent(requestId)) setLoading(false);
   };
 
   useEffect(() => {
@@ -142,50 +153,26 @@ const Dcf = () => {
   const handleBasedOnChange = (type) => {
     setBasedOn(type);
     if (!stockData) return;
-    if (type === 'EPS w/o NRI') setBaseValue(parseFloat((stockData.eps || 0).toFixed(3)));
-    if (type === 'FCF') setBaseValue(parseFloat((stockData.fcf || 0).toFixed(3)));
-    if (type === 'Adjusted Dividend') setBaseValue(parseFloat((stockData.dividend || 0).toFixed(3)));
+    const source = type === 'EPS w/o NRI' ? stockData.eps
+      : type === 'FCF' ? stockData.fcf
+        : stockData.dividend;
+    setBaseValue(sanitizeDcfNumber(source, {
+      min: 0, max: 1_000_000, precision: 3, fallback: 0,
+    }));
   };
 
   // DCF Math using useMemo for instant updates
-  const { growthValue, terminalValue, fairValue, marginOfSafety } = useMemo(() => {
-    let currentVal = baseValue;
-    let gv = 0;
-    
-    // Growth Stage
-    const r = discountRate / 100;
-    const g = growthRate / 100;
-    
-    // Calculate year by year for precision
-    for (let i = 1; i <= growthYears; i++) {
-      currentVal *= (1 + g);
-      gv += currentVal / Math.pow(1 + r, i);
-    }
-    
-    // Terminal Stage
-    let tv = 0;
-    const tg = terminalRate / 100;
-    
-    for (let i = 1; i <= terminalYears; i++) {
-      currentVal *= (1 + tg);
-      tv += currentVal / Math.pow(1 + r, growthYears + i);
-    }
-    
-    let fv = gv + tv;
-    if (addTangibleBook) {
-      fv += tangibleBook;
-    }
-    
-    const stockPrice = stockData?.currentPrice || 0;
-    const mos = fv > 0 ? (fv - stockPrice) / fv : 0;
-    
-    return {
-      growthValue: gv,
-      terminalValue: tv,
-      fairValue: fv,
-      marginOfSafety: mos
-    };
-  }, [baseValue, discountRate, growthYears, growthRate, terminalYears, terminalRate, addTangibleBook, tangibleBook, stockData]);
+  const { growthValue, terminalValue, fairValue, marginOfSafety } = useMemo(() => calculateDcf({
+    baseValue,
+    discountRate,
+    growthYears,
+    growthRate,
+    terminalYears,
+    terminalRate,
+    addTangibleBook,
+    tangibleBook,
+    stockPrice: stockData?.currentPrice,
+  }), [baseValue, discountRate, growthYears, growthRate, terminalYears, terminalRate, addTangibleBook, tangibleBook, stockData]);
 
   const renderStars = (num) => {
     return Array(5).fill(0).map((_, i) => (
@@ -195,6 +182,10 @@ const Dcf = () => {
   
   const runAiAnalysis = async () => {
     if (!stockData) return;
+    if (fairValue === null) {
+      setAiReport('**A positive EPS, FCF, or adjusted dividend is required before generating a valuation brief.**');
+      return;
+    }
     const apiKey = localStorage.getItem('gemini_api_key');
     if (!apiKey) {
       setAiReport('**Add your Gemini API key in Settings to generate the valuation brief.**');
@@ -237,7 +228,7 @@ const Dcf = () => {
               <h2 style={{ margin: 0, fontSize: '28px' }}>{ticker}</h2>
               {stockData && (
                 <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                  Market Cap {currency} {(stockData.marketCap / 1e9).toFixed(2)} Bil | PE {stockData.pe?.toFixed(2) || 'N/A'} | PB {stockData.pb?.toFixed(2) || 'N/A'} | Alpha Nova Score: <strong>{stockData.alphaScore ?? 'N/A'}</strong> / 100
+                  Market Cap {formatMarketCap(stockData.marketCap, currency)} | PE {formatDcfRatio(stockData.pe)} | PB {formatDcfRatio(stockData.pb)} | Alpha Nova Score: <strong>{stockData.alphaScore ?? 'N/A'}</strong> / 100
                 </div>
               )}
             </div>
@@ -269,7 +260,7 @@ const Dcf = () => {
           <button
             data-noshare=""
             onClick={runAiAnalysis}
-            disabled={aiLoading}
+            disabled={aiLoading || fairValue === null}
             style={{ 
               width: 'auto', 
               background: 'linear-gradient(90deg, rgba(62, 230, 255, 0.2), rgba(62, 230, 255, 0.1))',
@@ -293,7 +284,7 @@ const Dcf = () => {
             <label>Stock Price</label>
             <div className="input-group">
               <span>{currency}</span>
-              <input type="text" readOnly value={stockData?.currentPrice?.toFixed(2) || '0.00'} style={{ textAlign: 'right', background: 'rgba(0,0,0,0.05)' }} />
+              <input type="text" readOnly value={stockData?.currentPrice == null ? '0.00' : formatDcfRatio(stockData.currentPrice)} style={{ textAlign: 'right', background: 'rgba(0,0,0,0.05)' }} />
             </div>
           </div>
 
@@ -315,8 +306,13 @@ const Dcf = () => {
                 <span>{currency}</span>
                 <input 
                   type="number" 
+                  min="0"
+                  max="1000000"
+                  step="0.001"
                   value={baseValue} 
-                  onChange={(e) => setBaseValue(parseFloat(e.target.value) || 0)} 
+                  onChange={(e) => setBaseValue(prev => sanitizeDcfNumber(e.target.value, {
+                    min: 0, max: 1_000_000, precision: 3, fallback: prev,
+                  }))}
                   style={{ textAlign: 'right' }} 
                 />
               </div>
@@ -326,9 +322,9 @@ const Dcf = () => {
           <div className="input-row">
             <label>Discount Rate %</label>
             <div className="number-stepper">
-              <button onClick={() => setDiscountRate(prev => clamp(round1(prev - 1), 1, 50))}>-</button>
-              <input type="number" value={discountRate} onChange={(e) => setDiscountRate(parseFloat(e.target.value) || 0)} />
-              <button onClick={() => setDiscountRate(prev => clamp(round1(prev + 1), 1, 50))}>+</button>
+              <button onClick={() => setDiscountRate(prev => stepDcfNumber(prev, -1, 1, 50))}>-</button>
+              <input type="number" min="1" max="50" step="0.01" value={discountRate} onChange={(e) => setDiscountRate(prev => sanitizeDcfNumber(e.target.value, { min: 1, max: 50, fallback: prev }))} />
+              <button onClick={() => setDiscountRate(prev => stepDcfNumber(prev, 1, 1, 50))}>+</button>
             </div>
           </div>
 
@@ -347,8 +343,13 @@ const Dcf = () => {
               <span>{currency}</span>
               <input 
                 type="number" 
+                min="-1000000"
+                max="1000000"
+                step="0.01"
                 value={tangibleBook} 
-                onChange={(e) => setTangibleBook(parseFloat(e.target.value) || 0)} 
+                onChange={(e) => setTangibleBook(prev => sanitizeDcfNumber(e.target.value, {
+                  min: -1_000_000, max: 1_000_000, precision: 2, fallback: prev,
+                }))}
                 style={{ textAlign: 'right' }} 
               />
             </div>
@@ -361,22 +362,22 @@ const Dcf = () => {
               <div className="stage-input">
                 <label>Years</label>
                 <div className="number-stepper">
-                  <button onClick={() => setGrowthYears(prev => clamp(prev - 1, 1, 30))}>-</button>
-                  <input type="number" value={growthYears} onChange={(e) => setGrowthYears(parseInt(e.target.value) || 0)} />
-                  <button onClick={() => setGrowthYears(prev => clamp(prev + 1, 1, 30))}>+</button>
+                  <button onClick={() => setGrowthYears(prev => stepDcfNumber(prev, -1, 1, 30, 0))}>-</button>
+                  <input type="number" min="1" max="30" step="1" value={growthYears} onChange={(e) => setGrowthYears(prev => sanitizeDcfNumber(e.target.value, { min: 1, max: 30, integer: true, fallback: prev }))} />
+                  <button onClick={() => setGrowthYears(prev => stepDcfNumber(prev, 1, 1, 30, 0))}>+</button>
                 </div>
               </div>
               <div className="stage-input">
                 <label>Growth Rate</label>
                 <div className="number-stepper">
-                  <button onClick={() => setGrowthRate(prev => clamp(round1(prev - 0.1), -50, 100))}>-</button>
-                  <input type="number" value={growthRate} onChange={(e) => setGrowthRate(parseFloat(e.target.value) || 0)} />
-                  <button onClick={() => setGrowthRate(prev => clamp(round1(prev + 0.1), -50, 100))}>+</button>
+                  <button onClick={() => setGrowthRate(prev => stepDcfNumber(prev, -0.1, -50, 100))}>-</button>
+                  <input type="number" min="-50" max="100" step="0.01" value={growthRate} onChange={(e) => setGrowthRate(prev => sanitizeDcfNumber(e.target.value, { min: -50, max: 100, fallback: prev }))} />
+                  <button onClick={() => setGrowthRate(prev => stepDcfNumber(prev, 0.1, -50, 100))}>+</button>
                 </div>
               </div>
               <div className="stage-result">
                 <span>Growth Value</span>
-                <strong>{currency}{growthValue.toFixed(2)}</strong>
+                <strong>{formatDcfMoney(growthValue, currency)}</strong>
               </div>
             </div>
 
@@ -385,22 +386,22 @@ const Dcf = () => {
               <div className="stage-input">
                 <label>Years</label>
                 <div className="number-stepper">
-                  <button onClick={() => setTerminalYears(prev => clamp(prev - 1, 1, 30))}>-</button>
-                  <input type="number" value={terminalYears} onChange={(e) => setTerminalYears(parseInt(e.target.value) || 0)} />
-                  <button onClick={() => setTerminalYears(prev => clamp(prev + 1, 1, 30))}>+</button>
+                  <button onClick={() => setTerminalYears(prev => stepDcfNumber(prev, -1, 1, 30, 0))}>-</button>
+                  <input type="number" min="1" max="30" step="1" value={terminalYears} onChange={(e) => setTerminalYears(prev => sanitizeDcfNumber(e.target.value, { min: 1, max: 30, integer: true, fallback: prev }))} />
+                  <button onClick={() => setTerminalYears(prev => stepDcfNumber(prev, 1, 1, 30, 0))}>+</button>
                 </div>
               </div>
               <div className="stage-input">
                 <label>Growth Rate</label>
                 <div className="number-stepper">
-                  <button onClick={() => setTerminalRate(prev => clamp(round1(prev - 0.1), -10, 20))}>-</button>
-                  <input type="number" value={terminalRate} onChange={(e) => setTerminalRate(parseFloat(e.target.value) || 0)} />
-                  <button onClick={() => setTerminalRate(prev => clamp(round1(prev + 0.1), -10, 20))}>+</button>
+                  <button onClick={() => setTerminalRate(prev => stepDcfNumber(prev, -0.1, -10, 20))}>-</button>
+                  <input type="number" min="-10" max="20" step="0.01" value={terminalRate} onChange={(e) => setTerminalRate(prev => sanitizeDcfNumber(e.target.value, { min: -10, max: 20, fallback: prev }))} />
+                  <button onClick={() => setTerminalRate(prev => stepDcfNumber(prev, 0.1, -10, 20))}>+</button>
                 </div>
               </div>
               <div className="stage-result">
                 <span>Terminal Value</span>
-                <strong>{currency}{terminalValue.toFixed(2)}</strong>
+                <strong>{formatDcfMoney(terminalValue, currency)}</strong>
               </div>
             </div>
           </div>
@@ -414,19 +415,24 @@ const Dcf = () => {
             </div>
             <div className="summary-row" style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>
               <span>Stock Price</span>
-              <strong>{currency}{stockData?.currentPrice?.toFixed(2) || '0.00'}</strong>
+              <strong>{formatDcfMoney(stockData?.currentPrice, currency)}</strong>
             </div>
             <div className="summary-row" style={{ backgroundColor: 'var(--primary-accent-soft)' }}>
               <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary)' }}>Fair Value</span>
-              <strong className="tnum" style={{ fontSize: '18px', color: 'var(--primary-gold)' }}>{currency}{fairValue.toFixed(2)}</strong>
+              <strong className="tnum" style={{ fontSize: '18px', color: 'var(--primary-gold)' }}>{formatDcfMoney(fairValue, currency)}</strong>
             </div>
             <div className="summary-row" style={{ backgroundColor: 'var(--primary-accent-soft)' }}>
               <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary)' }}>Margin of Safety</span>
-              <strong className="tnum" style={{ fontSize: '18px', color: marginOfSafety > 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>
-                {(marginOfSafety * 100).toFixed(2)}%
+              <strong className="tnum" style={{ fontSize: '18px', color: marginOfSafety === null ? 'var(--text-secondary)' : marginOfSafety > 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>
+                {formatDcfPercent(marginOfSafety)}
               </strong>
             </div>
           </div>
+          {stockData && fairValue === null && (
+            <div className="dcf-validation" role="status">
+              No positive EPS, free cash flow per share, or adjusted dividend is available. Enter a positive normalized base value to run the model.
+            </div>
+          )}
           
           <GaugeChart
             marginOfSafety={marginOfSafety}

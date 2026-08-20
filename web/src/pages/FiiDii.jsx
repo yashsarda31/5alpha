@@ -36,7 +36,8 @@ const FiiDii = () => {
   };
 
   useEffect(() => {
-    fetchData();
+    const first = setTimeout(fetchData, 0);
+    return () => clearTimeout(first);
   }, []);
 
   const formatAmount = (val) => `${val > 0 ? '+' : ''}${val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

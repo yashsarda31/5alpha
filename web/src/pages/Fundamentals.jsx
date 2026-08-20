@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
@@ -22,7 +22,7 @@ const Fundamentals = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReport, setAiReport] = useState(null);
 
-  const fetchFundamentals = async (e, overrideTicker) => {
+  const fetchFundamentals = useCallback(async (e, overrideTicker) => {
     if (e) e.preventDefault();
     const sym = (overrideTicker || ticker || '').toUpperCase();
     if (!sym) return;
@@ -39,7 +39,7 @@ const Fundamentals = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [ticker]);
 
   // Auto-load when arriving via a ?symbol= link (e.g. a watchlist row).
   const lastParamSym = useRef(null);
@@ -50,7 +50,7 @@ const Fundamentals = () => {
       setTicker(sym);
       fetchFundamentals(null, sym);
     }
-  }, [searchParams]);
+  }, [searchParams, fetchFundamentals]);
 
   const runAiAnalysis = async () => {
     if (!data) return;

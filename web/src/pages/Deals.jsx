@@ -66,7 +66,10 @@ const Deals = () => {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    const first = setTimeout(fetchData, 0);
+    return () => clearTimeout(first);
+  }, []);
 
   const largeCols = [
     { key: 'symbol', label: 'Symbol', render: (r) => <SymbolLink symbol={r.symbol} /> },

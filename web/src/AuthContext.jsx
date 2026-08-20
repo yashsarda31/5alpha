@@ -78,6 +78,14 @@ export const AuthProvider = ({ children }) => {
     return res.data.user;
   };
 
+  const loginWithGoogle = async (credential) => {
+    const res = await axios.post('/api/auth/google', { credential });
+    localStorage.setItem(TOKEN_KEY, res.data.token);
+    writeCachedUser(res.data.user);
+    setCurrentUser(res.data.user);
+    return res.data;
+  };
+
   const logout = async () => {
     try {
       await axios.post('/api/auth/logout', null, { headers: authHeader() });
@@ -93,6 +101,7 @@ export const AuthProvider = ({ children }) => {
     currentUser,
     loginWithEmail,
     signupWithEmail,
+    loginWithGoogle,
     logout,
     loading
   };

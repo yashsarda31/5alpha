@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Link, useLocation } from 'react-router-dom';
 import { X, Bell, BellOff, Trophy, EyeOff, Send } from 'lucide-react';
 import { useAuth } from '../AuthContext';
-import { useSignalAlerts } from '../alerts/SignalAlertProvider';
+import { useSignalAlerts } from '../alerts/SignalAlertContext';
 import { usePrediction } from '../PredictionContext';
 import { authState, notificationIntent } from '../lib/authIntent';
 import InstallApp from './InstallApp';

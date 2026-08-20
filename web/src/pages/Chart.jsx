@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import Plot from '../components/Plot';
@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 
 import WatchlistStar from '../components/WatchlistStar';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
+import { createLatestRequestGuard } from '../lib/latestRequest';
 
 const currencyFor = (ticker) => {
   const t = (ticker || '').toUpperCase();
@@ -24,9 +25,11 @@ const Chart = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReport, setAiReport] = useState("");
   const [fetchError, setFetchError] = useState("");
+  const requestGuardRef = useRef(createLatestRequestGuard());
 
   const fetchChart = async (sym = ticker) => {
     if (!sym || !sym.trim()) return;
+    const requestId = requestGuardRef.current.begin();
     setLoading(true);
     setChartData(null);
     setFundamentals(null);
@@ -34,21 +37,24 @@ const Chart = () => {
     setFetchError("");
     try {
       const resChart = await axios.get(`/api/chart/${sym.trim()}`);
+      if (!requestGuardRef.current.isCurrent(requestId)) return;
       setChartData(resChart.data);
       // The backend resolves bare NSE symbols (RELIANCE → RELIANCE.NS);
       // adopt the resolved name so the ₹/$ currency and star are right.
       const resolved = resChart.data.ticker || sym.trim();
       if (resolved !== ticker) setTicker(resolved);
       const resFund = await axios.get(`/api/fundamentals/${resolved}`).catch(() => ({ data: null }));
+      if (!requestGuardRef.current.isCurrent(requestId)) return;
       if (resFund.data && !resFund.data.error) {
         setFundamentals(resFund.data);
       }
     } catch (err) {
+      if (!requestGuardRef.current.isCurrent(requestId)) return;
       setFetchError(err.response?.status === 404
         ? `"${sym.trim()}" not found — try the full Yahoo symbol (e.g. RELIANCE.NS, AAPL).`
         : `Could not load chart: ${err.message}`);
     }
-    setLoading(false);
+    if (requestGuardRef.current.isCurrent(requestId)) setLoading(false);
   };
 
   // No auto-fetch by default — but a ?symbol= link (e.g. from a dashboard

@@ -1130,6 +1130,22 @@ tr:hover td {
   color: var(--text-primary) !important;
 }
 
+.google-signin {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.google-button-mount {
+  width: min(340px, 100%);
+  min-height: 44px;
+}
+
+.google-signin-status {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .login-footer {
   margin-top: 32px;
   font-size: 14px;

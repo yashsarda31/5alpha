@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import ToastStack from './ToastStack';
 import { setCached } from '../lib/swrCache';
+import { SignalAlertContext } from './SignalAlertContext';
 import './alerts.css';
 
 const SEEN_KEY = 'alphanova_seen_signals';
@@ -16,12 +17,6 @@ const POLL_HIDDEN_MS = 600000; // background: 10 min — still drives push, ~5x 
 const FETCH_TIMEOUT_MS = 20000;
 const TOAST_TTL_MS = 10000;
 const MAX_TOASTS = 4;
-
-const SignalAlertContext = createContext({
-  browserEnabled: false, toggleBrowser: () => {},
-  ensureSubscribed: async () => 'error', permission: 'default',
-});
-export const useSignalAlerts = () => useContext(SignalAlertContext);
 
 const notifSupported = () => typeof window !== 'undefined' && 'Notification' in window;
 // One alert per stock per day — side/kind variants of the same name were
@@ -363,7 +358,6 @@ const SignalAlertProvider = ({ children }) => {
       setBrowserEnabled(true);
       subscribePush();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
   // Nudge banner actions: Enable runs the same flow as the Settings bell
@@ -376,8 +370,7 @@ const SignalAlertProvider = ({ children }) => {
     setShowNudge(false);
     try { sessionStorage.setItem(NUDGE_KEY, '1'); } catch { /* noop */ }
     await toggleBrowser();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [toggleBrowser]);
 
   return (
     <SignalAlertContext.Provider value={{ browserEnabled, toggleBrowser, ensureSubscribed, permission }}>
