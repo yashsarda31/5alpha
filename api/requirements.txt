@@ -14,4 +14,3 @@ python-multipart
 vaderSentiment
 pywebpush
 mcp==1.28.1
-openbb-yfinance==1.6.3
