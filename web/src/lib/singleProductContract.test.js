@@ -36,6 +36,15 @@ test('the app mounts the post-login intent handler inside account providers', ()
   assert.match(app, /<AuthIntentHandler \/>/);
 });
 
+test('the auth intent handler imports a committed alert context', () => {
+  const handler = source('../components/AuthIntentHandler.jsx');
+  assert.match(handler, /\.\.\/alerts\/SignalAlertContext/);
+  assert.equal(
+    fs.existsSync(new URL('../alerts/SignalAlertContext.js', import.meta.url)),
+    true,
+  );
+});
+
 test('signed-out Settings starts the notification auth intent', () => {
   const settings = source('../components/SettingsSheet.jsx');
   assert.match(settings, /notificationIntent\(\)/);

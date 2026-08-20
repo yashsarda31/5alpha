@@ -167,9 +167,12 @@ const Watchlist = () => {
   }, [symbolsKey]);
 
   useEffect(() => {
-    fetchQuotes();
-    const id = setInterval(fetchQuotes, 120000);
-    return () => clearInterval(id);
+    const first = setTimeout(fetchQuotes, 0);
+    const interval = setInterval(fetchQuotes, 120000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(interval);
+    };
   }, [fetchQuotes]);
 
   const rows = items.map((it) => {
