@@ -1,8 +1,6 @@
 fastapi
-uvicorn
 yfinance==1.5.2
 requests
-beautifulsoup4
 pandas
 numpy
 statsmodels
