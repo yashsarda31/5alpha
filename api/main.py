@@ -19,6 +19,11 @@ import re
 from contextlib import asynccontextmanager
 
 try:
+    from api.signal_model.ledger import ensure_schema as ensure_signal_model_schema
+except ImportError:  # Vercel imports this file with api/ as the package root.
+    from signal_model.ledger import ensure_schema as ensure_signal_model_schema
+
+try:
     from api.stock_pro import calculate_stock_pro_signal
 except ImportError:  # local `uvicorn main:app` with api/ as working directory
     from stock_pro import calculate_stock_pro_signal
@@ -5748,6 +5753,7 @@ def _auth_db():
         created_at TEXT NOT NULL
     )""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sigevent_date ON signal_events(market, market_date)")
+    ensure_signal_model_schema(conn)
     _purge_test_accounts(conn)
     return conn
 
