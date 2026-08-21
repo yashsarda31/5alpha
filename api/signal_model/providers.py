@@ -17,6 +17,10 @@ FO_ARCHIVE_URL = (
     "https://nsearchives.nseindia.com/content/fo/"
     "BhavCopy_NSE_FO_0_0_0_{ymd}_F_0000.csv.zip"
 )
+FO_LEGACY_ARCHIVE_URL = (
+    "https://archives.nseindia.com/content/historical/DERIVATIVES/"
+    "{year}/{month}/fo{day}{month}{year}bhav.csv.zip"
+)
 NSE_ARCHIVE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Accept": "*/*",
@@ -42,41 +46,52 @@ def _parse_fo_archive(payload: bytes) -> list[dict[str, Any]]:
     nearest: dict[str, dict[str, str]] = {}
     for raw_row in csv.DictReader(io.StringIO(raw_text)):
         row = {str(key).strip(): value for key, value in raw_row.items()}
-        if str(row.get("FinInstrmTp", "")).strip() != "STF":
+        instrument = str(row.get("FinInstrmTp", row.get("INSTRUMENT", ""))).strip()
+        if instrument not in {"STF", "FUTSTK"}:
             continue
-        symbol = str(row.get("TckrSymb", "")).strip()
-        expiry = str(row.get("XpryDt", "")).strip()
-        if symbol and (symbol not in nearest or expiry < nearest[symbol].get("XpryDt", "z")):
+        symbol = str(row.get("TckrSymb", row.get("SYMBOL", ""))).strip()
+        expiry = str(row.get("XpryDt", row.get("EXPIRY_DT", ""))).strip()
+        previous_expiry = str(
+            nearest.get(symbol, {}).get("XpryDt", nearest.get(symbol, {}).get("EXPIRY_DT", ""))
+        ).strip()
+        if symbol and (
+            symbol not in nearest
+            or pd.Timestamp(expiry) < pd.Timestamp(previous_expiry)
+        ):
             nearest[symbol] = row
 
     normalized: list[dict[str, Any]] = []
     for symbol, row in sorted(nearest.items()):
-        close = _number(row.get("ClsPric"))
+        close = _number(row.get("ClsPric", row.get("CLOSE")))
         previous_close = _number(row.get("PrvsClsgPric"))
-        open_price = _number(row.get("OpnPric"))
-        high = _number(row.get("HghPric"))
-        low = _number(row.get("LwPric"))
-        oi = _number(row.get("OpnIntrst"))
-        oi_delta = _number(row.get("ChngInOpnIntrst"))
-        if None in (close, previous_close, open_price, high, low, oi, oi_delta):
+        open_price = _number(row.get("OpnPric", row.get("OPEN")))
+        high = _number(row.get("HghPric", row.get("HIGH")))
+        low = _number(row.get("LwPric", row.get("LOW")))
+        oi = _number(row.get("OpnIntrst", row.get("OPEN_INT")))
+        oi_delta = _number(row.get("ChngInOpnIntrst", row.get("CHG_IN_OI")))
+        if None in (close, open_price, high, low, oi, oi_delta):
             continue
-        if close <= 0 or previous_close <= 0:
+        if close <= 0 or (previous_close is not None and previous_close <= 0):
             continue
         previous_oi = oi - oi_delta
         normalized.append(
             {
                 "symbol": symbol,
-                "expiry": row.get("XpryDt"),
+                "expiry": row.get("XpryDt", row.get("EXPIRY_DT")),
                 "open": open_price,
                 "high": high,
                 "low": low,
                 "close": close,
                 "prev_close": previous_close,
-                "price_change_pct": (close - previous_close) / previous_close * 100.0,
+                "price_change_pct": (
+                    (close - previous_close) / previous_close * 100.0
+                    if previous_close is not None
+                    else None
+                ),
                 "oi": oi,
                 "oi_change": oi_delta,
                 "oi_change_pct": oi_delta / previous_oi * 100.0 if previous_oi > 0 else 0.0,
-                "volume": _number(row.get("TtlTradgVol")) or 0.0,
+                "volume": _number(row.get("TtlTradgVol", row.get("CONTRACTS"))) or 0.0,
                 "trades": _number(row.get("TtlNbOfTxsExctd")) or 0.0,
                 "delivery_change_pct": 0.0,
             }
@@ -95,24 +110,43 @@ def fetch_india_fo_session(
     ymd = session_date.strftime("%Y%m%d")
     archive_path = cache_path / f"fo_{ymd}.csv.zip"
     hash_path = cache_path / f"fo_{ymd}.sha256"
+    absent_path = cache_path / f"fo_{ymd}.absent"
 
+    if absent_path.exists():
+        return []
     if archive_path.exists():
         payload = archive_path.read_bytes()
     else:
-        url = FO_ARCHIVE_URL.format(ymd=ymd)
+        legacy_values = {
+            "year": session_date.strftime("%Y"),
+            "month": session_date.strftime("%b").upper(),
+            "day": session_date.strftime("%d"),
+        }
+        urls = [
+            FO_ARCHIVE_URL.format(ymd=ymd),
+            FO_LEGACY_ARCHIVE_URL.format(**legacy_values),
+        ]
         last_error: Exception | None = None
         payload = b""
         for attempt in range(3):
-            try:
-                response = http_get(url, headers=NSE_ARCHIVE_HEADERS, timeout=25)
-                if response.status_code == 404:
-                    return []
-                if response.status_code == 200:
-                    payload = response.content
-                    break
-                last_error = RuntimeError(f"fo_archive_http_{response.status_code}:{session_date}")
-            except requests.RequestException as exc:
-                last_error = exc
+            statuses: list[int] = []
+            for url in urls:
+                try:
+                    response = http_get(url, headers=NSE_ARCHIVE_HEADERS, timeout=25)
+                    statuses.append(response.status_code)
+                    if response.status_code == 200:
+                        payload = response.content
+                        break
+                    last_error = RuntimeError(
+                        f"fo_archive_http_{response.status_code}:{session_date}"
+                    )
+                except requests.RequestException as exc:
+                    last_error = exc
+            if payload:
+                break
+            if statuses and statuses[-1] == 404:
+                absent_path.write_text("official_archive_not_published\n", encoding="ascii")
+                return []
             if attempt < 2:
                 time.sleep(0.25 * (attempt + 1))
         if not payload:

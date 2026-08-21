@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 from datetime import date, timedelta
 from pathlib import Path
@@ -96,17 +97,37 @@ def _build_india_dataset(
     fo_start = start - timedelta(days=75)
     fo_by_date: dict[date, list[dict[str, Any]]] = {}
     retrieval_errors: list[dict[str, str]] = []
-    for day in _calendar_days(fo_start, end):
-        try:
-            rows = fetch_india_fo_session(day, raw_cache)
-        except RuntimeError as exc:
-            retrieval_errors.append({"date": day.isoformat(), "error": str(exc)})
-            continue
-        if rows:
-            fo_by_date[day] = rows
+    requested_days = [day for day in _calendar_days(fo_start, end) if day.weekday() < 5]
+    # NSE begins returning 403s under wider parallel archive bursts. Two
+    # workers keep the full study bounded without tripping that rate limit.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(fetch_india_fo_session, day, raw_cache): day
+            for day in requested_days
+        }
+        for future in concurrent.futures.as_completed(futures):
+            day = futures[future]
+            try:
+                rows = future.result()
+            except RuntimeError as exc:
+                retrieval_errors.append({"date": day.isoformat(), "error": str(exc)})
+                continue
+            if rows:
+                fo_by_date[day] = rows
     if retrieval_errors:
         details = ";".join(f'{item["date"]}:{item["error"]}' for item in retrieval_errors[:10])
         raise RuntimeError(f"fo_provider_errors:{details}")
+
+    previous_close: dict[str, float] = {}
+    for day in sorted(fo_by_date):
+        for row in fo_by_date[day]:
+            symbol = row["symbol"]
+            if row.get("price_change_pct") is None:
+                prior = previous_close.get(symbol)
+                if prior and prior > 0:
+                    row["prev_close"] = prior
+                    row["price_change_pct"] = (float(row["close"]) - prior) / prior * 100.0
+            previous_close[symbol] = float(row["close"])
 
     requested_fo = {
         day: rows for day, rows in fo_by_date.items() if start <= day <= end
@@ -122,9 +143,28 @@ def _build_india_dataset(
         [*symbols, benchmark, vix], daily_start, daily_end + timedelta(days=1), "IN"
     )
     missing_symbols = sorted(set(symbols) - set(frames))
-    if missing_symbols:
+    futures_fallback_symbols: list[str] = []
+    for symbol in missing_symbols:
+        records = [
+            {
+                "session_date": pd.Timestamp(day),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": float(row["volume"]),
+            }
+            for day, rows in sorted(fo_by_date.items())
+            for row in rows
+            if row["symbol"] == symbol
+        ]
+        if len(records) >= 30:
+            frames[symbol] = pd.DataFrame(records).set_index("session_date")
+            futures_fallback_symbols.append(symbol)
+    still_missing = sorted(set(symbols) - set(frames))
+    if still_missing:
         raise RuntimeError(
-            f"daily_bars_missing:{len(missing_symbols)}:{','.join(missing_symbols[:20])}"
+            f"daily_bars_missing:{len(still_missing)}:{','.join(still_missing[:20])}"
         )
 
     contexts = _daily_contexts(frames, symbols, benchmark, vix)
@@ -208,6 +248,7 @@ def _build_india_dataset(
         "daily_price_source": "Yahoo Finance adjusted OHLCV",
         "fo_source": "NSE official derivatives archives",
         "sector_context": "broad-index proxy",
+        "official_futures_bar_fallback_symbols": futures_fallback_symbols,
         "retrieval_errors": [],
     }
     return frame, manifest
