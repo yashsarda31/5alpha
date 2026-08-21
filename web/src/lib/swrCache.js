@@ -2,9 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 // Stale-while-revalidate data layer: the last good payload for each key is
 // kept in memory + localStorage, so pages render instantly from the previous
-// snapshot while a fresh fetch runs. Pollers (SignalAlertProvider) and pages
-// (MarketSignals, Dashboard) share one store, so a page open right after a
-// background poll costs zero network round-trips.
+// snapshot while a fresh fetch runs. Pages and cache observers share one store,
+// so data already loaded by Dashboard can render immediately in Signals.
 const PREFIX = 'alphanova_swr:';
 const memory = new Map(); // key -> { data, at }
 const subs = new Map();   // key -> Set<fn>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
+import LazyMarkdown from '../components/LazyMarkdown';
 import { PageHeader } from '../components/ui';
 import TickerSearch from '../components/TickerSearch';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
@@ -147,7 +147,7 @@ const Fundamentals = () => {
         <div className="ai-insight fade-in" style={{ marginBottom: '20px', background: 'linear-gradient(135deg, rgba(62, 230, 255, 0.05) 0%, rgba(0, 0, 0, 0) 100%)', border: '1px solid rgba(62, 230, 255, 0.2)' }}>
           <h3 style={{ color: 'var(--primary-accent)' }}>Fundamental AI Report</h3>
           <div className="ai-insight-content">
-            <ReactMarkdown>{aiReport}</ReactMarkdown>
+            <LazyMarkdown>{aiReport}</LazyMarkdown>
           </div>
         </div>
       )}

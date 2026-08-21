@@ -10,11 +10,12 @@ import { AuthProvider, useAuth } from './AuthContext';
 import AppLogo from './components/AppLogo';
 import { WatchlistProvider } from './WatchlistContext';
 import { PredictionProvider } from './PredictionContext';
-import Login from './pages/Login';
 import Disclaimer from './components/Disclaimer';
-import SettingsSheet from './components/SettingsSheet';
 import AuthIntentHandler from './components/AuthIntentHandler';
 import SignalAlertProvider from './alerts/SignalAlertProvider';
+
+const Login = lazy(() => import('./pages/Login'));
+const SettingsSheet = lazy(() => import('./components/SettingsSheet'));
 
 // One importer map feeds both lazy() and hover-prefetch: pointing at a nav
 // link starts downloading that page's chunk, so the click lands on warm code.
@@ -73,15 +74,19 @@ const DruckMinervini = lazy(routeImporters['/druck-minervini']);
 const TradingGame = lazy(routeImporters['/trading-game']);
 const FiiDii = lazy(routeImporters['/fiidii']);
 
-// Progressive disclosure: what matters right now up top, deep research in the
-// middle, gamified extras at the bottom (order per user preference).
-const NAV_SECTIONS = [
+// The primary path mirrors the daily research workflow. Specialist tools stay
+// available one disclosure away instead of competing with the core actions.
+const PRIMARY_NAV_ITEMS = [
+  { to: '/dashboard', label: 'Today', Icon: LayoutGrid },
+  { to: '/signals', label: 'Signals', Icon: Zap },
+  { to: '/chart', label: 'Analyse', Icon: LineChart },
+  { to: '/watchlist', label: 'Watchlist', Icon: Star },
+];
+
+const MORE_NAV_SECTIONS = [
   {
-    title: 'Today',
+    title: 'Market context',
     items: [
-      { to: '/dashboard', label: 'Dashboard', Icon: LayoutGrid },
-      { to: '/watchlist', label: 'Watchlist', Icon: Star },
-      { to: '/signals', label: 'Market Signals', Icon: Zap },
       { to: '/track-record', label: 'Signal Track Record', Icon: Gauge },
       { to: '/sectors', label: 'Sector Rotation', Icon: Compass },
       { to: '/momentum', label: 'Momentum Leaders', Icon: Rocket },
@@ -91,7 +96,6 @@ const NAV_SECTIONS = [
   {
     title: 'Research',
     items: [
-      { to: '/chart', label: 'Chart Analyser', Icon: LineChart },
       { to: '/flcl', label: 'FLCL Analysis', Icon: ChevronsUpDown },
       { to: '/druck-minervini', label: 'Druck & Minervini', Icon: Bird },
       { to: '/screener', label: 'Quant Screener', Icon: Search },
@@ -114,12 +118,14 @@ const NAV_SECTIONS = [
   },
 ];
 
+const MORE_ROUTE_PATHS = new Set(MORE_NAV_SECTIONS.flatMap((section) => section.items.map((item) => item.to)));
+
 // Thumb-reach destinations for the installed/mobile experience
 const TAB_ITEMS = [
-  { to: '/dashboard', label: 'Dashboard', Icon: LayoutGrid },
+  { to: '/dashboard', label: 'Today', Icon: LayoutGrid },
   { to: '/signals', label: 'Signals', Icon: Zap },
+  { to: '/chart', label: 'Analyse', Icon: LineChart },
   { to: '/watchlist', label: 'Watchlist', Icon: Star },
-  { to: '/momentum', label: 'Momentum', Icon: Rocket },
 ];
 
 // Layout-shaped skeleton instead of a bare "Loading…" word — the page keeps
@@ -176,10 +182,6 @@ const MobileTabBar = ({ onMore }) => (
   </nav>
 );
 
-// Plotly-bearing routes: their page chunks statically pull the ~1.2 MB Plot
-// bundle, so they are left to hover/touch prefetch instead of idle warming.
-const HEAVY_ROUTES = new Set(['/chart', '/arima', '/druck-minervini', '/sectors', '/flcl']);
-
 // SPA navigations keep the previous page's scroll offset, which strands mobile
 // users mid-page when they tap a tab. Reset to top on forward navigations only
 // — back/forward (POP) keeps the browser's own position handling.
@@ -205,20 +207,6 @@ const AppLayout = () => {
     return () => document.body.classList.remove('menu-open');
   }, [menuOpen]);
 
-  // Once the first page is up and the browser is idle, warm every light page
-  // chunk (~50 kB gzip total) so later navigation resolves from memory.
-  React.useEffect(() => {
-    const warm = () => Object.keys(routeImporters)
-      .filter((p) => !HEAVY_ROUTES.has(p))
-      .forEach(prefetchRoute);
-    if ('requestIdleCallback' in window) {
-      const id = window.requestIdleCallback(warm, { timeout: 6000 });
-      return () => window.cancelIdleCallback(id);
-    }
-    const id = setTimeout(warm, 3000);
-    return () => clearTimeout(id);
-  }, []);
-
   return (
     <WatchlistProvider>
     <PredictionProvider>
@@ -242,14 +230,26 @@ const AppLayout = () => {
         </div>
 
         <nav>
-          {NAV_SECTIONS.map((section) => (
-            <div className="nav-section" key={section.title}>
-              <div className="nav-section-title">{section.title}</div>
-              {section.items.map((item) => (
-                <NavItem key={item.to} {...item} onNavigate={() => setMenuOpen(false)} />
-              ))}
-            </div>
-          ))}
+          <div className="nav-section">
+            <div className="nav-section-title">Daily workflow</div>
+            {PRIMARY_NAV_ITEMS.map((item) => (
+              <NavItem key={item.to} {...item} onNavigate={() => setMenuOpen(false)} />
+            ))}
+          </div>
+          <details
+            className="nav-more"
+            open={MORE_ROUTE_PATHS.has(location.pathname) ? true : undefined}
+          >
+            <summary>More tools</summary>
+            {MORE_NAV_SECTIONS.map((section) => (
+              <div className="nav-section" key={section.title}>
+                <div className="nav-section-title">{section.title}</div>
+                {section.items.map((item) => (
+                  <NavItem key={item.to} {...item} onNavigate={() => setMenuOpen(false)} />
+                ))}
+              </div>
+            ))}
+          </details>
         </nav>
 
         <div className="sidebar-footer">
@@ -308,7 +308,11 @@ const AppLayout = () => {
       </div>
 
       <MobileTabBar onMore={() => setMenuOpen(true)} />
-      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsSheet open onClose={() => setSettingsOpen(false)} />
+        </Suspense>
+      )}
     </SignalAlertProvider>
     </PredictionProvider>
     </WatchlistProvider>
@@ -321,7 +325,10 @@ function App() {
       <BrowserRouter>
         <Routes>
           {/* No auth wall: every visitor lands in the complete terminal. */}
-          <Route path="/login" element={<Login />} />
+          <Route
+            path="/login"
+            element={<Suspense fallback={<PageLoader />}><Login /></Suspense>}
+          />
           <Route path="*" element={<AppLayout />} />
         </Routes>
       </BrowserRouter>

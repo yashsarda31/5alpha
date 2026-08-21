@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import ToastStack from './ToastStack';
-import { setCached } from '../lib/swrCache';
+import { getCached, subscribe } from '../lib/swrCache';
 import { SignalAlertContext } from './SignalAlertContext';
 import './alerts.css';
 
@@ -12,9 +12,6 @@ const PREF_KEY = 'alphanova_browser_notifs';
 // on the next visit until the user actually enables (free platform: every
 // account should end up push-subscribed).
 const NUDGE_KEY = 'alphanova_notif_nudge_dismissed';
-const POLL_MS = 120000;      // foreground: near-live, matches server signals TTL
-const POLL_HIDDEN_MS = 600000; // background: 10 min — still drives push, ~5x fewer calls
-const FETCH_TIMEOUT_MS = 20000;
 const TOAST_TTL_MS = 10000;
 const MAX_TOASTS = 4;
 
@@ -250,63 +247,26 @@ const SignalAlertProvider = ({ children }) => {
     }
   }, [notify]);
 
-  const inFlightRef = useRef(false);
-  const runPoll = useCallback(async () => {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
-    try {
-      const res = await fetch('/api/signals', { signal: ac.signal });
-      if (res.ok) {
-        const data = await res.json();
-        // share the payload with the Signals page — opening it right after a
-        // background poll renders instantly with zero network round-trips
-        setCached('signals', data);
-        detect(data);
-      }
-    } catch {
-      // network error / abort / cold-start timeout — retry next cycle
-    } finally {
-      clearTimeout(timer);
-      inFlightRef.current = false;
-    }
+  // Pages that display Signals own their requests. The alert layer observes
+  // the shared cache instead of creating a second app-wide polling loop.
+  useEffect(() => {
+    const cached = getCached('signals');
+    if (cached?.data) detect(cached.data);
+    return subscribe('signals', (entry) => {
+      if (entry?.data) detect(entry.data);
+    });
   }, [detect]);
 
-  // Poll cadence follows tab visibility: full-speed while the user is looking
-  // (live toasts), slow in the background — a backgrounded/abandoned tab is the
-  // main source of wasted serverless invocations. Returning to the tab triggers
-  // an immediate catch-up poll so the user never sees stale data.
-  useEffect(() => {
-    let id;
-    const schedule = () => {
-      clearInterval(id);
-      id = setInterval(runPoll, document.hidden ? POLL_HIDDEN_MS : POLL_MS);
-    };
-    const onVisibility = () => {
-      if (!document.hidden) runPoll();
-      schedule();
-    };
-    runPoll();
-    schedule();
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [runPoll]);
-
-  // Dev/demo hooks: fire a synthetic signal, or force one real poll cycle
+  // Dev/demo hook: fire a synthetic signal without making a network request.
   useEffect(() => {
     window.__fireTestSignal = (o = {}) => notify({
       symbol: 'TESTCO', side: 'LONG', kind: 'long_buildup',
       score: 72, entry: 1000, stop: 975, target: 1050, ...o,
     });
-    window.__pollNow = () => runPoll();
     return () => {
-      try { delete window.__fireTestSignal; delete window.__pollNow; } catch { /* noop */ }
+      try { delete window.__fireTestSignal; } catch { /* noop */ }
     };
-  }, [notify, runPoll]);
+  }, [notify]);
 
   const toggleBrowser = useCallback(async () => {
     if (!notifSupported()) return;
@@ -355,7 +315,6 @@ const SignalAlertProvider = ({ children }) => {
     if (currentUser && notifSupported() && Notification.permission === 'granted' &&
         localStorage.getItem(PREF_KEY) !== 'off') {
       try { localStorage.setItem(PREF_KEY, 'on'); } catch { /* noop */ }
-      setBrowserEnabled(true);
       subscribePush();
     }
   }, [currentUser]);

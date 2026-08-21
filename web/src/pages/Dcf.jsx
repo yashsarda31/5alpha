@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
+import LazyMarkdown from '../components/LazyMarkdown';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
 import TickerSearch from '../components/TickerSearch';
 import ShareButton from '../components/ShareButton';
@@ -447,7 +447,7 @@ const Dcf = () => {
         <div className="ai-insight fade-in" style={{ marginTop: '20px', background: 'linear-gradient(135deg, rgba(62, 230, 255, 0.05) 0%, rgba(0, 0, 0, 0) 100%)', border: '1px solid rgba(62, 230, 255, 0.2)' }}>
           <h3 style={{ color: 'var(--primary-accent)' }}>AI Valuation Report</h3>
           <div className="ai-insight-content">
-            <ReactMarkdown>{aiReport}</ReactMarkdown>
+            <LazyMarkdown>{aiReport}</LazyMarkdown>
           </div>
         </div>
       )}

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import LazyMarkdown from '../components/LazyMarkdown';
 import Plot from '../components/Plot';
 import ShareButton from '../components/ShareButton';
 import { PageHeader } from '../components/ui';
@@ -398,7 +397,7 @@ const SectorRotation = () => {
           <button className="secondary" onClick={runAi} disabled={aiLoading}>{aiLoading ? 'Analysing…' : 'Generate'}</button>
         </div>
         {aiReport
-          ? <div className="sr-ai-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{aiReport}</ReactMarkdown></div>
+          ? <div className="sr-ai-body"><LazyMarkdown>{aiReport}</LazyMarkdown></div>
           : <p className="sr-note">Get a plain-English read of where money is rotating and what it implies for market posture.</p>}
       </div>
     </div>

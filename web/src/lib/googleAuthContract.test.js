@@ -8,7 +8,7 @@ test('AuthContext posts Google credentials and persists the returned session', (
   const auth = source('../AuthContext.jsx');
 
   assert.match(auth, /const loginWithGoogle = async \(credential\)/);
-  assert.match(auth, /axios\.post\('\/api\/auth\/google', \{ credential \}\)/);
+  assert.match(auth, /apiClient\.post\('\/api\/auth\/google', \{ credential \}\)/);
   assert.match(auth, /loginWithGoogle,/);
 });
 
