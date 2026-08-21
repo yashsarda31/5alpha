@@ -5,6 +5,7 @@ those same synthetic bars, so no network is touched.
 """
 import os
 import tempfile
+from datetime import date
 
 os.environ.setdefault("ALPHANOVA_DB_DIR", tempfile.mkdtemp(prefix="alphanova_test_"))
 
@@ -61,7 +62,9 @@ def test_walk_forward_backfill(monkeypatch):
     conn = main._auth_db()
     conn.execute("DELETE FROM signal_positions")
     conn.commit()
-    closed, opened = main._backfill_model_portfolio(conn, days_back=3, min_score=0)
+    closed, opened = main._backfill_model_portfolio(
+        conn, days_back=3, min_score=0, as_of=date(2026, 7, 9)
+    )
     conn.commit()
     rows = [dict(r) for r in conn.execute("SELECT * FROM signal_positions")]
     conn.close()

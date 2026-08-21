@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import LazyMarkdown from '../components/LazyMarkdown';
 import { PageHeader } from '../components/ui';
 import WatchlistStar from '../components/WatchlistStar';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
@@ -468,7 +467,7 @@ const Screener = () => {
                 </button>
               </div>
               <div className="ai-insight-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiReport}</ReactMarkdown>
+                <LazyMarkdown>{aiReport}</LazyMarkdown>
               </div>
             </div>
           )}

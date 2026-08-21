@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import axios from 'axios';
+import { apiClient } from './lib/apiClient';
 import { useAuth } from './AuthContext';
 
 const WatchlistContext = createContext();
@@ -36,7 +36,7 @@ export const WatchlistProvider = ({ children }) => {
       return;
     }
     try {
-      const res = await axios.get('/api/watchlist', { headers: authHeader() });
+      const res = await apiClient.get('/api/watchlist', { headers: authHeader() });
       setItems(res.data.symbols || []);
     } catch {
       // Non-fatal: keep whatever we had; stars simply won't reflect membership.
@@ -73,7 +73,7 @@ export const WatchlistProvider = ({ children }) => {
     setError(null);
     setItems((prev) => [...prev, { symbol, market: mkt, added_at: new Date().toISOString(), sort_order: null }]);
     try {
-      await axios.post('/api/watchlist', { symbol, market: mkt }, { headers: authHeader() });
+      await apiClient.post('/api/watchlist', { symbol, market: mkt }, { headers: authHeader() });
     } catch (e) {
       setItems((prev) => prev.filter((i) => i.symbol !== symbol)); // rollback
       setError(e.response?.data?.detail || 'Could not add to watchlist.');
@@ -90,7 +90,7 @@ export const WatchlistProvider = ({ children }) => {
     });
     setError(null);
     try {
-      await axios.delete(`/api/watchlist/${encodeURIComponent(symbol)}`, { headers: authHeader() });
+      await apiClient.delete(`/api/watchlist/${encodeURIComponent(symbol)}`, { headers: authHeader() });
     } catch (e) {
       if (snapshot) setItems(snapshot); // rollback
       setError(e.response?.data?.detail || 'Could not remove from watchlist.');

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import LazyMarkdown from '../components/LazyMarkdown';
 import { PageHeader, StatTile, StatGrid } from '../components/ui';
 import TickerSearch from '../components/TickerSearch';
 import ShareButton from '../components/ShareButton';
@@ -275,7 +274,7 @@ const PositionSizing = () => {
                   </button>
                 </div>
                 <div className="ai-insight-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiReport}</ReactMarkdown>
+                  <LazyMarkdown>{aiReport}</LazyMarkdown>
                 </div>
               </div>
             )}

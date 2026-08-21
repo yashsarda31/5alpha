@@ -1,0 +1,14 @@
+# Local projects and planning files that are not part of Alpha Nova.
+OpenBB/
+alphaquest/
+nourishfit/
+sales-momentum/
+docs/superpowers/
+
+# Local caches and test artifacts are never needed in production bundles.
+.git/
+.pytest_cache/
+**/__pycache__/
+**/*.pyc
+api/test_*.py
+web/eslint_output.txt

@@ -1,21 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import { PageHeader, SectionTitle, StatusPill, Badge, Skeleton } from '../components/ui';
+import { PageHeader, SectionTitle, StatusPill, Skeleton } from '../components/ui';
 import { useWatchlist } from '../WatchlistContext';
 import { usePrediction } from '../PredictionContext';
 import WatchlistStar from '../components/WatchlistStar';
 import Sparkline from '../components/Sparkline';
-import { useSWR, getCached, subscribe } from '../lib/swrCache';
+import { useSWR } from '../lib/swrCache';
+import { buildNoTradeGuidance, selectPrioritySetups } from '../lib/decisionBrief';
 import './Dashboard.css';
-
-// Read the app-wide signals snapshot without triggering a fetch of our own —
-// SignalAlertProvider polls /api/signals and seeds this cache key already.
-const useSignalsCache = () => {
-  const [entry, setEntry] = useState(() => getCached('signals'));
-  useEffect(() => subscribe('signals', setEntry), []);
-  return entry ? entry.data : null;
-};
 
 // "₹2,987.65" / "$214.30" — null when the quote has no price yet
 const fmtPrice = (v, market) => {
@@ -127,11 +120,11 @@ const MyWatchlist = () => {
 // Lead indices + breadth: the one-glance "what's the market doing" strip.
 const PULSE_NAMES = ['NIFTY 50', 'BANKNIFTY'];
 
-const PulseStrip = ({ indices, movers, loading }) => {
+const PulseStrip = ({ indices, movers, loading, signals }) => {
   if (loading) {
     return (
       <div className="dash-pulse">
-        {[1, 2].map((i) => <Skeleton key={i} height={64} />)}
+        {[1, 2, 3].map((i) => <Skeleton key={i} height={64} />)}
       </div>
     );
   }
@@ -141,8 +134,19 @@ const PulseStrip = ({ indices, movers, loading }) => {
   if (!lead.length) return null;
   const up = movers.filter((m) => m.change_pct > 0).length;
   const down = movers.filter((m) => m.change_pct < 0).length;
+  const regime = signals?.regime;
   return (
     <div className="dash-pulse">
+      {regime?.overall && (
+        <div className={`dash-pulse-regime ${String(regime.overall).toLowerCase()}`}>
+          <span className="dash-pulse-name">Market regime</span>
+          <span className="dash-pulse-value">{regime.overall}</span>
+          <span className="dash-pulse-detail">
+            {regime.dir ? `${String(regime.dir).toUpperCase()} bias` : 'Direction pending'}
+            {regime.vol?.label ? ` · ${regime.vol.label}` : ''}
+          </span>
+        </div>
+      )}
       {lead.map((ix) => {
         const dir = ix.change_pct >= 0 ? 'up' : 'down';
         return (
@@ -178,56 +182,84 @@ const PulseStrip = ({ indices, movers, loading }) => {
   );
 };
 
-// Top scored setups from the app-wide signals poll — a live reason to open
-// the Signals tab. Renders nothing until the cache holds plans.
-const SetupsTeaser = () => {
-  const signals = useSignalsCache();
-  const plans = (signals && signals.setups && signals.setups.plans) || [];
-  if (!plans.length) return null;
-  const best = new Map();
-  plans.forEach((p) => {
-    if (!p || !p.symbol || !p.side) return;
-    const held = best.get(p.symbol);
-    if (!held || (p.score || 0) > (held.score || 0)) best.set(p.symbol, p);
-  });
-  const top = [...best.values()].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 3);
-  if (!top.length) return null;
-  const asOf = (signals.as_of || '').slice(11, 16);
+const SetupLevel = ({ label, value, currency }) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return null;
   return (
-    <div className="dash-teaser">
+    <span className="dash-setup-level">
+      <span>{label}</span>
+      <strong className="tnum">
+        {currency}{Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+      </strong>
+    </span>
+  );
+};
+
+const PrioritySetups = ({ signals, loading }) => {
+  const plans = selectPrioritySetups(signals, 3);
+
+  if (loading) {
+    return (
+      <div className="dash-setups">
+        <SectionTitle>Priority Setups</SectionTitle>
+        <div className="dash-setup-grid">
+          {[1, 2, 3].map((item) => <Skeleton key={item} height={116} />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (!plans.length) {
+    const guidance = buildNoTradeGuidance(signals);
+    return (
+      <div className="dash-setups">
+        <SectionTitle>Priority Setups</SectionTitle>
+        <div className={`dash-no-trade ${guidance.state}`}>
+          <div>
+            <strong>{guidance.title}</strong>
+            <p>{guidance.body}</p>
+          </div>
+          <Link to="/signals" className="dash-manage-link">Open Signals →</Link>
+        </div>
+      </div>
+    );
+  }
+
+  const asOf = signals?.as_of?.replace('T', ' ');
+  return (
+    <div className="dash-setups">
       <div className="dash-section-head">
-        <SectionTitle>Live Setups</SectionTitle>
+        <SectionTitle>Priority Setups</SectionTitle>
         <Link to="/signals" className="dash-manage-link">All setups →</Link>
       </div>
-      <div className="dash-teaser-grid">
-        {top.map((p) => {
-          const cur = p.currency || '₹';
+      <div className="dash-setup-grid">
+        {plans.map((plan) => {
+          const currency = plan.currency || signals?.currency || '₹';
+          const score = Number(plan.score);
           return (
-            <Link key={`${p.symbol}-${p.side}`} to="/signals" className="dash-teaser-card">
-              <span className={`dash-teaser-side ${p.side === 'LONG' ? 'long' : 'short'}`}>{p.side}</span>
-              <span className="dash-teaser-sym">{p.symbol}</span>
-              <span className="dash-teaser-score tnum">{p.score}/100</span>
-              <span className="dash-teaser-entry tnum">entry {cur}{p.entry}</span>
+            <Link
+              key={`${plan.symbol}-${plan.side}`}
+              to={`/chart?symbol=${encodeURIComponent(plan.symbol)}`}
+              className="dash-setup-card"
+              title={`Analyse ${plan.symbol}`}
+            >
+              <span className="dash-setup-head">
+                <span className={`dash-teaser-side ${plan.side === 'LONG' ? 'long' : 'short'}`}>{plan.side}</span>
+                <span className="dash-setup-symbol">{plan.symbol}</span>
+                {Number.isFinite(score) && <span className="dash-setup-score tnum">{score}/100</span>}
+              </span>
+              <span className="dash-setup-levels">
+                <SetupLevel label="Entry" value={plan.entry} currency={currency} />
+                <SetupLevel label="Stop" value={plan.stop} currency={currency} />
+                <SetupLevel label="Target" value={plan.target} currency={currency} />
+              </span>
             </Link>
           );
         })}
       </div>
-      {asOf && <div className="dash-teaser-asof">as of {asOf} · scored by the signals engine</div>}
+      {asOf && <div className="dash-setup-asof">As of {asOf} IST · scored by the Signals engine</div>}
     </div>
   );
 };
-
-const NAV_MODULES = [
-  { to: '/signals', code: 'SIG', title: 'Market Signals', desc: 'Options intelligence, regime context & scored setups.' },
-  { to: '/track-record', code: 'TRACK', title: 'Signal Track Record', desc: 'Model portfolio & win rate — every signal, marked to market.' },
-  { to: '/option-chain', code: 'OCHN', title: 'Option Chain', desc: 'Institutional derivative analytics & structural mapping.' },
-  { to: '/chart', code: 'GP', title: 'Chart Analyser', desc: 'Technical analysis with Minervini VCP ratings.' },
-  { to: '/flcl', code: 'FLCL', title: 'FLCL Analysis', desc: 'Floor/ceiling regime engine with trailing structure levels.' },
-  { to: '/screener', code: 'EQS', title: 'Quant Screener', desc: 'Filter market using institutional constraints.' },
-  { to: '/dcf', code: 'DCF', title: 'Valuations', desc: 'Intrinsic value via reverse-engineered cash flows.' },
-  { to: '/fiidii', code: 'FLOW', title: 'Inst. Activity', desc: 'Track FII/DII cash market activity and flow.' },
-  { to: '/arima', code: 'FORE', title: 'SARIMAX', desc: 'Time-series modeling for equity trajectory.' },
-];
 
 // Daily NIFTY call — the retention hook. Pre-lock: two buttons. Locked: your
 // pick + streak. Resolved: ✓/✗ result. Placed below movers, above modules.
@@ -332,12 +364,16 @@ const formatIndexValue = (value) => {
 };
 
 const Dashboard = () => {
-  const [apiKey] = useState(localStorage.getItem('gemini_api_key') || '');
   // Stale-while-revalidate: last snapshot renders instantly, refresh runs behind it
   const { data: dashData, error: swrError } = useSWR(
     'dashboard',
     () => axios.get('/api/dashboard').then((r) => r.data),
     120000,
+  );
+  const { data: signalsData, error: signalsError } = useSWR(
+    'signals',
+    () => axios.get('/api/signals').then((r) => r.data),
+    0,
   );
   const loading = !dashData && !swrError;
   const error = !dashData && swrError
@@ -348,38 +384,32 @@ const Dashboard = () => {
   const moversMarket = dashData?.movers_market || 'IN'; // US megacaps 8pm–2am IST
   const indices = dashData?.indices || [];
   const marketOpen = dashData?.market_open;
+  const signalsLoading = !signalsData && !signalsError;
   // Lead indices live in the pulse strip; everything else is the macro column.
   const macroRows = indices.filter((i) => !PULSE_NAMES.includes(i.name));
-  const signalsData = useSignalsCache();
-  const liveSetupCount = new Set(
-    ((signalsData && signalsData.setups && signalsData.setups.plans) || [])
-      .filter((p) => p && p.symbol).map((p) => p.symbol),
-  ).size;
 
   return (
     <div className="dash fade-in">
       <PageHeader
         code="DASH"
-        title="Dashboard"
-        subtitle="Live market snapshot & analytics modules"
-        right={
-          <>
-            <StatusPill open={marketOpen} liveLabel="MKT OPEN" closedLabel="MKT CLOSED" />
-            <Badge tone={apiKey ? 'accent' : 'loss'}>{apiKey ? 'AI ACTIVE' : 'AI OFFLINE'}</Badge>
-          </>
-        }
+        title="Today"
+        subtitle="Your market, setups & next actions"
+        right={<StatusPill open={marketOpen} liveLabel="MKT OPEN" closedLabel="MKT CLOSED" />}
       />
 
       {error && (
         <div className="dash-error">Live market feed unavailable: {error}</div>
       )}
 
-      <PulseStrip indices={indices} movers={movers} loading={loading} />
+      <PulseStrip indices={indices} movers={movers} loading={loading} signals={signalsData} />
 
       <div style={{ marginBottom: 8 }}>
         <MyWatchlist />
       </div>
 
+      <PrioritySetups signals={signalsData} loading={signalsLoading} />
+
+      <SectionTitle>Market Details</SectionTitle>
       <div className="dash-grid">
         <div>
           <SectionTitle>Top Movers{moversMarket === 'US' ? ' · US markets' : ''}</SectionTitle>
@@ -431,24 +461,6 @@ const Dashboard = () => {
       </div>
 
       <TodaysCall />
-
-      <SetupsTeaser />
-
-      <SectionTitle>Analytics Modules</SectionTitle>
-      <div className="dash-nav-grid">
-        {NAV_MODULES.map((mod) => (
-          <Link key={mod.to} to={mod.to} className="dash-nav-card">
-            <span className="dash-nav-icon-row">
-              <span className="dash-nav-icon ui-code-chip">{mod.code}</span>
-              {mod.to === '/signals' && liveSetupCount > 0 && (
-                <span className="dash-nav-live">{liveSetupCount} live</span>
-              )}
-            </span>
-            <span className="dash-nav-title">{mod.title}</span>
-            <span className="dash-nav-desc">{mod.desc}</span>
-          </Link>
-        ))}
-      </div>
     </div>
   );
 };

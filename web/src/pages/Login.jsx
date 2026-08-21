@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import InstallApp from '../components/InstallApp';
@@ -12,6 +12,32 @@ const SIGNUP_PERKS = [
   'Enable browser alerts for newly published signals',
 ];
 
+const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
+let googleScriptPromise;
+
+const loadGoogleIdentity = () => {
+  if (window.google?.accounts?.id) return Promise.resolve(window.google);
+  if (googleScriptPromise) return googleScriptPromise;
+
+  googleScriptPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${GOOGLE_SCRIPT_SRC}"]`);
+    const script = existing || document.createElement('script');
+    script.addEventListener('load', () => resolve(window.google), { once: true });
+    script.addEventListener('error', () => reject(new Error('Google sign-in could not load.')), { once: true });
+    if (!existing) {
+      script.src = GOOGLE_SCRIPT_SRC;
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+  }).catch((error) => {
+    googleScriptPromise = undefined;
+    throw error;
+  });
+
+  return googleScriptPromise;
+};
+
 const Login = () => {
   const location = useLocation();
   // Benefit-led actions arrive with ?mode=signup; direct /login visits are
@@ -24,14 +50,60 @@ const Login = () => {
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const googleButtonRef = useRef(null);
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-  const { loginWithEmail, signupWithEmail } = useAuth();
+  const { loginWithEmail, signupWithEmail, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
 
   const continueAfterAuth = useCallback(() => {
     const continuation = continuationFromAuth(location.state);
     navigate(continuation.to, { replace: true, state: continuation.state });
   }, [location.state, navigate]);
+
+  const handleGoogleCredential = useCallback(async (response) => {
+    if (!response?.credential) return;
+    setError('');
+    setGoogleLoading(true);
+    try {
+      await loginWithGoogle(response.credential);
+      continueAfterAuth();
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Google sign-in failed.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  }, [continueAfterAuth, loginWithGoogle]);
+
+  useEffect(() => {
+    if (!googleClientId || !googleButtonRef.current) return undefined;
+    let cancelled = false;
+
+    loadGoogleIdentity()
+      .then((google) => {
+        if (cancelled || !google?.accounts?.id || !googleButtonRef.current) return;
+        google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: handleGoogleCredential,
+        });
+        googleButtonRef.current.replaceChildren();
+        google.accounts.id.renderButton(googleButtonRef.current, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          shape: 'rectangular',
+          text: 'continue_with',
+          logo_alignment: 'left',
+          width: Math.min(340, googleButtonRef.current.clientWidth || 340),
+        });
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Google sign-in could not load.');
+      });
+
+    return () => { cancelled = true; };
+  }, [googleClientId, handleGoogleCredential]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -69,7 +141,17 @@ const Login = () => {
           </ul>
         )}
 
-        {error && <div className="login-error">{error}</div>}
+        {error && <div className="login-error" role="alert">{error}</div>}
+
+        {googleClientId && (
+          <>
+            <div className="google-signin">
+              <div ref={googleButtonRef} className="google-button-mount" aria-label="Continue with Google" />
+              {googleLoading && <span className="google-signin-status">Signing in with Google...</span>}
+            </div>
+            <div className="divider"><span>or use email</span></div>
+          </>
+        )}
 
         <form onSubmit={handleSubmit} className="login-form">
           {!isLogin && (
@@ -130,7 +212,7 @@ const Login = () => {
             </Link>
           </p>
           <p style={{ fontSize: '12px', marginTop: '12px', color: 'var(--text-secondary)' }}>
-            Accounts are stored locally in the app's own database — no third-party services.
+            Google is used only for Google sign-in.
           </p>
           <div style={{ marginTop: '16px' }}>
             <InstallApp compact />

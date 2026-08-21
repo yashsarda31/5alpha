@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import LazyMarkdown from '../components/LazyMarkdown';
 import { PageHeader, SectionTitle, StatTile, StatGrid, Badge, DataTable } from '../components/ui';
 import Plot from '../components/Plot';
 import TickerSearch from '../components/TickerSearch';
@@ -381,7 +380,7 @@ const Flcl = () => {
                 </button>
               </div>
               <div className="ai-insight-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiReport}</ReactMarkdown>
+                <LazyMarkdown>{aiReport}</LazyMarkdown>
               </div>
             </div>
           )}

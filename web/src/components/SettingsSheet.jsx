@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { apiClient } from '../lib/apiClient';
 import { Link, useLocation } from 'react-router-dom';
 import { X, Bell, BellOff, Trophy, EyeOff, Send } from 'lucide-react';
 import { useAuth } from '../AuthContext';
@@ -77,12 +77,12 @@ const PushTest = () => {
     try {
       const token = localStorage.getItem('alphanova_auth_token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      let d = (await axios.post('/api/push/test', null, { headers })).data;
+      let d = (await apiClient.post('/api/push/test', null, { headers })).data;
       if (d.subs === 0) {
         // The subscribe write may land a beat before another instance can see
         // it — give the store a moment and retry once before bothering the user.
         await new Promise((r) => setTimeout(r, 1500));
-        d = (await axios.post('/api/push/test', null, { headers })).data;
+        d = (await apiClient.post('/api/push/test', null, { headers })).data;
       }
       setStatus(d.subs === 0
         ? 'Device registered but the server can’t see it yet — wait a few seconds and tap again.'

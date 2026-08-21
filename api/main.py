@@ -5407,7 +5407,6 @@ BLOB_API_VERSION = "11"
 # A brand-new pathname gets a brand-new URL that can never be cache-stale; pull
 # takes the newest snapshot by name (lexical order == chronological order).
 BLOB_DB_PREFIX = "auth/alphanova-db-v/"
-BLOB_DB_LEGACY_PATHNAME = "auth/alphanova.db"  # pre-versioning single file, read once as fallback
 BLOB_KEEP_SNAPSHOTS = 5
 _blob_synced = False
 
@@ -5460,29 +5459,38 @@ def _blob_pull_db(force=False):
     global _blob_synced
     token = _blob_token()
     if not token or (_blob_synced and not force):
-        return
+        return True
     try:
         snapshots = sorted(_blob_list(BLOB_DB_PREFIX), key=lambda b: b.get("pathname", ""), reverse=True)
-        latest = _blob_download(snapshots[0]["url"], token) if snapshots else None
-
-        # During the switch to versioned snapshots, a zero-user database was
-        # uploaded before the existing legacy database was read. The legacy DB
-        # is now migration-only: once a versioned DB has any users it also owns
-        # all newer sessions and tables (including signal_positions). Comparing
-        # raw user counts here used to select the larger, stale July legacy DB,
-        # silently dropping newer sessions and the entire Track Record ledger.
-        legacy = _blob_list(BLOB_DB_LEGACY_PATHNAME)
-        legacy_data = _blob_download(legacy[0]["url"], token) if legacy else None
-        latest_users = _sqlite_user_count(latest)
-        legacy_users = _sqlite_user_count(legacy_data)
-        data = legacy_data if latest_users <= 0 < legacy_users else latest
-        # Only accept a real SQLite file so a corrupt blob can't brick auth.
-        if data and data.startswith(b"SQLite format 3"):
-            with open(AUTH_DB_PATH, "wb") as f:
+        if not snapshots:
+            # An empty store is valid only for a brand-new database. On a warm
+            # instance, continuing with a local file could overwrite remote users
+            # after a transient or inconsistent list response.
+            if force and os.path.exists(AUTH_DB_PATH):
+                with open(AUTH_DB_PATH, "rb") as f:
+                    local_users = _sqlite_user_count(f.read())
+                if local_users != 0:
+                    raise RuntimeError("blob store returned no auth snapshots")
+        else:
+            data = _blob_download(snapshots[0]["url"], token)
+            # Only accept a real SQLite file so a corrupt blob can't brick auth.
+            if not data or not data.startswith(b"SQLite format 3"):
+                raise RuntimeError("latest auth snapshot is unavailable or invalid")
+            temp_path = f"{AUTH_DB_PATH}.pull"
+            with open(temp_path, "wb") as f:
                 f.write(data)
+            os.replace(temp_path, AUTH_DB_PATH)
     except Exception as e:
         print(f"Blob DB pull failed: {e}")
+        _blob_synced = False
+        if force:
+            raise HTTPException(
+                status_code=503,
+                detail="Account storage is temporarily unavailable. Please try again.",
+            )
+        return False
     _blob_synced = True
+    return True
 
 def _blob_push_db():
     """Mirror the auth DB to the blob store as a new timestamped snapshot."""
@@ -6884,16 +6892,16 @@ def _sim_hit(pos, op, hi, lo, dstr):
         if lo <= tgt:   return out(tgt, "win")
     return None
 
-def _backfill_model_portfolio(conn, days_back=8, min_score=40):
+def _backfill_model_portfolio(conn, days_back=8, min_score=40, as_of=None):
     """Walk-forward simulation of the model book over the last `days_back` F&O
     sessions from real bhavcopy: each day resolve the open book on that day's
     range (skipping each position's own entry day), then fill free slots FCFS
     with that day's top reconstructed signals. Existing live calls are preserved;
     historical rows are deduplicated by market/symbol/entry date and only use
     currently free open slots. Returns counts of rows actually added."""
-    ist = datetime.now(_IST)
+    current_date = as_of or datetime.now(_IST).date()
     day_data = []
-    d = ist.date() - timedelta(days=1)   # skip today (incomplete)
+    d = current_date - timedelta(days=1)   # skip today (incomplete)
     tries = 0
     while len(day_data) < days_back and tries < days_back * 3 + 6:
         tries += 1
@@ -7573,7 +7581,10 @@ def _admin_metrics_data(growth_days=90, recent_limit=25):
 
     def within(ts, days):
         dt = _parse_ts(ts)
-        return dt is not None and (now - dt).days < days
+        if dt is None:
+            return False
+        age = now - dt
+        return timedelta(0) <= age < timedelta(days=days)
 
     total = len(users)
     new_7d = sum(1 for u in users if within(u["created_at"], 7))
@@ -7588,15 +7599,19 @@ def _admin_metrics_data(growth_days=90, recent_limit=25):
     )
     active_7d = sum(1 for u in users if within(u["last_login_at"], 7))
     active_30d = sum(1 for u in users if within(u["last_login_at"], 30))
-    ever_logged_in = sum(1 for u in users if _parse_ts(u["last_login_at"]))
+    ever_logged_in = sum(
+        1 for u in users
+        if (dt := _parse_ts(u["last_login_at"])) is not None and dt <= now
+    )
 
     # Daily new-signup counts, then a cumulative-total series, for growth_days back
     per_day = {}
     for u in users:
         dt = _parse_ts(u["created_at"])
-        if dt:
+        if dt and dt <= now:
             per_day[dt.date()] = per_day.get(dt.date(), 0) + 1
-    signups_before_window = sum(
+    unknown_or_future_signups = total - sum(per_day.values())
+    signups_before_window = unknown_or_future_signups + sum(
         c for d, c in per_day.items() if d < today - timedelta(days=growth_days - 1))
     growth, running = [], signups_before_window
     for i in range(growth_days - 1, -1, -1):

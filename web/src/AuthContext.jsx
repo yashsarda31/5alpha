@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
+import { apiClient } from './lib/apiClient';
 
 const AuthContext = createContext();
 
@@ -44,7 +44,7 @@ export const AuthProvider = ({ children }) => {
         return;
       }
       try {
-        const res = await axios.get('/api/auth/me', { headers: authHeader() });
+        const res = await apiClient.get('/api/auth/me', { headers: authHeader() });
         setCurrentUser(res.data.user);
         writeCachedUser(res.data.user);
       } catch (err) {
@@ -63,7 +63,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const loginWithEmail = async (email, password) => {
-    const res = await axios.post('/api/auth/login', { email, password });
+    const res = await apiClient.post('/api/auth/login', { email, password });
     localStorage.setItem(TOKEN_KEY, res.data.token);
     writeCachedUser(res.data.user);
     setCurrentUser(res.data.user);
@@ -71,16 +71,24 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signupWithEmail = async (email, password, displayName) => {
-    const res = await axios.post('/api/auth/signup', { email, password, displayName });
+    const res = await apiClient.post('/api/auth/signup', { email, password, displayName });
     localStorage.setItem(TOKEN_KEY, res.data.token);
     writeCachedUser(res.data.user);
     setCurrentUser(res.data.user);
     return res.data.user;
   };
 
+  const loginWithGoogle = async (credential) => {
+    const res = await apiClient.post('/api/auth/google', { credential });
+    localStorage.setItem(TOKEN_KEY, res.data.token);
+    writeCachedUser(res.data.user);
+    setCurrentUser(res.data.user);
+    return res.data;
+  };
+
   const logout = async () => {
     try {
-      await axios.post('/api/auth/logout', null, { headers: authHeader() });
+      await apiClient.post('/api/auth/logout', null, { headers: authHeader() });
     } catch {
       // Session is cleared locally even if the server call fails
     }
@@ -93,6 +101,7 @@ export const AuthProvider = ({ children }) => {
     currentUser,
     loginWithEmail,
     signupWithEmail,
+    loginWithGoogle,
     logout,
     loading
   };

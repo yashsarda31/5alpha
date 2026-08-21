@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import axios from 'axios';
+import { apiClient } from './lib/apiClient';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { readLocalChoice, writeLocalChoice } from './lib/localPrediction';
+import { shouldLoadPrediction } from './lib/lightweightPolicy';
 
 const PredictionContext = createContext();
 
@@ -16,6 +18,7 @@ const authHeader = () => {
 
 export const PredictionProvider = ({ children }) => {
   const { currentUser } = useAuth();
+  const location = useLocation();
   const [today, setToday] = useState(null);   // { qdate, prompt, locked, your_choice, outcome, ... }
   const [stats, setStats] = useState(null);   // { current_streak, accuracy, hidden, recent, ... }
   const [loading, setLoading] = useState(true);
@@ -23,11 +26,11 @@ export const PredictionProvider = ({ children }) => {
 
   const reload = useCallback(async () => {
     try {
-      const todayRequest = axios.get('/api/predict/today', { headers: authHeader() });
+      const todayRequest = apiClient.get('/api/predict/today', { headers: authHeader() });
       if (currentUser) {
         const [t, m] = await Promise.all([
           todayRequest,
-          axios.get('/api/predict/me', { headers: authHeader() }),
+          apiClient.get('/api/predict/me', { headers: authHeader() }),
         ]);
         setToday(t.data);
         setStats(m.data);
@@ -45,9 +48,13 @@ export const PredictionProvider = ({ children }) => {
   }, [currentUser]);
 
   useEffect(() => {
+    if (!shouldLoadPrediction(location.pathname)) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     reload();
-  }, [currentUser, reload]);
+  }, [currentUser, location.pathname, reload]);
 
   const submit = useCallback(async (choice) => {
     setError(null);
@@ -59,7 +66,7 @@ export const PredictionProvider = ({ children }) => {
     const prev = today;
     setToday((t) => (t ? { ...t, your_choice: choice } : t)); // optimistic
     try {
-      await axios.post('/api/predict', { choice }, { headers: authHeader() });
+      await apiClient.post('/api/predict', { choice }, { headers: authHeader() });
     } catch (e) {
       setToday(prev); // rollback
       setError(e.response?.data?.detail || 'Could not submit your call.');
@@ -70,7 +77,7 @@ export const PredictionProvider = ({ children }) => {
   const setHidden = useCallback(async (hidden) => {
     setStats((s) => (s ? { ...s, hidden } : s)); // optimistic
     try {
-      await axios.post('/api/predict/hide', { hidden }, { headers: authHeader() });
+      await apiClient.post('/api/predict/hide', { hidden }, { headers: authHeader() });
     } catch {
       setStats((s) => (s ? { ...s, hidden: !hidden } : s)); // rollback
     }

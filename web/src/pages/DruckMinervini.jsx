@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import Plot from '../components/Plot';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import LazyMarkdown from '../components/LazyMarkdown';
 import { PageHeader } from '../components/ui';
 import TickerSearch from '../components/TickerSearch';
 
@@ -556,9 +555,9 @@ const DruckMinervini = () => {
               </button>
             </h3>
             <div className="markdown-body" style={{ color: 'var(--text-primary)', lineHeight: 1.6, fontSize: '15px' }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <LazyMarkdown>
                 {results.report}
-              </ReactMarkdown>
+              </LazyMarkdown>
             </div>
           </div>
         </div>

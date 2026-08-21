@@ -167,48 +167,16 @@ class AlphaNovaOAuthProvider(OAuthAuthorizationServerProvider):
         client = self._static_client()
         if client and hmac.compare_digest(client_id, self.client_id):
             return client
-        conn = self._connect(force=True)
-        try:
-            row = conn.execute(
-                "SELECT client_info_json FROM mcp_oauth_clients WHERE client_id = ?",
-                (client_id,),
-            ).fetchone()
-            return OAuthClientInformationFull.model_validate_json(row["client_info_json"]) if row else None
-        finally:
-            conn.close()
+        # Production uses one configured confidential client. Unknown client IDs
+        # must be rejected before SQLite/Blob access: automated token requests can
+        # otherwise turn every miss into a full database list + download.
+        return None
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
-        redirect_uris = {str(uri) for uri in client_info.redirect_uris}
-        if (
-            not redirect_uris
-            or len(redirect_uris) > MAX_REDIRECT_URIS
-            or any(not _valid_redirect_uri(uri) for uri in redirect_uris)
-        ):
-            raise RegistrationError(
-                error="invalid_redirect_uri",
-                error_description="Redirect URIs must use HTTPS or an HTTP loopback host without fragments or credentials.",
-            )
-        if set(client_info.grant_types) != {"authorization_code", "refresh_token"}:
-            raise RegistrationError(
-                error="invalid_client_metadata",
-                error_description="Only authorization_code and refresh_token grants are allowed.",
-            )
-        if set(client_info.response_types) != {"code"}:
-            raise RegistrationError(
-                error="invalid_client_metadata",
-                error_description="Only the code response type is allowed.",
-            )
-
-        conn = self._connect(force=True)
-        try:
-            conn.execute(
-                "INSERT OR REPLACE INTO mcp_oauth_clients (client_id, client_info_json, created_at) VALUES (?, ?, ?)",
-                (client_info.client_id, client_info.model_dump_json(), time.time()),
-            )
-            conn.commit()
-            self._push()
-        finally:
-            conn.close()
+        raise RegistrationError(
+            error="invalid_client_metadata",
+            error_description="Dynamic client registration is disabled.",
+        )
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
         scopes = params.scopes or [MCP_SCOPE]

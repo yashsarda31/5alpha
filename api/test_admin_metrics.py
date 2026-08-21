@@ -75,6 +75,25 @@ def test_recent_sorted_newest_first_and_limited():
     assert m["recent"][-1]["email"] == "u2@test.local"
 
 
+def test_invalid_or_future_timestamps_do_not_break_growth_totals_or_recency():
+    now = datetime.now(timezone.utc)
+    _seed_users([
+        ("valid@test.local", (now - timedelta(days=1)).isoformat(),
+         (now - timedelta(hours=1)).isoformat()),
+        ("future@test.local", (now + timedelta(days=10)).isoformat(),
+         (now + timedelta(days=10)).isoformat()),
+        ("unknown@test.local", "not-a-date", "not-a-date"),
+    ])
+
+    metrics = _admin_metrics_data(growth_days=30)
+
+    assert metrics["totals"]["users"] == 3
+    assert metrics["totals"]["new_7d"] == 1
+    assert metrics["totals"]["active_7d"] == 1
+    assert metrics["totals"]["ever_logged_in"] == 1
+    assert metrics["growth"][-1]["total"] == 3
+
+
 def test_require_admin_gating():
     orig = main.ADMIN_METRICS_KEY
     try:

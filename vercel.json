@@ -12,7 +12,10 @@
   "builds": [
     {
       "src": "api/main.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "excludeFiles": "{web/**,research/**,docs/**,install-tests/**,*.pptx,*.jpeg,*.json,test_*.py,verify_*.py,alpha-nova-*.html,alphanova48-growth-dashboard.html,run_server.py,requirements.txt}"
+      }
     },
     {
       "src": "web/package.json",

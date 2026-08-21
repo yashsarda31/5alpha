@@ -215,6 +215,7 @@ a.dash-mover:hover {
 }
 
 .dash-pulse-tile,
+.dash-pulse-regime,
 .dash-pulse-breadth {
   position: relative;
   overflow: hidden;
@@ -231,6 +232,10 @@ a.dash-mover:hover {
 
 .dash-pulse-tile.up { border-color: rgba(50, 215, 75, 0.22); }
 .dash-pulse-tile.down { border-color: rgba(255, 69, 58, 0.22); }
+.dash-pulse-regime.risk-on { border-color: rgba(50, 215, 75, 0.28); }
+.dash-pulse-regime.risk-off { border-color: rgba(255, 69, 58, 0.28); }
+.dash-pulse-regime .dash-pulse-value { color: var(--primary-gold); }
+.dash-pulse-detail { color: var(--text-secondary); font-size: 11px; }
 
 .dash-pulse-name {
   font-size: 11px;
@@ -312,30 +317,28 @@ a.dash-mover:hover {
   text-overflow: ellipsis;
 }
 
-/* Live setups teaser (signals cache — zero extra requests) */
-.dash-teaser { margin-bottom: 24px; }
+/* Decision-ready setups from the shared Signals snapshot */
+.dash-setups { margin: 22px 0 26px; }
 
-.dash-teaser-grid {
+.dash-setup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  gap: 12px;
 }
 
-.dash-teaser-card {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 12px 14px;
+.dash-setup-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
   background: var(--surface-grad), var(--surface-tile);
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-tile);
   box-shadow: var(--inset-hl);
   text-decoration: none;
   color: inherit;
-  min-width: 0;
   transition: transform 0.18s ease, border-color 0.18s ease;
 }
-.dash-teaser-card:hover {
+.dash-setup-card:hover {
   transform: translateY(-2px);
   border-color: var(--primary-accent-border, rgba(232, 196, 124, 0.5));
 }
@@ -351,20 +354,53 @@ a.dash-mover:hover {
 .dash-teaser-side.long { color: var(--green-gain); }
 .dash-teaser-side.short { color: var(--red-loss); }
 
-.dash-teaser-sym { font-weight: 700; color: var(--text-primary); font-size: 14px; }
-.dash-teaser-score { color: var(--primary-gold); font-weight: 700; font-size: 12px; }
-.dash-teaser-entry {
+.dash-setup-head { display: flex; align-items: center; gap: 10px; }
+.dash-setup-symbol { color: var(--text-primary); font-size: 16px; font-weight: 750; }
+.dash-setup-score {
   margin-left: auto;
-  color: var(--text-secondary);
+  color: var(--primary-gold);
+  font-weight: 700;
   font-size: 12px;
-  white-space: nowrap;
+}
+.dash-setup-levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.dash-setup-level { display: grid; gap: 3px; min-width: 0; }
+.dash-setup-level span {
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.dash-setup-level strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.dash-teaser-asof {
+.dash-setup-asof {
   margin-top: 8px;
   font-size: 11px;
   color: var(--text-secondary);
 }
+
+.dash-no-trade {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  background: var(--surface-tile);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--r-tile);
+}
+.dash-no-trade strong { color: var(--primary-gold); }
+.dash-no-trade p {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.dash-no-trade.unavailable strong { color: var(--text-primary); }
 
 /* Today's Call community split */
 .tc-community {
@@ -409,4 +445,9 @@ a.dash-mover:hover {
 
 @media (max-width: 850px) {
   .dash-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  .dash-no-trade { align-items: flex-start; flex-direction: column; }
+  .dash-setup-levels { grid-template-columns: 1fr; }
 }
