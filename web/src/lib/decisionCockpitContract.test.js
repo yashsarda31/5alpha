@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+const source = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
+
+test('Today is a decision cockpit rather than a duplicate tool catalogue', () => {
+  const dashboard = source('../pages/Dashboard.jsx');
+  assert.match(dashboard, /title="Today"/);
+  assert.match(dashboard, /Priority Setups/);
+  assert.match(dashboard, /Market Details/);
+  assert.doesNotMatch(dashboard, /Analytics Modules|NAV_MODULES/);
+  assert.doesNotMatch(dashboard, /AI OFFLINE|AI ACTIVE|gemini_api_key/);
+});
+
+test('priority setups connect directly to ticker-specific Analyse routes', () => {
+  const dashboard = source('../pages/Dashboard.jsx');
+  assert.match(dashboard, /selectPrioritySetups/);
+  assert.match(dashboard, /encodeURIComponent\(plan\.symbol\)/);
+  assert.match(dashboard, /Entry/);
+  assert.match(dashboard, /Stop/);
+  assert.match(dashboard, /Target/);
+});
+
+test('Today explicitly renders no-trade and unavailable setup guidance', () => {
+  const dashboard = source('../pages/Dashboard.jsx');
+  assert.match(dashboard, /buildNoTradeGuidance/);
+  assert.match(dashboard, /dash-no-trade/);
+  assert.match(dashboard, /Open Signals/);
+});
