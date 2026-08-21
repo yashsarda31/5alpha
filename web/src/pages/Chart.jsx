@@ -4,8 +4,7 @@ import axios from 'axios';
 import Plot from '../components/Plot';
 import TickerSearch from '../components/TickerSearch';
 import ShareButton from '../components/ShareButton';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import LazyMarkdown from '../components/LazyMarkdown';
 
 import WatchlistStar from '../components/WatchlistStar';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
@@ -57,14 +56,12 @@ const Chart = () => {
     if (requestGuardRef.current.isCurrent(requestId)) setLoading(false);
   };
 
-  // No auto-fetch by default — but a ?symbol= link (e.g. from a dashboard
-  // mover) should land with its chart already loading.
   useEffect(() => {
-    const sym = searchParams.get('symbol');
-    if (sym) {
-      setTicker(sym);
-      fetchChart(sym);
-    }
+    const sym = searchParams.get('symbol') || 'NVDA';
+    setTicker(sym);
+    fetchChart(sym);
+    // fetchChart intentionally stays behind the latest-request guard; adding it
+    // to dependencies would recreate the function and refetch on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -397,7 +394,7 @@ const Chart = () => {
                   </button>
                 </div>
                 <div className="ai-insight-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiReport}</ReactMarkdown>
+                  <LazyMarkdown>{aiReport}</LazyMarkdown>
                 </div>
               </div>
             )}

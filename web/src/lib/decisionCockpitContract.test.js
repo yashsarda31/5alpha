@@ -28,3 +28,10 @@ test('Today explicitly renders no-trade and unavailable setup guidance', () => {
   assert.match(dashboard, /dash-no-trade/);
   assert.match(dashboard, /Open Signals/);
 });
+
+test('Analyse loads the URL symbol or its visible default immediately', () => {
+  const chart = source('../pages/Chart.jsx');
+  assert.match(chart, /const sym = searchParams\.get\('symbol'\) \|\| 'NVDA'/);
+  assert.match(chart, /fetchChart\(sym\)/);
+  assert.doesNotMatch(chart, /No auto-fetch by default/);
+});
