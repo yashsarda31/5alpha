@@ -10,6 +10,8 @@ web/.env.*.local
 
 # Local user database (credentials live here — never commit)
 data/
+# Intentional local-only cache for calibrated-signal research artifacts.
+data/signals_v3/
 
 # Python
 __pycache__/
