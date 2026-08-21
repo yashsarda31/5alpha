@@ -35,3 +35,11 @@ test('Analyse loads the URL symbol or its visible default immediately', () => {
   assert.match(chart, /fetchChart\(sym\)/);
   assert.doesNotMatch(chart, /No auto-fetch by default/);
 });
+
+test('Signals stops automatic polling after close and offers manual refresh', () => {
+  const signals = source('../pages/MarketSignals.jsx');
+  assert.match(signals, /setMarketOpen\(response\.data\?\.market_open !== false\)/);
+  assert.match(signals, /autoRefresh && marketOpen \? 60000 : 0/);
+  assert.match(signals, /data\.market_open \?/);
+  assert.match(signals, /Refresh snapshot/);
+});

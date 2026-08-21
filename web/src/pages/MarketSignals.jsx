@@ -4,7 +4,7 @@ import axios from 'axios';
 import { PageHeader, StatusPill } from '../components/ui';
 import ShareButton from '../components/ShareButton';
 import SignalsPortfolio from '../components/SignalsPortfolio';
-import { useSWR } from '../lib/swrCache';
+import { getCached, useSWR } from '../lib/swrCache';
 import './MarketSignals.css';
 
 const BUCKET_META = {
@@ -59,14 +59,18 @@ const MarketSignals = () => {
   const marketOverride = (searchParams.get('market') || '').toUpperCase();
   const marketQS = ['IN', 'US'].includes(marketOverride) ? `?market=${marketOverride}` : '';
   const [autoRefresh, setAutoRefresh] = useState(true);
-  // Stale-while-revalidate: the last payload renders instantly (shared with
-  // SignalAlertProvider's 2-min background poll when no market override);
-  // a fresh fetch always runs behind it.
+  // Stale-while-revalidate: the last payload renders instantly and a fresh
+  // fetch runs only while this page is active.
   const swrKey = marketQS ? `signals:${marketOverride}` : 'signals';
+  const [marketOpen, setMarketOpen] = useState(() => getCached(swrKey)?.data?.market_open !== false);
+  const fetchSignals = () => axios.get(`/api/signals${marketQS}`).then((response) => {
+    setMarketOpen(response.data?.market_open !== false);
+    return response.data;
+  });
   const { data, refreshing, error: swrError, revalidate } = useSWR(
     swrKey,
-    () => axios.get(`/api/signals${marketQS}`).then((r) => r.data),
-    autoRefresh ? 60000 : 0,
+    fetchSignals,
+    autoRefresh && marketOpen ? 60000 : 0,
   );
   // Nifty 10d realized-vol forecast — server refits at most hourly, so a slow
   // client poll is plenty; card hides itself if the model endpoint is down.
@@ -126,13 +130,19 @@ const MarketSignals = () => {
         right={
           <>
             <StatusPill open={data.market_open} note={data.market_open ? undefined : `${data.market_note} (last session)`} />
-            <div className="refresh-toggle-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-              <span>Auto 60s</span>
-              <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px' }}>
-                <input type="checkbox" checked={autoRefresh} onChange={() => setAutoRefresh(!autoRefresh)} style={{ opacity: 0, width: 0, height: 0 }} />
-                <span style={{ position: 'absolute', cursor: 'pointer', inset: 0, background: autoRefresh ? 'var(--primary-accent)' : 'rgba(255,255,255,0.1)', borderRadius: '22px', transition: '0.3s' }}></span>
-              </label>
-            </div>
+            {data.market_open ? (
+              <div className="refresh-toggle-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                <span>Auto 60s</span>
+                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px' }}>
+                  <input type="checkbox" checked={autoRefresh} onChange={() => setAutoRefresh(!autoRefresh)} style={{ opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ position: 'absolute', cursor: 'pointer', inset: 0, background: autoRefresh ? 'var(--primary-accent)' : 'rgba(255,255,255,0.1)', borderRadius: '22px', transition: '0.3s' }} />
+                </label>
+              </div>
+            ) : (
+              <button type="button" className="secondary" onClick={revalidate} disabled={refreshing} style={{ width: 'auto', padding: '8px 14px' }}>
+                {refreshing ? 'Refreshing…' : 'Refresh snapshot'}
+              </button>
+            )}
           </>
         }
       />
