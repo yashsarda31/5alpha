@@ -14,7 +14,7 @@
       "src": "api/main.py",
       "use": "@vercel/python",
       "config": {
-        "excludeFiles": "{web/**,research/**,data/**,docs/**,install-tests/**,OpenBB/**,nourishfit/**,sales-momentum/**,api/scripts/**,api/requirements-train.txt,api/test_*.py,api/signal_model/costs.py,api/signal_model/execution.py,api/signal_model/features.py,api/signal_model/providers.py,api/signal_model/replay.py,api/signal_model/training.py,api/signal_model/validation.py,*.pptx,*.jpeg,*.json,test_*.py,verify_*.py,alpha-nova-*.html,alphanova48-growth-dashboard.html,run_server.py,requirements.txt}"
+        "excludeFiles": "{web/**,research/**,data/**,docs/**,install-tests/**,.agents/**,.codex/**,.superpowers/**,.worktrees/**,tmp/**,OpenBB/**,nourishfit/**,sales-momentum/**,api/.pytest_cache/**,api/fundamentals_function/**,api/scripts/**,api/requirements-train.txt,api/test_*.py,api/signal_model/costs.py,api/signal_model/execution.py,api/signal_model/features.py,api/signal_model/providers.py,api/signal_model/replay.py,api/signal_model/training.py,api/signal_model/validation.py,*.pptx,*.jpeg,*.json,test_*.py,verify_*.py,alpha-nova-*.html,alphanova48-growth-dashboard.html,run_server.py,requirements.txt}"
       }
     },
     {
