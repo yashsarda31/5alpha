@@ -1,4 +1,4 @@
-import React, { useState, lazy, Suspense } from 'react';
+import React, { useState, lazy, Suspense, useRef } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Link, Navigate, useLocation, useNavigationType } from 'react-router-dom';
 import {
   LayoutGrid, Star, Zap, Rocket, Newspaper,
@@ -13,6 +13,7 @@ import { PredictionProvider } from './PredictionContext';
 import Disclaimer from './components/Disclaimer';
 import AuthIntentHandler from './components/AuthIntentHandler';
 import SignalAlertProvider from './alerts/SignalAlertProvider';
+import { trapFocus } from './lib/focusTrap';
 
 const Login = lazy(() => import('./pages/Login'));
 const SettingsSheet = lazy(() => import('./components/SettingsSheet'));
@@ -194,11 +195,39 @@ const ScrollToTop = () => {
   return null;
 };
 
+const useMobileNav = () => {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 850px)').matches,
+  );
+  React.useEffect(() => {
+    const query = window.matchMedia('(max-width: 850px)');
+    const sync = () => setIsMobile(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
+  return isMobile;
+};
+
 const AppLayout = () => {
   const { currentUser } = useAuth();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const isMobileNav = useMobileNav();
+  const drawerRef = useRef(null);
+  const hamburgerRef = useRef(null);
+  const menuTriggerRef = useRef(null);
+
+  const openMenu = (event) => {
+    menuTriggerRef.current = event.currentTarget;
+    setMenuOpen(true);
+  };
+
+  const closeMenu = (restoreFocus = false) => {
+    setMenuOpen(false);
+    if (restoreFocus) window.requestAnimationFrame(() => menuTriggerRef.current?.focus());
+  };
 
   // While the nav drawer is open, stop touch scrolls from reaching the page
   // behind it (the backdrop otherwise chains the scroll to the body).
@@ -207,20 +236,67 @@ const AppLayout = () => {
     return () => document.body.classList.remove('menu-open');
   }, [menuOpen]);
 
+  React.useEffect(() => {
+    if (!isMobileNav || !menuOpen) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      drawerRef.current?.querySelector('.nav-link')?.focus();
+    });
+    const onKey = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMenu(true);
+      } else {
+        trapFocus(event, drawerRef.current);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [isMobileNav, menuOpen]);
+
+  const openSettings = () => {
+    setMenuOpen(false);
+    setSettingsOpen(true);
+  };
+
+  const closeSettings = () => {
+    setSettingsOpen(false);
+    window.requestAnimationFrame(() => {
+      if (isMobileNav) hamburgerRef.current?.focus();
+    });
+  };
+
   return (
     <WatchlistProvider>
     <PredictionProvider>
     <SignalAlertProvider>
       <AuthIntentHandler />
       <div className="mobile-topbar">
-        <button className="hamburger-btn" onClick={() => setMenuOpen(true)} aria-label="Open navigation menu">☰</button>
+        <button
+          ref={hamburgerRef}
+          className="hamburger-btn"
+          onClick={openMenu}
+          aria-label="Open navigation menu"
+          aria-controls="mobile-navigation"
+          aria-expanded={menuOpen}
+        >☰</button>
         <span className="mobile-title">
           <AppLogo size={20} />
           <span><span className="brand-alpha">Alpha</span> Nova</span>
         </span>
       </div>
-      {menuOpen && <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />}
-      <div className={`sidebar ${menuOpen ? 'open' : ''}`}>
+      {menuOpen && <div className="sidebar-backdrop" onClick={() => closeMenu(true)} />}
+      <div
+        ref={drawerRef}
+        id="mobile-navigation"
+        className={`sidebar ${menuOpen ? 'open' : ''}`}
+        role={isMobileNav ? 'dialog' : undefined}
+        aria-modal={isMobileNav ? true : undefined}
+        aria-label={isMobileNav ? 'Navigation' : undefined}
+        {...(isMobileNav && !menuOpen ? { 'aria-hidden': true, inert: '' } : {})}
+      >
         <div className="brand-block">
           <div className="brand-row">
             <AppLogo size={26} />
@@ -263,7 +339,7 @@ const AppLayout = () => {
               Save watchlist &amp; enable alerts
             </Link>
           )}
-          <button className="settings-btn" onClick={() => setSettingsOpen(true)}>
+          <button className="settings-btn" onClick={openSettings}>
             <Settings size={16} aria-hidden="true" />
             <span className="settings-btn-label">
               <span>Settings</span>
@@ -307,10 +383,10 @@ const AppLayout = () => {
         </Suspense>
       </div>
 
-      <MobileTabBar onMore={() => setMenuOpen(true)} />
+      <MobileTabBar onMore={openMenu} />
       {settingsOpen && (
         <Suspense fallback={null}>
-          <SettingsSheet open onClose={() => setSettingsOpen(false)} />
+          <SettingsSheet open onClose={closeSettings} />
         </Suspense>
       )}
     </SignalAlertProvider>

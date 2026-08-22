@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiClient } from '../lib/apiClient';
 import { Link, useLocation } from 'react-router-dom';
 import { X, Bell, BellOff, Trophy, EyeOff, Send } from 'lucide-react';
@@ -7,6 +7,7 @@ import { useSignalAlerts } from '../alerts/SignalAlertContext';
 import { usePrediction } from '../PredictionContext';
 import { authState, notificationIntent } from '../lib/authIntent';
 import InstallApp from './InstallApp';
+import { trapFocus } from '../lib/focusTrap';
 
 const AlertBell = () => {
   const { browserEnabled, toggleBrowser, permission } = useSignalAlerts();
@@ -127,10 +128,16 @@ const SettingsSheet = ({ open, onClose }) => {
   const { currentUser, logout } = useAuth();
   const location = useLocation();
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+  const dialogRef = useRef(null);
+  const closeRef = useRef(null);
 
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    closeRef.current?.focus();
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose();
+      else trapFocus(event, dialogRef.current);
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
@@ -145,6 +152,7 @@ const SettingsSheet = ({ open, onClose }) => {
   return (
     <div className="settings-backdrop" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="settings-sheet"
         role="dialog"
         aria-modal="true"
@@ -153,7 +161,7 @@ const SettingsSheet = ({ open, onClose }) => {
       >
         <div className="settings-head">
           <h3>Settings</h3>
-          <button className="settings-close" onClick={onClose} aria-label="Close settings">
+          <button ref={closeRef} className="settings-close" onClick={onClose} aria-label="Close settings">
             <X size={16} />
           </button>
         </div>
