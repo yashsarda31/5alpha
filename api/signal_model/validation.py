@@ -19,9 +19,9 @@ from .training import (
 
 RELEASE_LIMITS = {
     "min_trades": 100,
-    "min_win_rate": 0.55,
-    "min_rr": 1.0,
-    "min_probability": 0.60,
+    "min_win_rate": 0.40,
+    "min_rr": 2.0,
+    "min_probability": 0.40,
     "max_symbol_share": 0.15,
     "max_sector_share": 0.35,
     "max_calibration_error": 0.10,
@@ -77,7 +77,11 @@ def compute_metrics(published: pd.DataFrame) -> dict[str, Any]:
                 }
             )
     eligible_periods = [period for period in per_period if period["eligible"]]
-    above_half = [period for period in eligible_periods if period["win_rate"] >= 0.50]
+    above_minimum = [
+        period
+        for period in eligible_periods
+        if period["win_rate"] >= RELEASE_LIMITS["min_win_rate"]
+    ]
     return {
         "trades": trades,
         "wins": wins,
@@ -115,7 +119,7 @@ def compute_metrics(published: pd.DataFrame) -> dict[str, Any]:
         "max_symbol_share": round(_share(complete, "symbol"), 8),
         "max_sector_share": round(_share(complete, "sector"), 8),
         "eligible_periods": len(eligible_periods),
-        "eligible_periods_above_50pct": len(above_half),
+        "eligible_periods_above_min_win_rate": len(above_minimum),
         "per_period": per_period,
     }
 
@@ -130,10 +134,10 @@ def concentration_failures(published: pd.DataFrame) -> list[str]:
 
 
 def evaluate_release_gate(
-    predictions: pd.DataFrame, baseline_win_rate: float, threshold: float = 0.60
+    predictions: pd.DataFrame, baseline_win_rate: float, threshold: float = 0.40
 ) -> dict[str, Any]:
     if threshold < RELEASE_LIMITS["min_probability"]:
-        raise ValueError("threshold_below_0.60")
+        raise ValueError("threshold_below_0.40")
     required = {"probability", "label", "net_return_pct", "rr_net"}
     missing = sorted(required - set(predictions.columns))
     if missing:
@@ -146,14 +150,14 @@ def evaluate_release_gate(
     if metrics["trades"] < RELEASE_LIMITS["min_trades"]:
         failures.append("fewer_than_100_trades")
     if metrics["win_rate"] < RELEASE_LIMITS["min_win_rate"]:
-        failures.append("win_rate_below_55pct")
+        failures.append("win_rate_below_40pct")
     if published.empty or float(published.rr_net.min()) < RELEASE_LIMITS["min_rr"]:
-        failures.append("rr_below_one")
+        failures.append("rr_below_two")
     if metrics["expectancy"] <= 0:
         failures.append("non_positive_expectancy")
     if (
         metrics["eligible_periods"] == 0
-        or metrics["eligible_periods_above_50pct"]
+        or metrics["eligible_periods_above_min_win_rate"]
         <= metrics["eligible_periods"] / 2
     ):
         failures.append("unstable_period_win_rate")
@@ -237,7 +241,7 @@ def _final_train_validation_split(
 
 
 def _configuration_returns(development: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
-    configurations = [(c_value, threshold) for c_value in (0.10, 0.25, 1.00) for threshold in (0.60, 0.65, 0.70)]
+    configurations = [(c_value, threshold) for c_value in (0.10, 0.25, 1.00) for threshold in (0.40, 0.45, 0.50)]
     returns: list[dict[str, float]] = []
     boundaries: list[dict[str, Any]] = []
     dates = pd.to_datetime(development["session_date"])
@@ -398,7 +402,7 @@ def run_locked_validation(
             calibration,
             FEATURE_SCHEMA_V1,
             regularization_c=0.25,
-            threshold=0.60,
+            threshold=0.40,
         )
     except ValueError as exc:
         return _failed_result(
@@ -417,7 +421,7 @@ def run_locked_validation(
     scored["probability"] = predict_calibrated_probability(artifact, scored)
     scored["period"] = scored.session_date.dt.to_period("M").astype(str)
     baseline_win_rate = float(holdout.label.mean())
-    release = evaluate_release_gate(scored, baseline_win_rate, threshold=0.60)
+    release = evaluate_release_gate(scored, baseline_win_rate, threshold=0.40)
     release["failures"] = list(dict.fromkeys([*input_failures, *release["failures"]]))
     release["approved"] = not release["failures"]
 
@@ -430,7 +434,7 @@ def run_locked_validation(
         "p90": round(float(probabilities.quantile(0.90)), 8),
         "p99": round(float(probabilities.quantile(0.99)), 8),
         "max": round(float(probabilities.max()), 8),
-        "at_or_above_0_60": int((probabilities >= 0.60).sum()),
+        "at_or_above_0_40": int((probabilities >= 0.40).sum()),
     }
     report = {
         "report_format": 1,

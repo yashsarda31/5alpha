@@ -332,7 +332,7 @@ const MarketSignals = () => {
                 <th>Conviction</th>
                 <th style={{ textAlign: 'right' }}>Entry</th>
                 <th style={{ textAlign: 'right' }}>Stop</th>
-                <th style={{ textAlign: 'right' }}>Target (1.5R)</th>
+                <th style={{ textAlign: 'right' }}>Target{isUS ? ' (1.5R)' : ''}</th>
                 <th style={{ textAlign: 'right' }}>Qty*</th>
                 <th>Signal Drivers</th>
               </tr>
@@ -350,7 +350,10 @@ const MarketSignals = () => {
                   </td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{cur}{fmt(p.entry)}</td>
                   <td style={{ textAlign: 'right', color: 'var(--red-loss)' }}>{cur}{fmt(p.stop)}</td>
-                  <td style={{ textAlign: 'right', color: 'var(--green-gain)' }}>{cur}{fmt(p.target)}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--green-gain)' }}>
+                    {cur}{fmt(p.target)}
+                    {!isUS && <span style={{ marginLeft: '5px', fontSize: '10px', color: 'var(--text-secondary)' }}>{p.levels_locked ? 'locked' : '2R'}</span>}
+                  </td>
                   <td style={{ textAlign: 'right' }}>{fmt(p.qty, 0)}</td>
                   <td style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{p.why}</td>
                 </tr>
@@ -361,6 +364,7 @@ const MarketSignals = () => {
       )}
       <p className="signals-footnote">
         Conviction = {isUS ? 'volume intensity' : 'OI intensity'} + price momentum + liquidity + options-flow agreement + index bias + intraday & regime alignment (0–100, threshold 45).
+        {!isUS && ' New India setups use a tighter stop with a 2:1 gross target; existing open plans retain their locked original levels. This revised execution policy is not backtest-validated.'}
         *Qty sized so a stop-out loses {setups.risk_pct}% of {cur}{fmt(setups.capital, 0)} capital, scaled by the volatility regime (×{regime.vol_scale}) — not rounded to lot size.
         Signals are analytics, not investment advice.
       </p>

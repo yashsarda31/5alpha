@@ -120,5 +120,5 @@ def test_replay_retains_execution_rejections(replay_sessions):
     frame = replay_market(replay_sessions, {}, lambda market, day: 0.20, "IN")
     row = frame.loc[frame.symbol == "COVER"].iloc[0]
     assert row.eligible == 0
-    assert row.rejection_reason == "insufficient_1r_room"
+    assert row.rejection_reason == "insufficient_2r_room"
     assert pd.isna(row.label)

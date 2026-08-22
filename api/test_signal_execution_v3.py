@@ -25,24 +25,25 @@ def candidate(side="LONG", barrier_price=None):
     )
 
 
-def test_long_plan_is_net_one_to_one_after_costs():
+def test_long_plan_tightens_stop_and_is_net_two_to_one_after_costs():
     plan = build_execution_plan(
         candidate(), next_open=100.0, policy=ExecutionPolicy(), round_trip_cost_pct=0.20
     )
     assert plan.status == "active"
-    assert plan.stop == 96.0
-    assert plan.rr_net >= 1.0
+    assert plan.stop == 97.95
+    assert plan.risk < candidate().atr14
+    assert plan.rr_net >= 2.0
     assert plan.target > 104.0
 
 
-def test_short_plan_is_net_one_to_one_after_costs():
+def test_short_plan_is_net_two_to_one_after_costs():
     plan = build_execution_plan(
         candidate("SHORT"), next_open=100.0, policy=ExecutionPolicy(), round_trip_cost_pct=0.20
     )
     assert plan.status == "active"
-    assert plan.stop == 104.0
-    assert plan.rr_net >= 1.0
-    assert plan.target < 96.0
+    assert plan.stop == 103.05
+    assert plan.rr_net >= 2.0
+    assert plan.target < 94.0
 
 
 def test_chased_gap_expires_instead_of_moving_levels():
@@ -58,7 +59,7 @@ def test_barrier_inside_required_target_expires():
         candidate(barrier_price=103.0), 100.0, ExecutionPolicy(), 0.20
     )
     assert plan.status == "expired"
-    assert plan.reason == "insufficient_1r_room"
+    assert plan.reason == "insufficient_2r_room"
 
 
 def test_ambiguous_daily_bar_resolves_stop_first():
@@ -80,7 +81,7 @@ def test_gap_through_target_uses_open_price():
 def test_fifth_session_time_exit_uses_net_result():
     plan = build_execution_plan(candidate(), 100.0, ExecutionPolicy(), 0.20)
     start = date(2026, 8, 21)
-    bars = [SessionBar(start + timedelta(days=i), 100, 103, 97, 100.5) for i in range(5)]
+    bars = [SessionBar(start + timedelta(days=i), 100, 104, 98.5, 100.5) for i in range(5)]
     out = resolve_outcome(plan, bars, round_trip_cost_pct=0.20)
     assert out.status == "win"
     assert out.reason == "time_exit"
@@ -89,5 +90,5 @@ def test_fifth_session_time_exit_uses_net_result():
 
 def test_incomplete_holding_period_has_no_outcome():
     plan = build_execution_plan(candidate(), 100.0, ExecutionPolicy(), 0.20)
-    bars = [SessionBar(date(2026, 8, 21), 100, 103, 97, 100.1)]
+    bars = [SessionBar(date(2026, 8, 21), 100, 103, 98.5, 100.1)]
     assert resolve_outcome(plan, bars, 0.20) is None

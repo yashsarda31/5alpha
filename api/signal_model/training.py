@@ -104,7 +104,7 @@ def fit_calibrated_logistic(
     validation: pd.DataFrame,
     feature_names: Sequence[str],
     regularization_c: float = 0.25,
-    threshold: float = 0.60,
+    threshold: float = 0.40,
 ) -> dict:
     """Fit a deterministic logistic model and export only plain JSON values."""
     names = tuple(feature_names)

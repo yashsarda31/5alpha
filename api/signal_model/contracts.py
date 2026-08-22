@@ -25,7 +25,8 @@ class CandidateSnapshot:
 
 @dataclass(frozen=True)
 class ExecutionPolicy:
-    atr_multiple: float = 1.0
+    atr_multiple: float = 0.5
+    target_rr_net: float = 2.0
     max_chase_r: float = 0.25
     max_hold_sessions: int = 5
     tick_size: float = 0.05
@@ -62,4 +63,3 @@ class Outcome:
     exit_date: date
     gross_return_pct: float
     net_return_pct: float
-

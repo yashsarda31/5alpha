@@ -30,7 +30,7 @@ def build_execution_plan(
     policy: ExecutionPolicy,
     round_trip_cost_pct: float,
 ) -> ExecutionPlan:
-    """Freeze entry, stop, and a target that is at least 1:1 after costs."""
+    """Freeze entry, a tighter stop, and a target that is net 2:1 after costs."""
     numeric_inputs = (
         next_open,
         candidate.reference_entry,
@@ -38,6 +38,7 @@ def build_execution_plan(
         candidate.session_low,
         candidate.session_high,
         policy.atr_multiple,
+        policy.target_rr_net,
         policy.max_chase_r,
         policy.tick_size,
         round_trip_cost_pct,
@@ -49,6 +50,7 @@ def build_execution_plan(
         or candidate.reference_entry <= 0
         or candidate.atr14 <= 0
         or policy.atr_multiple <= 0
+        or policy.target_rr_net <= 0
         or policy.max_chase_r < 0
         or policy.max_hold_sessions <= 0
         or policy.tick_size <= 0
@@ -70,7 +72,9 @@ def build_execution_plan(
 
     stop = next_open - direction * risk
     cost_amount = next_open * round_trip_cost_pct / 100.0
-    required_target_distance = risk + 2.0 * cost_amount
+    required_target_distance = (
+        policy.target_rr_net * risk + (policy.target_rr_net + 1.0) * cost_amount
+    )
     raw_target = next_open + direction * required_target_distance
     target = _round_away_from_entry(raw_target, direction, policy.tick_size)
     target_distance = direction * (target - next_open)
@@ -80,7 +84,7 @@ def build_execution_plan(
             return _expired(candidate, policy, "invalid_candidate")
         room = direction * (candidate.barrier_price - next_open)
         if 0 < room < target_distance:
-            return _expired(candidate, policy, "insufficient_1r_room")
+            return _expired(candidate, policy, "insufficient_2r_room")
 
     rr_net = (target_distance - cost_amount) / (risk + cost_amount)
     return ExecutionPlan(

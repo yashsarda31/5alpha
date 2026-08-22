@@ -4084,9 +4084,11 @@ async def get_dashboard():
 
 SIGNALS_CACHE_TTL = 120  # seconds — near-live without hammering NSE
 SIGNAL_MODEL_VERSION = "signals-v2.1-quality"
+SIGNAL_IN_MODEL_VERSION = "signals-v2.2-tight-stop-2r"
 SIGNAL_BACKFILL_MODEL_VERSION = "signals-backfill-eod-v1"
 SIGNAL_PUBLISH_MIN_SCORE = 65
 SIGNAL_MIN_COVERAGE_PCT = 80.0
+SIGNAL_IN_REWARD_RISK = 2.0
 # When the market is closed the underlying feeds are frozen until the next open,
 # so recomputing every 2 min just burns serverless duration + NSE calls for an
 # identical payload. Serve the last snapshot far longer while closed; it still
@@ -4095,7 +4097,8 @@ SIGNALS_CLOSED_TTL = 900  # 15 min
 
 
 def _apply_signal_quality_gate(plans, min_score=SIGNAL_PUBLISH_MIN_SCORE,
-                               min_coverage=SIGNAL_MIN_COVERAGE_PCT, limit=8):
+                               min_coverage=SIGNAL_MIN_COVERAGE_PCT, limit=8,
+                               model_version=SIGNAL_MODEL_VERSION):
     """Publish candidates with strong conviction and sufficient live data.
 
     LONG and SHORT candidates are treated identically. Rejections are retained
@@ -4117,7 +4120,7 @@ def _apply_signal_quality_gate(plans, min_score=SIGNAL_PUBLISH_MIN_SCORE,
             rejected.append(plan)
             for reason in reasons:
                 reason_counts[reason] = reason_counts.get(reason, 0) + 1
-        elif len(published) < limit:
+        elif limit is None or len(published) < limit:
             published.append(plan)
         else:
             plan["actionable"] = False
@@ -4125,7 +4128,7 @@ def _apply_signal_quality_gate(plans, min_score=SIGNAL_PUBLISH_MIN_SCORE,
             rejected.append(plan)
             reason_counts["rank_limit"] = reason_counts.get("rank_limit", 0) + 1
     quality = {
-        "model_version": SIGNAL_MODEL_VERSION,
+        "model_version": model_version,
         "min_score": min_score,
         "min_coverage_pct": min_coverage,
         "candidates": len(published) + len(rejected),
@@ -4583,6 +4586,36 @@ def _signal_iv_regime(oc, vix):
         return {"label": "CHEAP", "detail": f"ATM {iv:.1f}% vs VIX {vix:.1f} — favour debit spreads / long options"}
     return {"label": "FAIR", "detail": f"ATM {iv:.1f}% vs VIX {vix:.1f} — no IV edge either way"}
 
+def _tight_two_r_levels(entry, high, low, side):
+    """Return India levels with a stop at most 75% as wide as the old policy."""
+    values = (entry, high, low)
+    if side not in ("LONG", "SHORT") or not all(
+        isinstance(value, (int, float)) and math.isfinite(value) for value in values
+    ) or entry <= 0:
+        return None
+
+    safe_high = max(float(high), float(entry))
+    safe_low = min(float(low), float(entry))
+    session_range = max(safe_high - safe_low, entry * 0.006)
+    if side == "LONG":
+        old_risk = max(entry - safe_low, entry * 0.004)
+        direction = 1
+    else:
+        old_risk = max(safe_high - entry, entry * 0.004)
+        direction = -1
+
+    risk = max(entry * 0.003, min(session_range * 0.5, old_risk * 0.75))
+    stop = entry - direction * risk
+    target = entry + direction * SIGNAL_IN_REWARD_RISK * risk
+    return {
+        "entry": round(float(entry), 8),
+        "stop": round(stop, 8),
+        "target": round(target, 8),
+        "risk": round(risk, 8),
+        "reward_risk": SIGNAL_IN_REWARD_RISK,
+    }
+
+
 def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_pct, min_score=45, delivery=None):
     """Composite conviction score (0-100) + a concrete trade plan per signal.
 
@@ -4590,8 +4623,8 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
           + options-flow agreement (15) + index day-bias (10)
           + intraday trend alignment (10) + regime direction (5)
           + delivery conviction (10: EOD delivery spurt into a directional close)
-    Plan  = entry at fut LTP, stop at day's adverse extreme (min 0.4% away),
-            target 1.5R, qty sized so a stop-out loses risk_pct% of capital
+    Plan  = entry at fut LTP, stop tightened to no more than 75% of the old
+            adverse-extreme risk, gross target 2R, qty sized so a stop-out loses risk_pct% of capital
             (scaled down in ELEVATED/EXTREME vol regimes).
     """
     fut = _futures_by_underlying(active)
@@ -4659,14 +4692,18 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
         score = round(sum(components.values()))
 
         entry = f.get("lastPrice") or 0
-        rng = max((f.get("highPrice") or entry) - (f.get("lowPrice") or entry), entry * 0.006)
-        if side == "LONG":
-            stop = min(f.get("lowPrice") or (entry - rng), entry * 0.996)
-            target = entry + 1.5 * (entry - stop)
-        else:
-            stop = max(f.get("highPrice") or (entry + rng), entry * 1.004)
-            target = entry - 1.5 * (stop - entry)
-        risk = abs(entry - stop)
+        levels = _tight_two_r_levels(
+            entry,
+            f.get("highPrice") or entry,
+            f.get("lowPrice") or entry,
+            side,
+        )
+        if not levels:
+            continue
+        entry = levels["entry"]
+        stop = levels["stop"]
+        target = levels["target"]
+        risk = levels["risk"]
         vol_scale = regime.get("vol_scale", 1.0)
         qty = int(capital * risk_pct / 100 / risk * vol_scale) if risk else 0
 
@@ -4687,9 +4724,11 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
                       "score": score, "entry": entry, "stop": round(stop, 2),
                       "target": round(target, 2), "risk": round(risk, 2),
                       "qty": qty, "why": why, "score_components": components,
-                      "coverage_pct": coverage_pct, "model_version": SIGNAL_MODEL_VERSION})
+                      "coverage_pct": coverage_pct, "reward_risk": SIGNAL_IN_REWARD_RISK,
+                      "execution_policy": "tight-stop-2r-gross",
+                      "model_version": SIGNAL_IN_MODEL_VERSION})
     plans.sort(key=lambda p: p["score"], reverse=True)
-    return [p for p in plans if p["score"] >= min_score][:24], index_bias
+    return [p for p in plans if p["score"] >= min_score], index_bias
 
 def _finite_or_none(v):
     return v if isinstance(v, (int, float)) and math.isfinite(v) else None
@@ -5234,7 +5273,9 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         delivery = {}
     candidates, index_bias = score_signal_plans(
         radar, active, oc_nifty, buildups or {}, regime, capital, risk_pct, delivery=delivery)
-    plans, rejected, quality = _apply_signal_quality_gate(candidates)
+    plans, rejected, quality = _apply_signal_quality_gate(
+        candidates, limit=None, model_version=SIGNAL_IN_MODEL_VERSION
+    )
     _cache_stock_pro_context(buildups or {}, buildup_ts, radar, delivery, regime, index_bias)
     # Reuse the entry/stop/target captured when a signal first entered the
     # model book. The radar LTP is intentionally live; the trade plan is not.

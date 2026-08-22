@@ -33,3 +33,12 @@ test('Market Signals places the matching portfolio after actionable setups', () 
   assert.ok(setupsIndex >= 0 && portfolioIndex > setupsIndex);
   if (signupIndex >= 0) assert.ok(signupIndex > portfolioIndex);
 });
+
+test('Market Signals labels the revised India execution policy without rewriting locked plans', () => {
+  const signals = source('../pages/MarketSignals.jsx');
+
+  assert.match(signals, /p\.levels_locked \? 'locked' : '2R'/);
+  assert.match(signals, /New India setups use a tighter stop with a 2:1 gross target/);
+  assert.match(signals, /existing open plans retain their locked original levels/);
+  assert.match(signals, /not backtest-validated/);
+});
