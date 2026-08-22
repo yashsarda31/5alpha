@@ -14,7 +14,7 @@
       "src": "api/main.py",
       "use": "@vercel/python",
       "config": {
-        "excludeFiles": "{web/**,research/**,docs/**,install-tests/**,*.pptx,*.jpeg,*.json,test_*.py,verify_*.py,alpha-nova-*.html,alphanova48-growth-dashboard.html,run_server.py,requirements.txt}"
+        "excludeFiles": "{web/**,research/**,data/**,docs/**,install-tests/**,api/scripts/**,api/requirements-train.txt,api/test_*.py,api/signal_model/contracts.py,api/signal_model/costs.py,api/signal_model/execution.py,api/signal_model/features.py,api/signal_model/providers.py,api/signal_model/replay.py,api/signal_model/training.py,api/signal_model/validation.py,*.pptx,*.jpeg,*.json,test_*.py,verify_*.py,alpha-nova-*.html,alphanova48-growth-dashboard.html,run_server.py,requirements.txt}"
       }
     },
     {

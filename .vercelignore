@@ -12,3 +12,9 @@ docs/superpowers/
 **/*.pyc
 api/test_*.py
 web/eslint_output.txt
+
+# Offline signal-research inputs and training code are not runtime assets.
+data/signals_v3/**
+research/signals/**
+api/scripts/**
+api/requirements-train.txt
