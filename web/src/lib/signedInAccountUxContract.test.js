@@ -22,6 +22,18 @@ test('signed-in overlays use focus containment', () => {
   assert.match(settings, /trapFocus\(event, dialogRef\.current\)/);
 });
 
+test('closing settings restores focus to its visible trigger', () => {
+  const app = source('../App.jsx');
+  assert.match(app, /settingsTriggerRef\.current = event\.currentTarget/);
+  assert.match(app, /settingsTriggerRef\.current\?\.focus\(\)/);
+});
+
+test('signed-out settings uses one interactive element for its account action', () => {
+  const settings = source('../components/SettingsSheet.jsx');
+  assert.match(settings, /className="settings-auth-cta"/);
+  assert.doesNotMatch(settings, /<Link[\s\S]*?<button[^>]*>[\s\S]*?Save watchlist &amp; enable alerts/);
+});
+
 test('mover cards do not nest the watchlist button inside a chart link', () => {
   const dashboard = source('../pages/Dashboard.jsx');
   const mover = dashboard.match(/const MoverTile[\s\S]*?\n};/)[0];

@@ -184,16 +184,14 @@ const SettingsSheet = ({ open, onClose }) => {
                 <div className="settings-account-label">Save your setup</div>
                 <div className="settings-account-email">Keep your watchlist across devices and enable signal alerts.</div>
               </div>
-              <Link
-                to="/login?mode=signup"
-                state={authState(location, notificationIntent())}
-                style={{ textDecoration: 'none' }}
-                onClick={onClose}
-              >
-                <button type="button" style={{ width: 'auto', padding: '8px 16px', fontSize: '12px' }}>
-                  Save watchlist &amp; enable alerts
-                </button>
-              </Link>
+                  <Link
+                    to="/login?mode=signup"
+                    state={authState(location, notificationIntent())}
+                    className="settings-auth-cta"
+                    onClick={onClose}
+                  >
+                    Save watchlist &amp; enable alerts
+                  </Link>
             </div>
           )}
         </div>

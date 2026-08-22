@@ -218,6 +218,7 @@ const AppLayout = () => {
   const drawerRef = useRef(null);
   const hamburgerRef = useRef(null);
   const menuTriggerRef = useRef(null);
+  const settingsTriggerRef = useRef(null);
 
   const openMenu = (event) => {
     menuTriggerRef.current = event.currentTarget;
@@ -256,7 +257,8 @@ const AppLayout = () => {
     };
   }, [isMobileNav, menuOpen]);
 
-  const openSettings = () => {
+  const openSettings = (event) => {
+    settingsTriggerRef.current = event.currentTarget;
     setMenuOpen(false);
     setSettingsOpen(true);
   };
@@ -265,6 +267,7 @@ const AppLayout = () => {
     setSettingsOpen(false);
     window.requestAnimationFrame(() => {
       if (isMobileNav) hamburgerRef.current?.focus();
+      else settingsTriggerRef.current?.focus();
     });
   };
 

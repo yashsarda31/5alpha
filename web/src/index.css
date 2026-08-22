@@ -418,6 +418,23 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.settings-auth-cta {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--primary-gold-hover) 0%, var(--primary-gold) 45%, var(--primary-gold-dark) 100%);
+  color: #17140a;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-align: center;
+  text-decoration: none;
+}
+
+.settings-auth-cta:hover {
+  filter: brightness(1.05);
+}
+
 .settings-hint {
   font-size: 11px;
   color: var(--text-secondary);
