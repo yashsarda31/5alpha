@@ -156,8 +156,9 @@ const Login = () => {
         <form onSubmit={handleSubmit} className="login-form">
           {!isLogin && (
             <div className="form-group">
-              <label>Display Name (Optional)</label>
+              <label htmlFor="login-display-name">Display Name (Optional)</label>
               <input
+                id="login-display-name"
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -167,8 +168,9 @@ const Login = () => {
             </div>
           )}
           <div className="form-group">
-            <label>Email Address</label>
+            <label htmlFor="login-email">Email Address</label>
             <input
+              id="login-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -178,8 +180,9 @@ const Login = () => {
             />
           </div>
           <div className="form-group">
-            <label>Password</label>
+            <label htmlFor="login-password">Password</label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
