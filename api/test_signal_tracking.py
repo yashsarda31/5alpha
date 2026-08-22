@@ -239,12 +239,63 @@ def test_snapshot_stats(monkeypatch):
 def test_portfolio_endpoint_shape(monkeypatch):
     _reset()
     monkeypatch.setattr(main, "_resolve_signal_positions", lambda conn: 0)
+    monkeypatch.setattr(
+        main,
+        "_backfill_model_portfolio",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("empty books must not be backfilled")),
+    )
     monkeypatch.setattr(main, "_yf_quote_change", lambda s: {"last": 100.0, "change_pct": 0.0})
-    main.API_CACHE.pop("signal_portfolio", None)
+    main.API_CACHE.pop("signal_portfolio_IN", None)
     r = client.get("/api/signals/portfolio")
     assert r.status_code == 200
     j = r.json()
     assert "stats" in j and "open" in j and "closed" in j and "equity_curve" in j
+
+
+def test_track_record_epoch_purges_only_signal_history():
+    conn = _reset()
+    _insert(conn, symbol="OLD_POSITION")
+    conn.execute("DELETE FROM signal_events")
+    conn.execute("DELETE FROM signal_candidates_v3")
+    conn.execute(
+        """INSERT INTO signal_events
+           (event_key, market, market_date, observed_at, source, model_version,
+            symbol, side, score, coverage_pct, actionable, rejection_reasons,
+            features_json, created_at)
+           VALUES ('old-event','IN','2026-08-21','2026-08-21T10:00:00Z',
+                   'live_engine','old-model','OLD','LONG',70,100,1,'[]','{}',
+                   '2026-08-21T10:00:00Z')"""
+    )
+    conn.execute(
+        """INSERT INTO signal_candidates_v3
+           (candidate_id, market, symbol, side, kind, session_date, observed_at,
+            state, raw_json, features_json, data_as_of_json, reference_entry,
+            atr14, session_low, session_high, feature_schema, source, created_at,
+            updated_at)
+           VALUES ('old-candidate','IN','OLD','LONG','futures','2026-08-21',
+                   '2026-08-21T10:00:00Z','candidate','{}','{}','{}',100,2,98,102,
+                   'features-v1','live_engine','2026-08-21T10:00:00Z',
+                   '2026-08-21T10:00:00Z')"""
+    )
+    conn.execute(
+        """INSERT OR REPLACE INTO signal_model_state
+           (market, model_version, mode, paused, updated_at)
+           VALUES ('IN','new-model','shadow',0,'2026-08-22T00:00:00Z')"""
+    )
+    conn.execute(
+        "UPDATE app_state SET value='pre-reset' WHERE key='signal_track_record_epoch'"
+    )
+    conn.commit()
+
+    assert main._apply_signal_track_record_epoch(conn) is True
+    for table in ("signal_positions", "signal_events", "signal_candidates_v3"):
+        assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+    state = conn.execute(
+        "SELECT model_version, mode FROM signal_model_state WHERE market='IN'"
+    ).fetchone()
+    assert tuple(state) == ("new-model", "shadow")
+    assert main._apply_signal_track_record_epoch(conn) is False
+    conn.close()
 
 
 def test_portfolio_endpoint_filters_market_book(monkeypatch):

@@ -4086,6 +4086,9 @@ SIGNALS_CACHE_TTL = 120  # seconds — near-live without hammering NSE
 SIGNAL_MODEL_VERSION = "signals-v2.1-quality"
 SIGNAL_IN_MODEL_VERSION = "signals-v2.2-tight-stop-2r"
 SIGNAL_BACKFILL_MODEL_VERSION = "signals-backfill-eod-v1"
+# Changing this value is an explicit, one-way boundary for public performance.
+# The 2026-08-22 epoch starts the revised signals model with no inherited trades.
+SIGNAL_TRACK_RECORD_EPOCH = "revised-signals-2026-08-22"
 SIGNAL_PUBLISH_MIN_SCORE = 65
 SIGNAL_MIN_COVERAGE_PCT = 80.0
 SIGNAL_IN_REWARD_RISK = 2.0
@@ -5795,8 +5798,49 @@ def _auth_db():
     )""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sigevent_date ON signal_events(market, market_date)")
     ensure_signal_model_schema(conn)
+    _apply_signal_track_record_epoch(conn)
     _purge_test_accounts(conn)
     return conn
+
+
+def _apply_signal_track_record_epoch(conn):
+    """Apply the current public track-record boundary exactly once per DB.
+
+    The marker lives inside the durable SQLite snapshot, so restoring or pulling
+    an older pre-reset snapshot safely reapplies the purge. Product/user data is
+    intentionally outside this narrow reset.
+    """
+    conn.execute("""CREATE TABLE IF NOT EXISTS app_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""")
+    row = conn.execute(
+        "SELECT value FROM app_state WHERE key='signal_track_record_epoch'"
+    ).fetchone()
+    if row and row["value"] == SIGNAL_TRACK_RECORD_EPOCH:
+        return False
+
+    removed = {}
+    for table in ("signal_positions", "signal_events", "signal_candidates_v3"):
+        removed[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        conn.execute(f"DELETE FROM {table}")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name=?", (table,))
+    conn.execute(
+        """INSERT INTO app_state (key, value, updated_at)
+           VALUES ('signal_track_record_epoch', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+        (SIGNAL_TRACK_RECORD_EPOCH, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+    for key in list(API_CACHE):
+        if key.startswith(("signal_portfolio_", "signals_preview_", "signals_IN_", "signals_US_")):
+            API_CACHE.pop(key, None)
+    print(f"signal track record reset to {SIGNAL_TRACK_RECORD_EPOCH}: {removed}")
+    if os.environ.get("VERCEL"):
+        _blob_push_db()
+    return True
 
 # One-time cleanup (2026-07-07): months of QA left ~40 obvious test accounts in
 # the prod DB (@example.com / @test.com / @test.local / testuser99). Runs once
@@ -7195,20 +7239,6 @@ async def get_signal_portfolio(market: str = None):
         conn = _auth_db()
         try:
             changed = False
-            # Seed history whenever the NSE book has no call older than today.
-            # Checking for an entirely empty table was wrong: Market Signals
-            # normally writes today's calls before anyone opens Track Record,
-            # which permanently skipped the historical replay.
-            if active == "IN" and not conn.execute(
-                """SELECT 1 FROM signal_positions
-                   WHERE COALESCE(market,'IN')='IN' AND entry_date < ? LIMIT 1""",
-                (_market_today("IN"),),
-            ).fetchone():
-                try:
-                    seeded_closed, seeded_open = _backfill_model_portfolio(conn, days_back=12)
-                    changed = (seeded_closed + seeded_open) > 0
-                except Exception:
-                    pass
             if not _pf_healed:
                 _pf_healed = True
                 try:
