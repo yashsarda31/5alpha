@@ -5848,6 +5848,7 @@ def _apply_signal_track_record_epoch(conn):
 # @test.local users mid-run. Cold-start execution makes it self-healing if a
 # stale warm instance ever re-pushes a snapshot containing purged rows.
 _KEEP_TEST_EMAILS = ("claude-qa-0706@test.local",)  # standing prod-QA login
+_TEST_ACCOUNT_PURGE_GRACE = timedelta(days=1)
 _purge_done = False
 
 def _purge_test_accounts(conn):
@@ -5857,11 +5858,14 @@ def _purge_test_accounts(conn):
     _purge_done = True
     try:
         keep = ",".join("?" * len(_KEEP_TEST_EMAILS))
+        cutoff = (datetime.now(timezone.utc) - _TEST_ACCOUNT_PURGE_GRACE).isoformat()
         rows = conn.execute(
             f"""SELECT id FROM users WHERE (
                     email LIKE '%@example.com' OR email LIKE '%@test.com'
                     OR email LIKE '%@test.local' OR email = 'testuser99@gmail.com'
-                ) AND email NOT IN ({keep})""", _KEEP_TEST_EMAILS).fetchall()
+                ) AND email NOT IN ({keep}) AND created_at < ?""",
+            (*_KEEP_TEST_EMAILS, cutoff),
+        ).fetchall()
         if not rows:
             return
         ids = [(r["id"],) for r in rows]

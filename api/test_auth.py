@@ -1,6 +1,7 @@
 import os
 import tempfile
 import uuid
+from datetime import datetime, timedelta, timezone
 
 # Isolate the auth DB before main is imported (no-op if another test imported it first;
 # unique emails keep the tests correct either way)
@@ -78,6 +79,29 @@ def test_validation_rules():
 def test_me_without_token():
     r = client.get("/api/auth/me")
     assert r.status_code == 401
+
+
+def test_production_cleanup_keeps_fresh_test_account(monkeypatch, tmp_path):
+    import main
+
+    monkeypatch.setattr(main, "AUTH_DB_PATH", str(tmp_path / "alphanova.db"))
+    monkeypatch.setattr(main, "_purge_done", True)
+    conn = main._auth_db()
+    fresh = main._utc_now()
+    stale = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    conn.executemany(
+        "INSERT INTO users (email, password_hash, salt, display_name, created_at, last_login_at) VALUES (?, 'hash', 'salt', 'QA', ?, ?)",
+        [("fresh@example.com", fresh, fresh), ("stale@example.com", stale, stale)],
+    )
+    conn.commit()
+    monkeypatch.setattr(main, "_purge_done", False)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setattr(main, "_blob_push_db", lambda: True)
+
+    main._purge_test_accounts(conn)
+
+    assert {row[0] for row in conn.execute("SELECT email FROM users")} == {"fresh@example.com"}
+    conn.close()
 
 
 def test_input_length_limits():
