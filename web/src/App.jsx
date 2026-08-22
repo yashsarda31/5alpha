@@ -298,7 +298,7 @@ const AppLayout = () => {
         role={isMobileNav ? 'dialog' : undefined}
         aria-modal={isMobileNav ? true : undefined}
         aria-label={isMobileNav ? 'Navigation' : undefined}
-        {...(isMobileNav && !menuOpen ? { 'aria-hidden': true, inert: '' } : {})}
+        {...(isMobileNav && !menuOpen ? { 'aria-hidden': true, inert: true } : {})}
       >
         <div className="brand-block">
           <div className="brand-row">
