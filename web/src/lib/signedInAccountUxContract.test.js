@@ -21,3 +21,11 @@ test('signed-in overlays use focus containment', () => {
   assert.match(settings, /closeRef\.current\?\.focus\(\)/);
   assert.match(settings, /trapFocus\(event, dialogRef\.current\)/);
 });
+
+test('mover cards do not nest the watchlist button inside a chart link', () => {
+  const dashboard = source('../pages/Dashboard.jsx');
+  const mover = dashboard.match(/const MoverTile[\s\S]*?\n};/)[0];
+  assert.match(mover, /className="dash-mover-link"/);
+  assert.match(mover, /<WatchlistStar symbol=\{sym\} market=\{market\} size=\{15\} className="dash-mover-star" \/>/);
+  assert.doesNotMatch(mover, /<Link[\s\S]*<WatchlistStar/);
+});

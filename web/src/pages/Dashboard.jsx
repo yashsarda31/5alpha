@@ -30,25 +30,27 @@ const authHeader = () => {
 const MoverTile = ({ sym, market, last, chg, spark }) => {
   const dir = chg === null || chg === undefined ? '' : chg >= 0 ? 'up' : 'down';
   return (
-    <Link
-      to={`/chart?symbol=${sym}${market === 'US' ? '' : '.NS'}`}
-      title={`Open ${sym} in Chart Analyser`}
-      className={`dash-mover ${dir}`}
-    >
+    <div className={`dash-mover ${dir}`}>
       <WatchlistStar symbol={sym} market={market} size={15} className="dash-mover-star" />
-      <span className="dash-mover-sym">{sym}</span>
-      <span className="dash-mover-row">
-        <span className="dash-mover-price tnum">{fmtPrice(last, market) ?? '—'}</span>
-        <span className={`tnum ${dir === 'down' ? 'tone-loss' : dir === 'up' ? 'tone-gain' : ''}`}>
-          {chg === null || chg === undefined ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+      <Link
+        to={`/chart?symbol=${sym}${market === 'US' ? '' : '.NS'}`}
+        title={`Open ${sym} in Chart Analyser`}
+        className="dash-mover-link"
+      >
+        <span className="dash-mover-sym">{sym}</span>
+        <span className="dash-mover-row">
+          <span className="dash-mover-price tnum">{fmtPrice(last, market) ?? '—'}</span>
+          <span className={`tnum ${dir === 'down' ? 'tone-loss' : dir === 'up' ? 'tone-gain' : ''}`}>
+            {chg === null || chg === undefined ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+          </span>
         </span>
-      </span>
-      {spark && spark.length > 1 && (
-        <span className="dash-mover-spark" aria-hidden="true">
-          <Sparkline values={spark} stretch height={30} strokeWidth={2} area={false} />
-        </span>
-      )}
-    </Link>
+        {spark && spark.length > 1 && (
+          <span className="dash-mover-spark" aria-hidden="true">
+            <Sparkline values={spark} stretch height={30} strokeWidth={2} area={false} />
+          </span>
+        )}
+      </Link>
+    </div>
   );
 };
 
