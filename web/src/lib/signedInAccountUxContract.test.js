@@ -41,3 +41,9 @@ test('mover cards do not nest the watchlist button inside a chart link', () => {
   assert.match(mover, /<WatchlistStar symbol=\{sym\} market=\{market\} size=\{15\} className="dash-mover-star" \/>/);
   assert.doesNotMatch(mover, /<Link[\s\S]*<WatchlistStar/);
 });
+
+test('empty signed-in watchlists retry bounded shared-store reads without overwriting a mutation', () => {
+  const watchlist = source('../WatchlistContext.jsx');
+  assert.match(watchlist, /EMPTY_WATCHLIST_RETRY_DELAYS_MS = \[1000, 2000\]/);
+  assert.match(watchlist, /mutationVersionRef\.current !== version/);
+});

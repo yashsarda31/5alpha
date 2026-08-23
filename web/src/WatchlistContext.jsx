@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiClient } from './lib/apiClient';
 import { useAuth } from './AuthContext';
 
@@ -8,6 +8,7 @@ const WatchlistContext = createContext();
 export const useWatchlist = () => useContext(WatchlistContext);
 
 const TOKEN_KEY = 'alphanova_auth_token';
+const EMPTY_WATCHLIST_RETRY_DELAYS_MS = [1000, 2000];
 const authHeader = () => {
   const token = localStorage.getItem(TOKEN_KEY);
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -28,6 +29,7 @@ export const WatchlistProvider = ({ children }) => {
   const [items, setItems] = useState([]); // [{symbol, added_at, sort_order}]
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const mutationVersionRef = useRef(0);
 
   const reload = useCallback(async () => {
     if (!localStorage.getItem(TOKEN_KEY)) {
@@ -35,9 +37,22 @@ export const WatchlistProvider = ({ children }) => {
       setLoading(false);
       return;
     }
+    const version = mutationVersionRef.current;
     try {
-      const res = await apiClient.get('/api/watchlist', { headers: authHeader() });
-      setItems(res.data.symbols || []);
+      let attempt = 0;
+      while (mutationVersionRef.current === version) {
+        const res = await apiClient.get('/api/watchlist', { headers: authHeader() });
+        if (mutationVersionRef.current !== version) break;
+        const nextItems = res.data.symbols || [];
+        setItems(nextItems);
+        setLoading(false);
+        const retryDelay = nextItems.length === 0
+          ? EMPTY_WATCHLIST_RETRY_DELAYS_MS[attempt]
+          : undefined;
+        if (retryDelay === undefined) break;
+        await new Promise((resolve) => window.setTimeout(resolve, retryDelay));
+        attempt += 1;
+      }
     } catch {
       // Non-fatal: keep whatever we had; stars simply won't reflect membership.
     } finally {
@@ -46,6 +61,7 @@ export const WatchlistProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    mutationVersionRef.current += 1;
     if (currentUser) {
       setLoading(true);
       reload();
@@ -70,6 +86,7 @@ export const WatchlistProvider = ({ children }) => {
     const mkt = String(rawSym || '').trim().toUpperCase().endsWith('.NS') ? 'IN'
       : (String(market).toUpperCase() === 'US' ? 'US' : 'IN');
     if (!symbol || symbolSet.has(symbol)) return;
+    mutationVersionRef.current += 1;
     setError(null);
     setItems((prev) => [...prev, { symbol, market: mkt, added_at: new Date().toISOString(), sort_order: null }]);
     try {
@@ -84,6 +101,7 @@ export const WatchlistProvider = ({ children }) => {
   const remove = useCallback(async (rawSym) => {
     const symbol = normalizeSymbol(rawSym);
     let snapshot;
+    mutationVersionRef.current += 1;
     setItems((prev) => {
       snapshot = prev;
       return prev.filter((i) => i.symbol !== symbol);
