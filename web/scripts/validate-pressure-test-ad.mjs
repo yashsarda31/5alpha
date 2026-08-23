@@ -70,6 +70,10 @@ for (const text of [
   'requestAnimationFrame',
   'waitingForFirstVisible',
   'playbackReady',
+  'get visibleBeats()',
+  'readableBeatIds',
+  'timeline.set(`#${previous}`, { autoAlpha: 0 }, at);',
+  'timeline.set(`#${name}`, { autoAlpha: 1 }, at);',
   'new URLSearchParams',
   'prefers-reduced-motion: reduce',
   'is-css-fallback',
@@ -83,6 +87,14 @@ forbid(/url\(\s*["']?https?:/iu, 'external CSS asset');
 forbid(/<(audio|video)\b/iu, 'audio or video element present');
 forbid(/href=["']https?:\/\/(?!alphanova48\.in(?:[\/'"]))/iu, 'unexpected external navigation');
 forbid(/\bloop\s*=/iu, 'looping media attribute present');
+forbid(
+  /const entrance = Math\.max\(0, at - 0\.82\)/u,
+  'copy beats are revealed early and can overlap',
+);
+forbid(
+  /\{ y: 14 \* motionScale, filter: `blur\(\$\{6 \* motionScale\}px\)` \}/u,
+  'incoming copy is blurred at canonical beat boundaries',
+);
 
 const bytes = Buffer.byteLength(html, 'utf8');
 if (bytes < 500_000) failures.push(`artifact too small for embedded runtimes: ${bytes}`);

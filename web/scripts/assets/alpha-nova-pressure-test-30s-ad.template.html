@@ -479,8 +479,11 @@
       .beat h1 { font-size: clamp(40px, 11.2vw, 54px); }
       .beat h2 { font-size: clamp(36px, 10vw, 49px); }
       #resolution h1, #endcard h1 { font-size: clamp(38px, 10.6vw, 52px); }
-      .fallback-sphere { width: 42%; }
+      .fallback-sphere { width: 40%; }
       .buy-prompt { top: -51vh; }
+      #endcard { bottom: max(8.1%, calc(env(safe-area-inset-bottom) + 3%)); }
+      #endcard .end-brand { margin-bottom: 1.05rem; }
+      #endcard .feature-line { margin: .85rem 0 1.15rem; }
       .url { display: block; margin: .8rem 0 0 .15rem; }
       .progress { left: 6%; right: 6%; }
     }
@@ -611,6 +614,15 @@
     const progressBar = document.querySelector('.progress span');
     const fallbackSphere = document.querySelector('.fallback-sphere');
     const fallbackPulses = [...document.querySelectorAll('.fallback-pulse')];
+    const beatSections = [...document.querySelectorAll('.beat')];
+
+    const readableBeatIds = () => beatSections
+      .filter((section) => {
+        const sectionStyle = getComputedStyle(section);
+        if (sectionStyle.visibility === 'hidden' || Number(sectionStyle.opacity) <= 0.01) return false;
+        return [...section.children].some((child) => Number(getComputedStyle(child).opacity) > 0.05);
+      })
+      .map((section) => section.id);
 
     let masterTimeline = null;
     let sceneApi = null;
@@ -633,6 +645,7 @@
       get completed() { return completed; },
       get currentBeat() { return currentBeat; },
       get time() { return masterTimeline?.time() ?? 0; },
+      get visibleBeats() { return readableBeatIds(); },
       fixedFrame,
       reducedMotion,
     };
@@ -894,7 +907,7 @@
       const resize = () => {
         const { clientWidth, clientHeight } = stage;
         camera.aspect = clientWidth / clientHeight;
-        camera.fov = clientWidth < 500 ? 40 : 38;
+        camera.fov = clientWidth < 500 ? 42 : 38;
         camera.updateProjectionMatrix();
         webglRenderer.setSize(clientWidth, clientHeight, false);
       };
@@ -974,15 +987,29 @@
     };
 
     const showBeat = (timeline, name, previous, at) => {
-      const entrance = Math.max(0, at - 0.82);
-      timeline.set(`#${name}`, { autoAlpha: 1 }, entrance);
+      const exitStart = Math.max(0, at - 0.24);
+      if (previous) {
+        timeline.to(
+          `#${previous} > *`,
+          {
+            y: -10 * motionScale,
+            opacity: 0,
+            filter: `blur(${4 * motionScale}px)`,
+            duration: 0.2,
+            stagger: 0.015,
+            ease: 'power2.in',
+          },
+          exitStart,
+        );
+        timeline.set(`#${previous}`, { autoAlpha: 0 }, at);
+      }
+      timeline.set(`#${name}`, { autoAlpha: 1 }, at);
       timeline.fromTo(
         `#${name} > *`,
-        { y: 18 * motionScale, filter: `blur(${8 * motionScale}px)` },
-        { y: 0, filter: 'blur(0px)', duration: 0.68, stagger: 0.04, ease: 'power3.out' },
-        entrance,
+        { y: 10 * motionScale },
+        { y: 0, duration: 0.52, stagger: 0.035, ease: 'power3.out' },
+        at,
       );
-      if (previous) timeline.set(`#${previous}`, { autoAlpha: 0 }, Math.max(0, at - 0.08));
       timeline.call(() => { currentBeat = name; }, null, at);
     };
 
@@ -1007,7 +1034,7 @@
       timeline.to(animationState, {
         turbulence: reducedMotion ? 0.56 : 1.52,
         pressure: 0.14,
-        sphereScale: 1.14,
+        sphereScale: 1.09,
         spin: 54,
         duration: 3,
       }, BEATS.pressure);
