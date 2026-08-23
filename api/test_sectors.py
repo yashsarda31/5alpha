@@ -24,6 +24,9 @@ def test_us_sector_map_defined():
     assert main.US_SECTOR_BENCHMARK[0] == "SPY"
     # every entry is (yahoo_ticker, live_key) like the India map
     assert all(isinstance(v, tuple) and len(v) == 2 for v in main.US_SECTOR_INDICES.values())
+    assert main.TOP_STOCKS_INDIA_ONLY_NOTE == (
+        "Top-stock rankings currently use official NSE constituents and are available in India mode."
+    )
 
 
 def test_india_sector_map_has_20_groups():
@@ -65,6 +68,12 @@ def test_compute_india_rotation_keeps_partial_coverage(monkeypatch):
             ]
         },
     )
+    expected_top = [
+        {"sector": "A", "status": "complete", "stocks": [{"symbol": "AAA"}]},
+        {"sector": "B", "status": "complete", "stocks": [{"symbol": "BBB"}]},
+        {"sector": "C", "status": "provider_limited", "stocks": []},
+    ]
+    monkeypatch.setattr(main, "build_top_sector_stocks", lambda *_args, **_kwargs: expected_top)
 
     result = main._compute_sector_rotation("IN")
 
@@ -75,6 +84,7 @@ def test_compute_india_rotation_keeps_partial_coverage(monkeypatch):
     assert [row["score"] for row in result["sectors"]] == sorted(
         [row["score"] for row in result["sectors"]], reverse=True
     )
+    assert result["top_sector_stocks"] == expected_top
 
 
 def test_explicit_market_override(monkeypatch):

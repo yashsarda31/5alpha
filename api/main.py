@@ -19,9 +19,19 @@ import re
 from contextlib import asynccontextmanager
 
 try:
-    from api.sector_rotation_data import fetch_weekly_index_closes, weekly_snapshot_dates
+    from api.sector_rotation_data import (
+        build_top_sector_stocks,
+        fetch_index_constituents,
+        fetch_weekly_index_closes,
+        weekly_snapshot_dates,
+    )
 except ImportError:  # Vercel imports this file with api/ as the package root.
-    from sector_rotation_data import fetch_weekly_index_closes, weekly_snapshot_dates
+    from sector_rotation_data import (
+        build_top_sector_stocks,
+        fetch_index_constituents,
+        fetch_weekly_index_closes,
+        weekly_snapshot_dates,
+    )
 
 try:
     from api.signal_model.ledger import ensure_schema as ensure_signal_model_schema
@@ -2132,6 +2142,31 @@ SECTOR_INDICES = {
     "Nifty Services Sector": (None, "NIFTY SERVICES SECTOR"),
 }
 SECTOR_BENCHMARK = ("^NSEI", "NIFTY 50")
+SECTOR_CONSTITUENT_FILES = {
+    "Nifty Bank": "ind_niftybanklist.csv",
+    "Nifty IT": "ind_niftyitlist.csv",
+    "Nifty Auto": "ind_niftyautolist.csv",
+    "Nifty Pharma": "ind_niftypharmalist.csv",
+    "Nifty FMCG": "ind_niftyfmcglist.csv",
+    "Nifty Metal": "ind_niftymetallist.csv",
+    "Nifty Realty": "ind_niftyrealtylist.csv",
+    "Nifty Energy": "ind_niftyenergylist.csv",
+    "Nifty Media": "ind_niftymedialist.csv",
+    "Nifty PSU Bank": "ind_niftypsubanklist.csv",
+    "Nifty Fin Services": "ind_niftyfinancelist.csv",
+    "Nifty Infra": "ind_niftyinfralist.csv",
+    "Nifty Midcap 100": "ind_niftymidcap100list.csv",
+    "Nifty Smallcap 100": "ind_niftysmallcap100list.csv",
+    "Nifty Healthcare": "ind_niftyhealthcarelist.csv",
+    "Nifty Consumer Durables": "ind_niftyconsumerdurableslist.csv",
+    "Nifty India Consumption": "ind_niftyconsumptionlist.csv",
+    "Nifty Oil & Gas": "ind_niftyoilgaslist.csv",
+    "Nifty Commodities": "ind_niftycommoditieslist.csv",
+    "Nifty Services Sector": "ind_niftyservicelist.csv",
+}
+TOP_STOCKS_INDIA_ONLY_NOTE = (
+    "Top-stock rankings currently use official NSE constituents and are available in India mode."
+)
 
 # US sectors: the SPDR sector ETFs vs SPY. During the US cash session (20:00–
 # 02:00 IST, same window the dashboard/signals use) /api/sectors serves this
@@ -2308,6 +2343,16 @@ def _compute_sector_rotation(market="IN"):
     if not rows:
         return None
     rows.sort(key=lambda r: r["score"], reverse=True)
+    top_sector_stocks = (
+        build_top_sector_stocks(
+            rows,
+            SECTOR_CONSTITUENT_FILES,
+            fetch_index_constituents,
+            yf.download,
+        )
+        if market == "IN"
+        else []
+    )
     benchmark_lookbacks = (1, 4) if market == "IN" else (5, 21)
     b1w = _pct_return(bench, benchmark_lookbacks[0])
     b1m = _pct_return(bench, benchmark_lookbacks[1])
@@ -2329,6 +2374,8 @@ def _compute_sector_rotation(market="IN"):
             "source": "NSE weekly index archive" if market == "IN" else "Yahoo Finance",
         },
         "trend_label": "vs 10W avg" if market == "IN" else "vs 50-DMA",
+        "top_sector_stocks": top_sector_stocks,
+        "top_sector_stocks_note": None if market == "IN" else TOP_STOCKS_INDIA_ONLY_NOTE,
         "as_of": datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%d %H:%M IST"),
     }
 
