@@ -1,0 +1,1206 @@
+<!doctype html>
+<html lang="en" data-aspect="9:16">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f1ea">
+  <title>Alpha Nova — Pressure Test</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f4f1ea;
+      --paper-bright: #fffefa;
+      --ink: #0a0a0b;
+      --muted: #65666a;
+      --titanium: #b7bbc2;
+      --red: #ef3f37;
+      --red-deep: #851713;
+      --story-time: 0;
+      --sphere-scale: 1;
+      --sphere-spin: 0deg;
+      --sphere-radius: 46% 54% 51% 49% / 48% 45% 55% 52%;
+      --sphere-turbulence: 1;
+      --plane-opacity: 0;
+      --plane-spread: 18%;
+      --pulse-opacity: 0;
+      --ring-opacity: 0;
+      --ring-scale: 1.45;
+      --motion-scale: 1;
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #070708;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+    }
+
+    button,
+    a { font: inherit; }
+
+    .stage {
+      position: relative;
+      width: min(100vw, 56.25svh);
+      height: min(100svh, 177.7778vw);
+      isolation: isolate;
+      overflow: hidden;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 50% 36%, rgba(255,255,255,.98) 0 18%, rgba(255,255,255,.7) 32%, transparent 58%),
+        linear-gradient(154deg, var(--paper-bright), var(--paper) 56%, #e7e3da);
+      box-shadow: 0 0 80px rgba(0,0,0,.42);
+    }
+
+    .stage::before {
+      content: "";
+      position: absolute;
+      inset: -25%;
+      z-index: 0;
+      pointer-events: none;
+      background:
+        conic-gradient(from 105deg at 50% 42%, transparent 0 21%, rgba(255,255,255,.9) 29%, transparent 39% 72%, rgba(255,255,255,.45) 80%, transparent 91%),
+        radial-gradient(ellipse at 50% 82%, rgba(70,65,56,.13), transparent 45%);
+      filter: blur(34px);
+      opacity: .78;
+    }
+
+    .grain {
+      position: absolute;
+      inset: 0;
+      z-index: 12;
+      opacity: .045;
+      pointer-events: none;
+      background-image:
+        repeating-radial-gradient(circle at 17% 31%, rgba(0,0,0,.9) 0 .55px, transparent .7px 3px),
+        repeating-radial-gradient(circle at 83% 69%, rgba(255,255,255,.9) 0 .45px, transparent .6px 3.4px);
+      background-size: 5px 7px, 7px 5px;
+      mix-blend-mode: overlay;
+    }
+
+    #webgl,
+    .fallback-scene {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+    }
+
+    #webgl {
+      display: block;
+      opacity: 0;
+      transition: opacity .5s ease;
+    }
+
+    .is-webgl #webgl { opacity: 1; }
+    .is-webgl .fallback-scene { opacity: 0; }
+    .is-css-fallback #webgl { display: none; }
+    .is-css-fallback .fallback-scene { opacity: 1; }
+
+    .fallback-scene {
+      opacity: 1;
+      pointer-events: none;
+      transition: opacity .35s ease;
+      perspective: 900px;
+    }
+
+    .fallback-shadow {
+      position: absolute;
+      left: 50%;
+      top: 55.8%;
+      width: 38%;
+      height: 7%;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(ellipse, rgba(21,17,13,.26), transparent 70%);
+      filter: blur(12px);
+      opacity: .42;
+    }
+
+    .fallback-sphere {
+      position: absolute;
+      left: 50%;
+      top: 42.5%;
+      width: 39%;
+      aspect-ratio: 1;
+      transform: translate(-50%, -50%) scale(var(--sphere-scale)) rotate(var(--sphere-spin));
+      border-radius: var(--sphere-radius);
+      background:
+        radial-gradient(circle at 31% 24%, rgba(255,255,255,.94) 0 3%, rgba(255,255,255,.32) 9%, transparent 23%),
+        radial-gradient(circle at 70% 76%, rgba(0,0,0,.94), transparent 44%),
+        radial-gradient(circle at 45% 38%, #ff6e61 0, var(--red) 28%, var(--red-deep) 69%, #170403 100%);
+      box-shadow:
+        inset -18px -28px 38px rgba(0,0,0,.52),
+        inset 12px 11px 18px rgba(255,255,255,.42),
+        0 28px 70px rgba(112,19,12,.24),
+        0 4px 12px rgba(10,10,11,.22);
+      will-change: transform, border-radius, filter;
+    }
+
+    .fallback-sphere::after {
+      content: "";
+      position: absolute;
+      inset: 6%;
+      border-radius: inherit;
+      border: 1px solid rgba(255,255,255,.34);
+      filter: blur(.2px);
+    }
+
+    .fallback-plane {
+      position: absolute;
+      left: 50%;
+      width: 58%;
+      height: 2px;
+      opacity: var(--plane-opacity);
+      transform: translateX(-50%);
+      background: linear-gradient(90deg, transparent, rgba(10,10,11,.28) 18%, rgba(255,255,255,.95) 50%, rgba(10,10,11,.28) 82%, transparent);
+      box-shadow: 0 0 15px rgba(255,255,255,.9), 0 2px 14px rgba(38,39,42,.18);
+    }
+
+    .fallback-plane.top { top: calc(42.5% - var(--plane-spread)); }
+    .fallback-plane.bottom { top: calc(42.5% + var(--plane-spread)); }
+
+    .fallback-path {
+      position: absolute;
+      left: 12%;
+      right: 12%;
+      top: 42.5%;
+      height: 1px;
+      opacity: var(--pulse-opacity);
+      background: linear-gradient(90deg, transparent, rgba(10,10,11,.18), rgba(255,255,255,.92), rgba(10,10,11,.18), transparent);
+    }
+
+    .fallback-pulse {
+      position: absolute;
+      left: 0;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      background: #fff;
+      box-shadow: 0 0 0 5px rgba(255,255,255,.14), 0 0 25px rgba(10,10,11,.36);
+    }
+
+    .fallback-rings {
+      position: absolute;
+      left: 50%;
+      top: 42.5%;
+      width: 54%;
+      aspect-ratio: 1;
+      opacity: var(--ring-opacity);
+      transform: translate(-50%, -50%) scale(var(--ring-scale));
+      will-change: transform, opacity;
+    }
+
+    .fallback-ring {
+      position: absolute;
+      inset: 13%;
+      border: 2px solid rgba(62,64,69,.5);
+      border-top-color: rgba(255,255,255,.96);
+      border-bottom-color: rgba(8,8,9,.82);
+      border-radius: 50%;
+      box-shadow: inset 0 0 12px rgba(255,255,255,.5), 0 8px 20px rgba(0,0,0,.12);
+    }
+
+    .fallback-ring:nth-child(1) { transform: rotateX(67deg) rotateZ(11deg); }
+    .fallback-ring:nth-child(2) { transform: rotateY(65deg) rotateZ(47deg); }
+    .fallback-ring:nth-child(3) { transform: rotateX(58deg) rotateY(54deg) rotateZ(88deg); }
+
+    .brand-mark {
+      position: absolute;
+      top: max(4.7%, env(safe-area-inset-top));
+      left: 6.5%;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: .58rem;
+      font-size: clamp(10px, 1.25vmin, 14px);
+      font-weight: 760;
+      letter-spacing: .24em;
+      text-transform: uppercase;
+    }
+
+    .brand-glyph {
+      display: grid;
+      place-items: center;
+      width: 1.7rem;
+      aspect-ratio: 1;
+      border: 1px solid rgba(10,10,11,.34);
+      border-radius: 50%;
+      font-size: .88rem;
+      letter-spacing: 0;
+      background: rgba(255,255,255,.24);
+      backdrop-filter: blur(12px);
+    }
+
+    .copy-zone {
+      position: absolute;
+      inset: 0;
+      z-index: 16;
+      pointer-events: none;
+    }
+
+    .beat {
+      position: absolute;
+      left: 6.5%;
+      right: 6.5%;
+      bottom: max(8.3%, calc(env(safe-area-inset-bottom) + 3.2%));
+      visibility: hidden;
+      opacity: 0;
+    }
+
+    .beat.is-opening {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    .beat .eyebrow {
+      margin: 0 0 1rem;
+      color: var(--muted);
+      font-size: clamp(9px, 1.15vmin, 13px);
+      line-height: 1.1;
+      font-weight: 760;
+      letter-spacing: .22em;
+      text-transform: uppercase;
+    }
+
+    .beat .eyebrow.red { color: #bd241d; }
+
+    .beat h1,
+    .beat h2 {
+      max-width: 94%;
+      margin: 0;
+      color: var(--ink);
+      font-weight: 660;
+      letter-spacing: -.058em;
+      line-height: .94;
+      text-wrap: balance;
+    }
+
+    .beat h1 { font-size: clamp(42px, 7.6vmin, 84px); }
+    .beat h2 { font-size: clamp(37px, 6.65vmin, 74px); }
+
+    .beat h1 em,
+    .beat h2 em {
+      color: var(--red);
+      font-style: normal;
+    }
+
+    .beat .support {
+      max-width: 82%;
+      margin: 1.15rem 0 0;
+      color: var(--muted);
+      font-size: clamp(13px, 1.72vmin, 19px);
+      line-height: 1.35;
+      font-weight: 510;
+      letter-spacing: -.015em;
+    }
+
+    .beat .feature-row {
+      display: flex;
+      align-items: center;
+      gap: .72rem;
+      margin-bottom: 1.15rem;
+    }
+
+    .feature-code {
+      display: inline-flex;
+      align-items: center;
+      min-height: 2rem;
+      padding: .5rem .74rem;
+      border: 1px solid rgba(10,10,11,.2);
+      border-radius: 999px;
+      background: rgba(255,255,255,.48);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 30px rgba(0,0,0,.05);
+      backdrop-filter: blur(18px);
+      font-size: clamp(9px, 1.05vmin, 12px);
+      font-weight: 790;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .feature-axis {
+      color: var(--muted);
+      font-size: clamp(9px, 1.05vmin, 12px);
+      font-weight: 720;
+      letter-spacing: .19em;
+      text-transform: uppercase;
+    }
+
+    .buy-prompt {
+      position: absolute;
+      left: 50%;
+      top: -53vh;
+      display: inline-flex;
+      align-items: center;
+      gap: .55rem;
+      padding: .58rem .86rem;
+      transform: translateX(-50%);
+      border: 1px solid rgba(185,32,25,.24);
+      border-radius: 999px;
+      color: #a11b16;
+      background: rgba(255,255,255,.5);
+      box-shadow: 0 14px 50px rgba(117,18,12,.12), inset 0 1px 0 rgba(255,255,255,.9);
+      backdrop-filter: blur(16px);
+      font-size: clamp(9px, 1.05vmin, 12px);
+      font-weight: 780;
+      letter-spacing: .16em;
+    }
+
+    .buy-prompt::before {
+      content: "";
+      width: .42rem;
+      height: .42rem;
+      border-radius: 50%;
+      background: var(--red);
+      box-shadow: 0 0 0 5px rgba(239,63,55,.1);
+    }
+
+    #resolution { bottom: 10.4%; }
+    #resolution h1 { max-width: 98%; font-size: clamp(40px, 7.2vmin, 80px); }
+
+    #endcard {
+      bottom: max(7.5%, calc(env(safe-area-inset-bottom) + 2.6%));
+      pointer-events: none;
+    }
+
+    #endcard .end-brand {
+      display: flex;
+      align-items: center;
+      gap: .85rem;
+      margin-bottom: 1.35rem;
+      font-size: clamp(13px, 1.65vmin, 18px);
+      font-weight: 790;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+    }
+
+    #endcard h1 { font-size: clamp(40px, 7.15vmin, 79px); }
+
+    .feature-line {
+      margin: 1rem 0 1.35rem;
+      color: var(--muted);
+      font-size: clamp(11px, 1.35vmin, 15px);
+      font-weight: 630;
+      letter-spacing: .025em;
+    }
+
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      gap: .8rem;
+      min-height: 3.3rem;
+      padding: .9rem 1.1rem .9rem 1.25rem;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 999px;
+      color: #fff;
+      background: var(--ink);
+      box-shadow: 0 16px 45px rgba(0,0,0,.2), inset 0 1px 0 rgba(255,255,255,.19);
+      text-decoration: none;
+      pointer-events: auto;
+      font-size: clamp(12px, 1.45vmin, 16px);
+      font-weight: 700;
+      letter-spacing: -.01em;
+    }
+
+    .cta .arrow {
+      display: grid;
+      place-items: center;
+      width: 1.7rem;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      color: var(--ink);
+      background: #fff;
+      font-size: .95rem;
+    }
+
+    .url {
+      display: inline-block;
+      margin-left: .9rem;
+      color: var(--muted);
+      font-size: clamp(9px, 1.05vmin, 12px);
+      font-weight: 650;
+      letter-spacing: .05em;
+    }
+
+    .progress {
+      position: absolute;
+      left: 6.5%;
+      right: 6.5%;
+      bottom: max(3.6%, env(safe-area-inset-bottom));
+      z-index: 22;
+      height: 1px;
+      overflow: hidden;
+      background: rgba(10,10,11,.14);
+    }
+
+    .progress span {
+      display: block;
+      width: 100%;
+      height: 100%;
+      transform: scaleX(0);
+      transform-origin: left center;
+      background: var(--ink);
+      will-change: transform;
+    }
+
+    .legal {
+      position: absolute;
+      right: 6.5%;
+      top: max(5.1%, env(safe-area-inset-top));
+      z-index: 20;
+      color: rgba(10,10,11,.38);
+      font-size: clamp(7px, .85vmin, 10px);
+      font-weight: 650;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 430px) {
+      .brand-mark { top: max(4.2%, env(safe-area-inset-top)); left: 6%; }
+      .legal { right: 6%; top: max(4.6%, env(safe-area-inset-top)); }
+      .beat { left: 6%; right: 6%; bottom: max(8.6%, calc(env(safe-area-inset-bottom) + 3.3%)); }
+      .beat h1 { font-size: clamp(40px, 11.2vw, 54px); }
+      .beat h2 { font-size: clamp(36px, 10vw, 49px); }
+      #resolution h1, #endcard h1 { font-size: clamp(38px, 10.6vw, 52px); }
+      .fallback-sphere { width: 42%; }
+      .buy-prompt { top: -51vh; }
+      .url { display: block; margin: .8rem 0 0 .15rem; }
+      .progress { left: 6%; right: 6%; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      :root { --motion-scale: .24; }
+      #webgl,
+      .fallback-scene { transition: none; }
+      .grain { opacity: .028; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" id="stage" aria-label="Alpha Nova Pressure Test promotional film">
+    <div class="brand-mark" aria-label="Alpha Nova">
+      <span class="brand-glyph">A</span>
+      <span>Alpha Nova</span>
+    </div>
+    <div class="legal">Analytics, not advice</div>
+
+    <canvas id="webgl" aria-hidden="true"></canvas>
+
+    <div class="fallback-scene" aria-hidden="true">
+      <div class="fallback-shadow"></div>
+      <div class="fallback-plane top"></div>
+      <div class="fallback-plane bottom"></div>
+      <div class="fallback-path">
+        <span class="fallback-pulse"></span>
+        <span class="fallback-pulse"></span>
+        <span class="fallback-pulse"></span>
+      </div>
+      <div class="fallback-rings">
+        <span class="fallback-ring"></span>
+        <span class="fallback-ring"></span>
+        <span class="fallback-ring"></span>
+      </div>
+      <div class="fallback-sphere"></div>
+    </div>
+
+    <div class="copy-zone">
+      <section class="beat is-opening" id="hook" aria-label="Opening">
+        <div class="buy-prompt">BUY?</div>
+        <p class="eyebrow red">One second before the tap</p>
+        <h1 aria-label="You know this feeling.">You know<br>this feeling.</h1>
+      </section>
+
+      <section class="beat" id="pressure" aria-label="Pressure">
+        <p class="eyebrow red">The impulse</p>
+        <h1 aria-label="The trade feels urgent.">The trade feels<br><em>urgent.</em></h1>
+        <p class="support">But urgency is only pressure.</p>
+      </section>
+
+      <section class="beat" id="flcl" aria-label="FLCL analysis">
+        <div class="feature-row">
+          <span class="feature-code">FLCL</span>
+          <span class="feature-axis">Structure</span>
+        </div>
+        <h2>Structure<br>before speed.</h2>
+        <p class="support">See the regime.</p>
+      </section>
+
+      <section class="beat" id="signals" aria-label="Signals">
+        <div class="feature-row">
+          <span class="feature-code">SIGNALS</span>
+          <span class="feature-axis">Timing</span>
+        </div>
+        <h2>Timing<br>before impulse.</h2>
+        <p class="support">Plan the move.</p>
+      </section>
+
+      <section class="beat" id="risk" aria-label="Minervini and Druck analyzer">
+        <div class="feature-row">
+          <span class="feature-code">MINERVINI + DRUCK</span>
+          <span class="feature-axis">Risk</span>
+        </div>
+        <h2>Conviction,<br>under pressure.</h2>
+        <p class="support">Test trend. Size risk.</p>
+      </section>
+
+      <section class="beat" id="resolution" aria-label="Resolution">
+        <p class="eyebrow">The decision</p>
+        <h1>Urgency is not conviction.</h1>
+        <p class="support">A trade idea deserves a pressure test.</p>
+      </section>
+
+      <section class="beat" id="endcard" aria-label="Alpha Nova">
+        <div class="end-brand"><span class="brand-glyph">A</span> Alpha Nova</div>
+        <h1 aria-label="Pressure-test the trade.">Pressure-test<br>the trade.</h1>
+        <p class="feature-line">FLCL · Signals · Minervini + Druck</p>
+        <a class="cta" href="https://alphanova48.in" target="_blank" rel="noopener">
+          Explore Alpha Nova <span class="arrow">↗</span>
+        </a>
+        <span class="url">alphanova48.in</span>
+      </section>
+    </div>
+
+    <div class="progress" aria-hidden="true"><span></span></div>
+    <div class="grain" aria-hidden="true"></div>
+  </main>
+
+  <script>
+    /*__GSAP_RUNTIME__*/
+  </script>
+  <script type="module">
+    const AD_DURATION = 30;
+    const THREE_MODULE_URI = "__THREE_MODULE_DATA_URI__";
+    const BEATS = Object.freeze({
+      hook: 0,
+      pressure: 4,
+      flcl: 7,
+      signals: 12,
+      risk: 17,
+      resolution: 22,
+      endcard: 26,
+      complete: 30,
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    const frameValue = params.get('frame');
+    const fixedFrame = frameValue === null
+      ? null
+      : Math.min(AD_DURATION, Math.max(0, Number(frameValue) || 0));
+    const forcedFallback = params.get('fallback') === '1'; // fallback=1
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const motionScale = reducedMotion ? 0.24 : 1;
+
+    const stage = document.getElementById('stage');
+    const progressBar = document.querySelector('.progress span');
+    const fallbackSphere = document.querySelector('.fallback-sphere');
+    const fallbackPulses = [...document.querySelectorAll('.fallback-pulse')];
+
+    let masterTimeline = null;
+    let sceneApi = null;
+    let renderFrameId = 0;
+    let playbackReady = false;
+    let waitingForFirstVisible = true;
+    let completed = false;
+    let renderer = 'pending';
+    let threeRevision = null;
+    let currentBeat = 'hook';
+    let pausedForPage = false;
+
+    const diagnostics = {
+      version: '1.0.0',
+      duration: AD_DURATION,
+      get renderer() { return renderer; },
+      get threeRevision() { return threeRevision; },
+      get playbackReady() { return playbackReady; },
+      get waitingForFirstVisible() { return waitingForFirstVisible; },
+      get completed() { return completed; },
+      get currentBeat() { return currentBeat; },
+      get time() { return masterTimeline?.time() ?? 0; },
+      fixedFrame,
+      reducedMotion,
+    };
+    window.__PRESSURE_TEST_AD__ = diagnostics;
+
+    const beatForTime = (time) => {
+      if (time >= BEATS.endcard) return 'endcard';
+      if (time >= BEATS.resolution) return 'resolution';
+      if (time >= BEATS.risk) return 'risk';
+      if (time >= BEATS.signals) return 'signals';
+      if (time >= BEATS.flcl) return 'flcl';
+      if (time >= BEATS.pressure) return 'pressure';
+      return 'hook';
+    };
+
+    const syncCssFallback = (state, time) => {
+      const root = document.documentElement;
+      root.style.setProperty('--story-time', time.toFixed(3));
+      root.style.setProperty('--sphere-scale', state.sphereScale.toFixed(3));
+      root.style.setProperty('--sphere-spin', `${state.spin.toFixed(2)}deg`);
+      root.style.setProperty('--plane-opacity', state.planeOpacity.toFixed(3));
+      root.style.setProperty('--plane-spread', `${(state.planeSpread * 7.2).toFixed(2)}%`);
+      root.style.setProperty('--pulse-opacity', state.signalOpacity.toFixed(3));
+      root.style.setProperty('--ring-opacity', state.ringOpacity.toFixed(3));
+      root.style.setProperty('--ring-scale', state.ringScale.toFixed(3));
+
+      const calm = Math.min(1, Math.max(0, state.calm));
+      const wobble = (1 - calm) * state.turbulence;
+      const radiusA = 46 + Math.sin(time * 2.7) * 5 * wobble;
+      const radiusB = 54 + Math.cos(time * 2.1) * 5 * wobble;
+      root.style.setProperty(
+        '--sphere-radius',
+        `${radiusA}% ${radiusB}% ${100 - radiusA}% ${100 - radiusB}% / ${radiusB}% ${radiusA}% ${100 - radiusB}% ${100 - radiusA}%`,
+      );
+
+      const urgent = Math.max(0, 1 - calm);
+      fallbackSphere.style.filter = `saturate(${0.25 + urgent * 0.95}) contrast(${1 + urgent * 0.12})`;
+      fallbackPulses.forEach((pulse, index) => {
+        const phase = (state.pulsePhase + index / fallbackPulses.length) % 1;
+        pulse.style.left = `${phase * 100}%`;
+        pulse.style.opacity = String(state.signalOpacity);
+      });
+    };
+
+    const createPressureScene = (THREE) => {
+      const canvas = document.getElementById('webgl');
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(38, 9 / 16, 0.1, 100);
+      camera.position.set(0, 0.3, 7.5);
+
+      const webglRenderer = new THREE.WebGLRenderer({
+        canvas,
+        alpha: true,
+        antialias: true,
+        powerPreference: 'high-performance',
+      });
+      webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      webglRenderer.setClearColor(0x000000, 0);
+      webglRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      webglRenderer.toneMappingExposure = 1.08;
+      webglRenderer.outputColorSpace = THREE.SRGBColorSpace;
+
+      const world = new THREE.Group();
+      world.position.y = 0.62;
+      scene.add(world);
+
+      const sphereUniforms = {
+        uTime: { value: 0 },
+        uTurbulence: { value: 1 },
+        uPressure: { value: 0 },
+        uCalm: { value: 0 },
+        uUrgentColor: { value: new THREE.Color(0xef3f37) },
+        uCalmColor: { value: new THREE.Color(0x09090b) },
+      };
+
+      const sphereMaterial = new THREE.ShaderMaterial({
+        uniforms: sphereUniforms,
+        vertexShader: `
+          uniform float uTime;
+          uniform float uTurbulence;
+          uniform float uPressure;
+          uniform float uCalm;
+          varying vec3 vNormalView;
+          varying vec3 vWorldPosition;
+          varying float vWave;
+
+          float pressureWave(vec3 p) {
+            float first = sin(p.x * 3.4 + uTime * 2.1) * sin(p.y * 4.1 - uTime * 1.7);
+            float second = sin(p.z * 7.2 - uTime * 2.8) * .5;
+            float third = cos((p.x + p.y + p.z) * 11.0 + uTime) * .22;
+            return first + second + third;
+          }
+
+          void main() {
+            float calmFactor = 1.0 - clamp(uCalm, 0.0, 1.0);
+            float wave = pressureWave(position) * .12 * uTurbulence * calmFactor;
+            vec3 compressed = position;
+            compressed.y *= 1.0 - uPressure * .065;
+            compressed.xz *= 1.0 + uPressure * .03;
+            vec3 displaced = compressed + normal * wave;
+            vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
+            vec4 mvPosition = viewMatrix * worldPosition;
+            vNormalView = normalize(normalMatrix * normal);
+            vWorldPosition = worldPosition.xyz;
+            vWave = wave;
+            gl_Position = projectionMatrix * mvPosition;
+          }
+        `,
+        fragmentShader: `
+          uniform float uCalm;
+          uniform vec3 uUrgentColor;
+          uniform vec3 uCalmColor;
+          varying vec3 vNormalView;
+          varying vec3 vWorldPosition;
+          varying float vWave;
+
+          void main() {
+            vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+            float fresnel = pow(1.0 - abs(dot(normalize(vNormalView), viewDirection)), 2.4);
+            float key = max(0.0, dot(normalize(vNormalView), normalize(vec3(-.45, .7, .8))));
+            vec3 base = mix(uUrgentColor, uCalmColor, smoothstep(.08, .92, uCalm));
+            vec3 color = base * (.44 + key * .58);
+            color += vec3(1.0) * fresnel * (.42 + uCalm * .45);
+            color += vec3(1.0, .72, .68) * max(vWave, 0.0) * .5;
+            gl_FragColor = vec4(color, 1.0);
+          }
+        `,
+      });
+
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(1.08, 80, 80),
+        sphereMaterial,
+      );
+      world.add(sphere);
+
+      const shell = new THREE.Mesh(
+        new THREE.SphereGeometry(1.105, 48, 48),
+        new THREE.MeshPhysicalMaterial({
+          color: 0xffffff,
+          metalness: 0,
+          roughness: 0.05,
+          transmission: 0.23,
+          transparent: true,
+          opacity: 0.18,
+          clearcoat: 1,
+          clearcoatRoughness: 0.04,
+          side: THREE.FrontSide,
+        }),
+      );
+      world.add(shell);
+
+      const planeMaterial = new THREE.MeshPhysicalMaterial({
+        color: 0xf8f9fb,
+        metalness: 0.15,
+        roughness: 0.12,
+        transmission: 0.35,
+        transparent: true,
+        opacity: 0,
+        clearcoat: 1,
+      });
+      const planes = [-1, 1].map((direction) => {
+        const plane = new THREE.Mesh(
+          new THREE.PlaneGeometry(4.8, 0.035),
+          planeMaterial.clone(),
+        );
+        plane.position.y = direction * 2.2;
+        plane.position.z = 0.05;
+        world.add(plane);
+        return plane;
+      });
+
+      const signalCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-2.55, -0.38, 0.26),
+        new THREE.Vector3(-1.05, 0.2, 0.42),
+        new THREE.Vector3(0, 0, 1.18),
+        new THREE.Vector3(1.05, -0.14, 0.42),
+        new THREE.Vector3(2.55, 0.32, 0.26),
+      ]);
+      const signalPathMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+      });
+      const signalPath = new THREE.Mesh(
+        new THREE.TubeGeometry(signalCurve, 80, 0.012, 8, false),
+        signalPathMaterial,
+      );
+      world.add(signalPath);
+
+      const pulses = Array.from({ length: 3 }, (_, index) => {
+        const pulse = new THREE.Mesh(
+          new THREE.SphereGeometry(index === 1 ? 0.085 : 0.065, 24, 24),
+          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 }),
+        );
+        world.add(pulse);
+        return pulse;
+      });
+
+      const ringGroup = new THREE.Group();
+      world.add(ringGroup);
+      const ringMaterial = new THREE.MeshStandardMaterial({
+        color: 0xb7bbc2,
+        metalness: 0.92,
+        roughness: 0.17,
+        transparent: true,
+        opacity: 0,
+      });
+      const rings = Array.from({ length: 3 }, (_, index) => {
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(1.55 + index * 0.08, 0.035, 24, 128),
+          ringMaterial.clone(),
+        );
+        ring.rotation.set(
+          index === 0 ? Math.PI * 0.32 : Math.PI * (0.1 + index * 0.18),
+          index === 1 ? Math.PI * 0.48 : Math.PI * (0.08 + index * 0.1),
+          Math.PI * (0.08 + index * 0.22),
+        );
+        ringGroup.add(ring);
+        return ring;
+      });
+
+      const shadow = new THREE.Mesh(
+        new THREE.CircleGeometry(1.5, 64),
+        new THREE.MeshBasicMaterial({ color: 0x17130f, transparent: true, opacity: 0.12, depthWrite: false }),
+      );
+      shadow.scale.set(1, 0.22, 1);
+      shadow.position.set(0, -1.55, -0.35);
+      world.add(shadow);
+
+      const particlePositions = [];
+      for (let index = 0; index < 90; index += 1) {
+        const angle = index * 2.399963;
+        const radius = 2.1 + (index % 11) * 0.12;
+        particlePositions.push(
+          Math.cos(angle) * radius,
+          Math.sin(angle) * radius * 0.82,
+          -0.4 - (index % 7) * 0.18,
+        );
+      }
+      const particleGeometry = new THREE.BufferGeometry();
+      particleGeometry.setAttribute('position', new THREE.Float32BufferAttribute(particlePositions, 3));
+      const particles = new THREE.Points(
+        particleGeometry,
+        new THREE.PointsMaterial({ color: 0x77726a, size: 0.012, transparent: true, opacity: 0.24 }),
+      );
+      world.add(particles);
+
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x4a4238, 2.1));
+      const key = new THREE.DirectionalLight(0xffffff, 4.1);
+      key.position.set(-3.8, 5.4, 5.2);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0xe7ecff, 3.1);
+      rim.position.set(4.5, 1.2, -2.3);
+      scene.add(rim);
+      const accent = new THREE.PointLight(0xef3f37, 16, 9, 2);
+      accent.position.set(-2.2, -1.1, 3.1);
+      scene.add(accent);
+
+      const resize = () => {
+        const { clientWidth, clientHeight } = stage;
+        camera.aspect = clientWidth / clientHeight;
+        camera.fov = clientWidth < 500 ? 40 : 38;
+        camera.updateProjectionMatrix();
+        webglRenderer.setSize(clientWidth, clientHeight, false);
+      };
+
+      const render = (state, time) => {
+        sphereUniforms.uTime.value = time;
+        sphereUniforms.uTurbulence.value = state.turbulence * motionScale;
+        sphereUniforms.uPressure.value = state.pressure;
+        sphereUniforms.uCalm.value = state.calm;
+        sphere.scale.setScalar(state.sphereScale);
+        sphere.rotation.y = state.spin * Math.PI / 180;
+        shell.scale.setScalar(state.sphereScale * (1.005 + state.pressure * 0.012));
+        shell.rotation.copy(sphere.rotation);
+        shell.material.opacity = 0.1 + state.calm * 0.18;
+
+        planes.forEach((plane, index) => {
+          plane.position.y = (index === 0 ? -1 : 1) * state.planeSpread;
+          plane.material.opacity = state.planeOpacity;
+        });
+
+        signalPath.material.opacity = state.signalOpacity * 0.38;
+        pulses.forEach((pulse, index) => {
+          const phase = (state.pulsePhase + index / pulses.length) % 1;
+          pulse.position.copy(signalCurve.getPointAt(phase));
+          pulse.material.opacity = state.signalOpacity;
+          pulse.scale.setScalar(0.8 + Math.sin((phase + time) * Math.PI * 2) * 0.14);
+        });
+
+        ringGroup.scale.setScalar(state.ringScale);
+        ringGroup.rotation.y = time * 0.13 * motionScale;
+        ringGroup.rotation.z = -time * 0.08 * motionScale;
+        rings.forEach((ring, index) => {
+          ring.material.opacity = state.ringOpacity;
+          ring.rotation.z += (index % 2 ? 1 : -1) * 0.0015 * motionScale;
+        });
+
+        world.position.y = state.worldY;
+        world.rotation.y = state.worldTurn;
+        camera.position.z = state.cameraZ;
+        particles.rotation.z = time * 0.012 * motionScale;
+        accent.intensity = 4 + (1 - state.calm) * 12;
+        shadow.material.opacity = 0.08 + state.pressure * 0.12;
+        webglRenderer.render(scene, camera);
+      };
+
+      const dispose = () => {
+        window.removeEventListener('resize', resize);
+        world.traverse((object) => {
+          object.geometry?.dispose?.();
+          if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+          else object.material?.dispose?.();
+        });
+        webglRenderer.dispose();
+      };
+
+      window.addEventListener('resize', resize, { passive: true });
+      resize();
+      return { scene, camera, renderer: webglRenderer, sphere, planes, pulses, rings, render, resize, dispose };
+    };
+
+    const animationState = {
+      turbulence: reducedMotion ? 0.36 : 1,
+      pressure: 0,
+      calm: 0,
+      sphereScale: 1,
+      spin: 0,
+      planeOpacity: 0,
+      planeSpread: 2.2,
+      signalOpacity: 0,
+      pulsePhase: 0,
+      ringOpacity: 0,
+      ringScale: 1.45,
+      cameraZ: 7.5,
+      worldY: 0.62,
+      worldTurn: 0,
+      hold: 0,
+    };
+
+    const showBeat = (timeline, name, previous, at) => {
+      const entrance = Math.max(0, at - 0.18);
+      timeline.set(`#${name}`, { autoAlpha: 1 }, entrance);
+      timeline.fromTo(
+        `#${name} > *`,
+        { y: 18 * motionScale, filter: `blur(${8 * motionScale}px)` },
+        { y: 0, filter: 'blur(0px)', duration: 0.78, stagger: 0.055, ease: 'power3.out' },
+        entrance,
+      );
+      if (previous) timeline.set(`#${previous}`, { autoAlpha: 0 }, at);
+      timeline.call(() => { currentBeat = name; }, null, at);
+    };
+
+    const createMasterTimeline = (gsap, pressureScene) => {
+      const timeline = gsap.timeline({ paused: true, repeat: 0, defaults: { ease: 'power2.inOut' } });
+      timeline.set('.beat', { autoAlpha: 0 }, 0);
+      timeline.set('#hook', { autoAlpha: 1 }, 0);
+      timeline.set('.fallback-rings', { rotation: 0 }, 0);
+      timeline.set(progressBar, { scaleX: 0 }, 0);
+      timeline.call(() => { currentBeat = 'hook'; }, null, BEATS.hook);
+
+      timeline.to(animationState, {
+        turbulence: reducedMotion ? 0.5 : 1.28,
+        sphereScale: 1.08,
+        spin: 21,
+        duration: 4,
+        ease: 'sine.inOut',
+      }, BEATS.hook);
+      timeline.to('.buy-prompt', { y: 9 * motionScale, duration: 2.9, ease: 'sine.inOut' }, BEATS.hook);
+
+      showBeat(timeline, 'pressure', 'hook', BEATS.pressure);
+      timeline.to(animationState, {
+        turbulence: reducedMotion ? 0.56 : 1.52,
+        pressure: 0.14,
+        sphereScale: 1.14,
+        spin: 54,
+        duration: 3,
+      }, BEATS.pressure);
+
+      showBeat(timeline, 'flcl', 'pressure', BEATS.flcl);
+      timeline.to(animationState, {
+        planeOpacity: 0.92,
+        planeSpread: 1.22,
+        turbulence: reducedMotion ? 0.3 : 0.78,
+        sphereScale: 1.02,
+        spin: 78,
+        duration: 5,
+      }, BEATS.flcl);
+
+      showBeat(timeline, 'signals', 'flcl', BEATS.signals);
+      timeline.to(animationState, {
+        planeOpacity: 0.2,
+        planeSpread: 1.45,
+        signalOpacity: 1,
+        pulsePhase: 3,
+        turbulence: reducedMotion ? 0.18 : 0.4,
+        spin: 112,
+        duration: 5,
+        ease: 'none',
+      }, BEATS.signals);
+
+      showBeat(timeline, 'risk', 'signals', BEATS.risk);
+      timeline.to(animationState, {
+        signalOpacity: 0.22,
+        ringOpacity: 0.94,
+        ringScale: 1,
+        pressure: 0.86,
+        calm: 0.78,
+        turbulence: reducedMotion ? 0.1 : 0.2,
+        sphereScale: 0.98,
+        spin: 151,
+        duration: 5,
+      }, BEATS.risk);
+      timeline.to('.fallback-rings', { rotation: 62 * motionScale, duration: 5 }, BEATS.risk);
+
+      showBeat(timeline, 'resolution', 'risk', BEATS.resolution);
+      timeline.to(animationState, {
+        ringOpacity: 0.08,
+        ringScale: 1.12,
+        signalOpacity: 0,
+        planeOpacity: 0,
+        pressure: 0.18,
+        calm: 1,
+        turbulence: 0,
+        sphereScale: 0.92,
+        spin: 179,
+        cameraZ: 7.15,
+        duration: 4,
+      }, BEATS.resolution);
+
+      showBeat(timeline, 'endcard', 'resolution', BEATS.endcard);
+      timeline.to(animationState, {
+        sphereScale: 0.63,
+        cameraZ: 7.8,
+        worldY: 1.18,
+        worldTurn: 0.38,
+        spin: 206,
+        hold: 1,
+        duration: 4,
+        ease: 'power3.inOut',
+      }, BEATS.endcard);
+      timeline.to(progressBar, { scaleX: 1, duration: AD_DURATION, ease: 'none' }, 0);
+
+      timeline.eventCallback('onUpdate', () => {
+        const time = timeline.time();
+        currentBeat = beatForTime(time);
+        syncCssFallback(animationState, time);
+        pressureScene?.render(animationState, time);
+      });
+      timeline.eventCallback('onComplete', () => {
+        completed = true;
+        currentBeat = 'endcard';
+        pressureScene?.render(animationState, AD_DURATION);
+      });
+      return timeline;
+    };
+
+    const renderLoop = () => {
+      renderFrameId = 0;
+      if (document.hidden || renderer !== 'webgl' || !sceneApi) return;
+      sceneApi.render(animationState, masterTimeline?.time() ?? 0);
+      renderFrameId = requestAnimationFrame(renderLoop);
+    };
+
+    const startRenderLoop = () => {
+      if (!renderFrameId && !document.hidden && renderer === 'webgl') {
+        renderFrameId = requestAnimationFrame(renderLoop);
+      }
+    };
+
+    const stopRenderLoop = () => {
+      if (renderFrameId) cancelAnimationFrame(renderFrameId);
+      renderFrameId = 0;
+    };
+
+    const seekToFrame = (seconds) => {
+      if (!masterTimeline) return;
+      const target = Math.min(AD_DURATION, Math.max(0, Number(seconds) || 0));
+      masterTimeline.pause().seek(target, false);
+      currentBeat = beatForTime(target);
+      completed = target >= AD_DURATION;
+      syncCssFallback(animationState, target);
+      sceneApi?.render(animationState, target);
+    };
+    window.seekToFrame = seekToFrame;
+
+    const attemptFirstVisibleStart = () => {
+      if (fixedFrame !== null || !playbackReady || document.hidden || !waitingForFirstVisible) return;
+      waitingForFirstVisible = false;
+      requestAnimationFrame(() => {
+        if (!document.hidden && !completed) {
+          masterTimeline.play(0);
+          startRenderLoop();
+        }
+      });
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        pausedForPage = Boolean(masterTimeline && !masterTimeline.paused() && !completed);
+        masterTimeline?.pause();
+        stopRenderLoop();
+        return;
+      }
+      startRenderLoop();
+      if (waitingForFirstVisible) attemptFirstVisibleStart();
+      else if (pausedForPage && !completed && fixedFrame === null) {
+        pausedForPage = false;
+        masterTimeline?.play();
+      }
+    };
+
+    const installPlaybackLifecycle = () => {
+      document.addEventListener('visibilitychange', handleVisibility, { passive: true });
+      window.addEventListener('pagehide', () => {
+        pausedForPage = Boolean(masterTimeline && !masterTimeline.paused() && !completed);
+        masterTimeline?.pause();
+        stopRenderLoop();
+      }, { passive: true });
+      window.addEventListener('pageshow', () => {
+        if (!document.hidden) handleVisibility();
+      }, { passive: true });
+    };
+
+    installPlaybackLifecycle();
+
+    const initialize = async () => {
+      if (!window.gsap) throw new Error('GSAP runtime unavailable');
+
+      if (!forcedFallback) {
+        try {
+          const THREE = await import(THREE_MODULE_URI);
+          sceneApi = createPressureScene(THREE);
+          threeRevision = THREE.REVISION;
+          renderer = 'webgl';
+          document.documentElement.classList.add('is-webgl');
+        } catch (error) {
+          console.warn('Pressure Test WebGL fallback:', error);
+        }
+      }
+
+      if (!sceneApi) {
+        renderer = 'css';
+        document.documentElement.classList.remove('is-webgl');
+        document.documentElement.classList.add('is-css-fallback');
+      }
+
+      masterTimeline = createMasterTimeline(window.gsap, sceneApi);
+      masterTimeline.pause(0);
+      playbackReady = true;
+      syncCssFallback(animationState, 0);
+      sceneApi?.render(animationState, 0);
+
+      if (fixedFrame !== null) seekToFrame(fixedFrame);
+      else attemptFirstVisibleStart();
+      startRenderLoop();
+    };
+
+    initialize().catch((error) => {
+      console.error('Pressure Test startup failed:', error);
+      renderer = 'css';
+      document.documentElement.classList.add('is-css-fallback');
+      if (window.gsap && !masterTimeline) {
+        masterTimeline = createMasterTimeline(window.gsap, null);
+        masterTimeline.pause(0);
+        playbackReady = true;
+        if (fixedFrame !== null) seekToFrame(fixedFrame);
+        else attemptFirstVisibleStart();
+      }
+    });
+  </script>
+</body>
+</html>
