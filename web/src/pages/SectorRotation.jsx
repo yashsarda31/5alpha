@@ -31,6 +31,9 @@ const SECTOR_TICKER = {
   'Nifty Pharma': '^CNXPHARMA', 'Nifty FMCG': '^CNXFMCG', 'Nifty Metal': '^CNXMETAL',
   'Nifty Realty': '^CNXREALTY', 'Nifty Energy': '^CNXENERGY', 'Nifty Media': '^CNXMEDIA',
   'Nifty PSU Bank': '^CNXPSUBANK', 'Nifty Fin Services': 'NIFTY_FIN_SERVICE.NS', 'Nifty Infra': '^CNXINFRA',
+  'Nifty Midcap 100': null, 'Nifty Smallcap 100': null, 'Nifty Healthcare': null,
+  'Nifty Consumer Durables': null, 'Nifty India Consumption': null, 'Nifty Oil & Gas': null,
+  'Nifty Commodities': null, 'Nifty Services Sector': null,
   'Technology': 'XLK', 'Financials': 'XLF', 'Health Care': 'XLV', 'Energy': 'XLE',
   'Discretionary': 'XLY', 'Staples': 'XLP', 'Industrials': 'XLI', 'Materials': 'XLB',
   'Utilities': 'XLU', 'Real Estate': 'XLRE', 'Comm Svcs': 'XLC',
@@ -210,7 +213,18 @@ const SectorRotation = () => {
     );
   }
 
-  const { sectors, quadrant_counts: qc, leaders, laggards, benchmark, as_of } = data;
+  const {
+    sectors,
+    quadrant_counts: qc,
+    leaders,
+    laggards,
+    benchmark,
+    as_of,
+    coverage = { expected: sectors.length, available: sectors.length, missing: [] },
+    trend_label: trendLabel = 'vs 50-DMA',
+    top_sector_stocks: topSectorStocks = [],
+    top_sector_stocks_note: topSectorStocksNote,
+  } = data;
   const rotations = rotationsFrom(sectors);
   // US sector map (SPDR ETFs vs S&P 500) serves during US market hours; India
   // (NSE sectors vs Nifty 50) otherwise. Labels follow whichever is live.
@@ -294,6 +308,12 @@ const SectorRotation = () => {
         )}
       </div>
 
+      {coverage.missing.length > 0 && (
+        <div className="card sr-coverage-warning" role="status">
+          Showing {coverage.available} of {coverage.expected} groups. Provider data is unavailable for {coverage.missing.join(', ')}.
+        </div>
+      )}
+
       {/* RRG chart */}
       <div className="card sr-chart-card">
         <div className="sr-card-title">
@@ -327,7 +347,7 @@ const SectorRotation = () => {
                 <th className="sr-num">1W vs {benchShort}</th>
                 <th className="sr-num">1M vs {benchShort}</th>
                 <th className="sr-num">3M vs {benchShort}</th>
-                <th className="sr-num">vs 50-DMA</th>
+                <th className="sr-num">{trendLabel}</th>
                 <th className="sr-num">Today</th>
               </tr>
             </thead>
@@ -349,7 +369,7 @@ const SectorRotation = () => {
                   <td className={`sr-num tone-${toneOf(s.rel_1w)}`}>{pct(s.rel_1w)}</td>
                   <td className={`sr-num tone-${toneOf(s.rel_1m)}`}>{pct(s.rel_1m)}</td>
                   <td className={`sr-num tone-${toneOf(s.rel_3m)}`}>{pct(s.rel_3m)}</td>
-                  <td className={`sr-num tone-${toneOf(s.trend_50d)}`}>{pct(s.trend_50d)}</td>
+                  <td className={`sr-num tone-${toneOf(s.trend_ref)}`}>{pct(s.trend_ref)}</td>
                   <td className={`sr-num tone-${toneOf(s.live_pct)}`}>{pct(s.live_pct)}</td>
                 </tr>
               ))}
@@ -378,6 +398,7 @@ const SectorRotation = () => {
                 <div className="sr-sector-card-stats">
                   <span>1W <b className={`tone-${toneOf(s.rel_1w)}`}>{pct(s.rel_1w)}</b></span>
                   <span>1M <b className={`tone-${toneOf(s.rel_1m)}`}>{pct(s.rel_1m)}</b></span>
+                  <span>{trendLabel} <b className={`tone-${toneOf(s.trend_ref)}`}>{pct(s.trend_ref)}</b></span>
                   <span>Today <b className={`tone-${toneOf(s.live_pct)}`}>{pct(s.live_pct)}</b></span>
                 </div>
               </div>
@@ -388,6 +409,36 @@ const SectorRotation = () => {
           "vs {benchShort}" = the sector's return minus the {benchName}'s over the same window (positive = outperforming).
           Score blends short-term relative strength, rotation momentum and trend. Momentum-based — it can reverse.
         </p>
+      </div>
+
+      <div className="card sr-top-stocks-card">
+        <div className="sr-card-title">
+          <span>Top Stocks in Top Sectors</span>
+          <span className="sr-asof">21-session momentum vs Nifty 50</span>
+        </div>
+        {topSectorStocksNote ? (
+          <p className="sr-note">{topSectorStocksNote}</p>
+        ) : (
+          <div className="sr-top-stocks-grid">
+            {topSectorStocks.map((group) => (
+              <section className="sr-stock-group" key={group.sector}>
+                <h3>{group.sector.replace('Nifty ', '')}</h3>
+                {group.stocks.length ? group.stocks.map((stock) => (
+                  <Link className="sr-stock-row" to={`/chart?symbol=${encodeURIComponent(`${stock.symbol}.NS`)}`} key={stock.symbol}>
+                    <strong>{stock.symbol}</strong>
+                    <span className={`tone-${toneOf(stock.return_1m)}`}>{pct(stock.return_1m)}</span>
+                    <span className={`tone-${toneOf(stock.relative_1m)}`}>vs Nifty {pct(stock.relative_1m)}</span>
+                  </Link>
+                )) : (
+                  <p className="sr-provider-limited">{group.message || 'Constituent price data is unavailable.'}</p>
+                )}
+                {group.status === 'provider_limited' && group.stocks.length > 0 && (
+                  <p className="sr-provider-limited">{group.message}</p>
+                )}
+              </section>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* AI brief */}
