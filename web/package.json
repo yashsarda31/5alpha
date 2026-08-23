@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "ad:pressure-test:build": "node scripts/build-pressure-test-ad.mjs",
+    "ad:pressure-test:test": "node --test scripts/build-pressure-test-ad.test.mjs",
+    "ad:pressure-test:check": "node scripts/validate-pressure-test-ad.mjs"
   },
   "dependencies": {
     "axios": "^1.15.0",
@@ -31,6 +34,8 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "gsap": "3.12.5",
+    "three": "0.166.1",
     "vite": "^8.0.4"
   }
 }
