@@ -64,7 +64,9 @@ Retain all 12 current India indices and add these eight groups:
 
 Midcap 100 and Smallcap 100 are market-cap groups, but they participate in the same relative-rotation ranking requested by the user. Labels must remain explicit so they are not mistaken for industry sectors.
 
-Each added index must have a validated historical ticker and NSE live-index name. The frontend chart-link map must remain synchronized with the backend index map. Existing US sector coverage remains unchanged.
+Each added index must have a validated NSE live-index name. Existing US sector coverage remains unchanged.
+
+Provider validation on 2026-08-23 found that the corresponding Yahoo index symbols expose only one historical row, which is insufficient for Chart Analyser or RRG calculations. India rotation history for all 20 groups will therefore come from official NSE weekly all-index archive snapshots. The eight new group labels remain unlinked until a chart provider supplies sufficient daily history; existing sector links and all stock-leader Chart Analyser links remain active. This prevents the coverage expansion from introducing broken chart routes.
 
 An index with insufficient provider history must not crash the page. The API must report incomplete coverage, and the frontend must state that some groups are unavailable rather than silently implying complete coverage.
 
