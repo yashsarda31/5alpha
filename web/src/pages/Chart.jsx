@@ -9,10 +9,29 @@ import LazyMarkdown from '../components/LazyMarkdown';
 import WatchlistStar from '../components/WatchlistStar';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
 import { createLatestRequestGuard } from '../lib/latestRequest';
+import './Chart.css';
 
 const currencyFor = (ticker) => {
   const t = (ticker || '').toUpperCase();
   return t.endsWith('.NS') || t.endsWith('.BO') ? '₹' : '$';
+};
+
+const useIsNarrow = (px = 700) => {
+  const [narrow, setNarrow] = useState(() => (
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia(`(max-width: ${px}px)`).matches
+      : false
+  ));
+
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const mq = window.matchMedia(`(max-width: ${px}px)`);
+    const onChange = (event) => setNarrow(event.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [px]);
+
+  return narrow;
 };
 
 const Chart = () => {
@@ -149,6 +168,7 @@ const Chart = () => {
 
   const techSignal = getTechnicalSignal();
   const cur = currencyFor(ticker);
+  const isNarrow = useIsNarrow(700);
 
   return (
     <div className="fade-in">
@@ -192,46 +212,9 @@ const Chart = () => {
       )}
 
       {chartData ? (
-        <div id="chart-analysis" className="card" style={{ padding: '0', overflow: 'hidden' }}>
-          <div className="stats-grid" style={{ padding: '24px', borderBottom: '1px solid var(--glass-border)' }}>
-            <div className="stat-box">
-              <div className="stat-label">{ticker} PRICE</div>
-              <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {cur}{lastPrice.toFixed(2)}
-                <span style={{ fontSize: '14px', color: change >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>
-                  {change >= 0 ? '+' : ''}{change.toFixed(2)} ({changePercent.toFixed(2)}%)
-                </span>
-                <WatchlistStar symbol={ticker} market={ticker.toUpperCase().endsWith('.NS') ? 'IN' : 'US'} size={22} />
-              </div>
-            </div>
-            <div className="stat-box">
-              <div className="stat-label">DAY HIGH</div>
-              <div className="stat-value">{cur}{chartData.high[chartData.high.length-1].toFixed(2)}</div>
-            </div>
-            <div className="stat-box">
-              <div className="stat-label">DAY LOW</div>
-              <div className="stat-value">{cur}{chartData.low[chartData.low.length-1].toFixed(2)}</div>
-            </div>
-            <div className="stat-box">
-              <div className="stat-label">VOLUME</div>
-              <div className="stat-value">{(chartData.volume[chartData.volume.length-1] / 1e6).toFixed(2)}M</div>
-            </div>
-            <div className="stat-box">
-              <div className="stat-label">VCP RATING</div>
-              <div className="stat-value" style={{ color: 'var(--primary-gold)' }}>
-                {'★'.repeat(chartData.vcp_rating || 0)}{'☆'.repeat(5 - (chartData.vcp_rating || 0))}
-              </div>
-            </div>
-            <div className="stat-box">
-              <div className="stat-label">ALPHA SCORE</div>
-              <div className="stat-value" style={{ color: 'var(--primary-gold)' }}>
-                {fundamentals && fundamentals.alphaScore !== undefined && fundamentals.alphaScore !== null ? fundamentals.alphaScore : 'N/A'}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-            <div style={{ flex: '1 1 65%', backgroundColor: '#000', padding: '10px' }}>
+        <div id="chart-analysis" className="card chart-analysis-card">
+          <div className="chart-main-row">
+            <div className="chart-plot-pane">
               <Plot
                 data={[
                   {
@@ -316,7 +299,7 @@ const Chart = () => {
                   },
                   bargap: 0.35,
                   margin: { l: 20, r: 60, b: 40, t: 20 },
-                  height: 650,
+                  height: isNarrow ? 430 : 650,
                   showlegend: true,
                   legend: { x: 0, y: 1.1, orientation: 'h', font: { size: 12, color: '#9494a1' } },
                   shapes: [
@@ -347,7 +330,7 @@ const Chart = () => {
               />
             </div>
             
-            <div style={{ flex: '1 1 30%', padding: '24px', backgroundColor: 'var(--card-bg)', borderLeft: '1px solid var(--glass-border)' }}>
+            <div className="chart-stock-pro">
               <h3 style={{ marginBottom: '24px', fontSize: '15px', color: 'var(--text-secondary)', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 STOCK PRO DASH
               </h3>
@@ -355,6 +338,21 @@ const Chart = () => {
               <div style={{ padding: '16px', backgroundColor: techSignal.bg, border: `1px solid ${techSignal.border}`, borderRadius: '8px', marginBottom: '30px', textAlign: 'center' }}>
                 <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', letterSpacing: '1px' }}>TECHNICAL SIGNAL</div>
                 <div style={{ fontSize: '24px', fontWeight: 'bold', color: techSignal.color, letterSpacing: '2px' }}>{techSignal.signal}</div>
+              </div>
+
+              <div className="chart-score-grid">
+                <div className="stat-box">
+                  <div className="stat-label">VCP RATING</div>
+                  <div className="stat-value chart-score-value">
+                    {'★'.repeat(chartData.vcp_rating || 0)}{'☆'.repeat(5 - (chartData.vcp_rating || 0))}
+                  </div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-label">ALPHA SCORE</div>
+                  <div className="stat-value chart-score-value">
+                    {fundamentals?.alphaScore ?? 'N/A'}
+                  </div>
+                </div>
               </div>
               
               {fundamentals ? (
@@ -380,7 +378,32 @@ const Chart = () => {
             </div>
           </div>
 
-          <div style={{ padding: '24px', borderTop: '1px solid var(--glass-border)', backgroundColor: 'rgba(0,0,0,0.02)' }}>
+          <div className="stats-grid chart-summary-grid">
+            <div className="stat-box">
+              <div className="stat-label">{ticker} PRICE</div>
+              <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {cur}{lastPrice.toFixed(2)}
+                <span style={{ fontSize: '14px', color: change >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>
+                  {change >= 0 ? '+' : ''}{change.toFixed(2)} ({changePercent.toFixed(2)}%)
+                </span>
+                <WatchlistStar symbol={ticker} market={ticker.toUpperCase().endsWith('.NS') ? 'IN' : 'US'} size={22} />
+              </div>
+            </div>
+            <div className="stat-box">
+              <div className="stat-label">DAY HIGH</div>
+              <div className="stat-value">{cur}{chartData.high[chartData.high.length - 1].toFixed(2)}</div>
+            </div>
+            <div className="stat-box">
+              <div className="stat-label">DAY LOW</div>
+              <div className="stat-value">{cur}{chartData.low[chartData.low.length - 1].toFixed(2)}</div>
+            </div>
+            <div className="stat-box">
+              <div className="stat-label">VOLUME</div>
+              <div className="stat-value">{(chartData.volume[chartData.volume.length - 1] / 1e6).toFixed(2)}M</div>
+            </div>
+          </div>
+
+          <div className="chart-ai-section">
             {!aiReport ? (
               <button data-noshare="" onClick={runAiAnalysis} disabled={aiLoading} className="secondary">
                 {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "GENERATE GEMINI AI TECHNICAL INSIGHT"}

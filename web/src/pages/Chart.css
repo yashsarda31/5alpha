@@ -1,0 +1,74 @@
+.chart-analysis-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.chart-main-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.chart-plot-pane {
+  flex: 1 1 65%;
+  min-width: 0;
+  background: #000;
+  padding: 10px;
+}
+
+.chart-stock-pro {
+  flex: 1 1 30%;
+  padding: 24px;
+  background: var(--card-bg);
+  border-left: 1px solid var(--glass-border);
+}
+
+.chart-score-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 24px;
+}
+
+.chart-score-value {
+  color: var(--primary-gold);
+  font-size: 17px;
+}
+
+.chart-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 24px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.chart-ai-section {
+  padding: 24px;
+  border-top: 1px solid var(--glass-border);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+@media (max-width: 700px) {
+  .chart-main-row {
+    display: block;
+  }
+
+  .chart-plot-pane {
+    width: 100%;
+    padding: 4px;
+  }
+
+  .chart-stock-pro {
+    width: 100%;
+    padding: 18px;
+    border-left: 0;
+    border-top: 1px solid var(--glass-border);
+  }
+
+  .chart-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 16px;
+  }
+
+  .chart-ai-section {
+    padding: 16px;
+  }
+}
