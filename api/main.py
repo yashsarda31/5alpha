@@ -6303,6 +6303,8 @@ class WatchlistOrder(BaseModel):
 
 @app.get("/api/watchlist")
 def watchlist_list(authorization: str = Header(None)):
+    if authorization:
+        _blob_pull_db(force=True)
     conn = _auth_db()
     try:
         row, conn = _require_user(conn, authorization)
@@ -6368,6 +6370,8 @@ def watchlist_reorder(req: WatchlistOrder, authorization: str = Header(None)):
 
 @app.get("/api/watchlist/quotes")
 def watchlist_quotes(authorization: str = Header(None)):
+    if authorization:
+        _blob_pull_db(force=True)
     conn = _auth_db()
     try:
         row, conn = _require_user(conn, authorization)

@@ -95,6 +95,20 @@ def test_auth_required():
     assert client.get("/api/watchlist/quotes").status_code == 401
 
 
+def test_watchlist_reads_refresh_the_shared_snapshot(monkeypatch):
+    """Warm serverless instances must not serve an indefinitely stale local DB."""
+    h = _new_user()
+    pulls = []
+    monkeypatch.setattr(main, "_blob_pull_db", lambda force=False: pulls.append(force) or True)
+
+    assert client.get("/api/watchlist", headers=h).status_code == 200
+    assert pulls and pulls[0] is True
+
+    pulls.clear()
+    assert client.get("/api/watchlist/quotes", headers=h).status_code == 200
+    assert pulls and pulls[0] is True
+
+
 def test_quotes_shape(monkeypatch):
     h = _new_user()
     for s in ["RELIANCE", "TCS"]:
