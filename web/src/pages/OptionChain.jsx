@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { getBuildupColorClass, getBuildupLabel } from '../lib/optionChainPresentation';
 import './OptionChain.css';
 
 const OptionChain = () => {
@@ -45,21 +46,6 @@ const OptionChain = () => {
   const getColorClass = (val) => {
     if (val > 0) return 'text-green';
     if (val < 0) return 'text-red';
-    return 'text-neutral';
-  };
-
-  const getBuildupLabel = (buildup, type) => {
-    if (!buildup) return '';
-    if (buildup === 'Long Buildup') return type === 'call' ? 'Call Buying' : 'Put Buying';
-    if (buildup === 'Short Buildup') return type === 'call' ? 'Call Selling' : 'Put Selling';
-    return buildup;
-  };
-
-  const getBuildupColorClass = (buildup) => {
-    if (buildup === 'Long Buildup') return 'text-green';
-    if (buildup === 'Short Buildup') return 'text-red';
-    if (buildup === 'Short Covering') return 'text-green';
-    if (buildup === 'Long Unwinding') return 'text-red';
     return 'text-neutral';
   };
 
@@ -331,7 +317,7 @@ const OptionChain = () => {
                 return (
                   <tr key={idx} className={isAtm ? 'atm-row' : ''} ref={isAtm ? atmRowRef : null}>
                     {/* Calls */}
-                    <td className={`calls-section ${getBuildupColorClass(row.calls_builtup)}`} style={{ fontWeight: 600, fontSize: '12px' }}>
+                    <td className={`calls-section ${getBuildupColorClass(row.calls_builtup, 'call')}`} style={{ fontWeight: 600, fontSize: '12px' }}>
                       {getBuildupLabel(row.calls_builtup, 'call')}
                     </td>
                     <td className="calls-section">{formatNum(row.calls_oi)}</td>
@@ -355,7 +341,7 @@ const OptionChain = () => {
                     <td className="puts-section">{formatNum(row.puts_volume)}</td>
                     <td className={`puts-section ${getColorClass(row.puts_change_oi)}`}>{formatNum(row.puts_change_oi)}</td>
                     <td className="puts-section">{formatNum(row.puts_oi)}</td>
-                    <td className={`puts-section ${getBuildupColorClass(row.puts_builtup)}`} style={{ fontWeight: 600, fontSize: '12px' }}>
+                    <td className={`puts-section ${getBuildupColorClass(row.puts_builtup, 'put')}`} style={{ fontWeight: 600, fontSize: '12px' }}>
                       {getBuildupLabel(row.puts_builtup, 'put')}
                     </td>
                   </tr>
