@@ -147,6 +147,81 @@ const MarketSignals = () => {
         }
       />
 
+      {/* ---- Actionable setups ---- */}
+      <div id="setups-analysis">
+      <div className="signals-section-title" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+        <span>Actionable Setups
+          <span style={{ color: 'var(--text-secondary)', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
+            {' '}· index bias: <strong className={setups.index_bias === 'bull' ? 'side-LONG' : setups.index_bias === 'bear' ? 'side-SHORT' : ''}>{setups.index_bias.toUpperCase()}</strong> · {setups.radar_size} names on radar
+          </span>
+        </span>
+        {setups.plans.length > 0 && (
+          <ShareButton
+            compact
+            filename="alpha-nova-setups.png"
+            shareText="Today's scored trade setups — Alpha Nova"
+            capture={() => document.getElementById('setups-analysis')}
+            style={{ marginLeft: 'auto' }}
+          />
+        )}
+      </div>
+      {setups.plans.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', padding: '32px' }}>
+          <h3 style={{ marginBottom: '6px' }}>No high-conviction setups right now</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+            {isUS
+              ? 'Nothing on the US momentum radar clears the 45/100 conviction threshold. Check back as the session develops.'
+              : 'Nothing on the futures radar clears the 45/100 conviction threshold. Check back after fresh OI data.'}
+          </p>
+        </div>
+      ) : (
+        <div className="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Conviction</th>
+                <th style={{ textAlign: 'right' }}>Entry</th>
+                <th style={{ textAlign: 'right' }}>Stop</th>
+                <th style={{ textAlign: 'right' }}>Target{isUS ? ' (1.5R)' : ''}</th>
+                <th style={{ textAlign: 'right' }}>Qty*</th>
+                <th>Signal Drivers</th>
+              </tr>
+            </thead>
+            <tbody>
+              {setups.plans.map(p => (
+                <tr key={p.symbol + p.side}>
+                  <td style={{ fontWeight: 700 }}>{p.symbol}</td>
+                  <td className={`side-${p.side}`} style={{ fontWeight: 800 }}>{p.side}</td>
+                  <td>
+                    <div className="score-cell">
+                      <span style={{ fontWeight: 700, minWidth: '24px' }}>{p.score}</span>
+                      <div className="score-bar"><div style={{ width: `${p.score}%` }}></div></div>
+                    </div>
+                  </td>
+                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{cur}{fmt(p.entry)}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--red-loss)' }}>{cur}{fmt(p.stop)}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--green-gain)' }}>
+                    {cur}{fmt(p.target)}
+                    {!isUS && <span style={{ marginLeft: '5px', fontSize: '10px', color: 'var(--text-secondary)' }}>{p.levels_locked ? 'locked' : '2R'}</span>}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>{fmt(p.qty, 0)}</td>
+                  <td style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{p.why}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="signals-footnote">
+        Conviction = {isUS ? 'volume intensity' : 'OI intensity'} + price momentum + liquidity + options-flow agreement + index bias + intraday & regime alignment (0–100, threshold 45).
+        {!isUS && ' New India setups use a tighter stop with a 2:1 gross target; existing open plans retain their locked original levels. This revised execution policy is not backtest-validated.'}
+        {' '}*Qty sized so a stop-out loses {setups.risk_pct}% of {cur}{fmt(setups.capital, 0)} capital, scaled by the volatility regime (×{regime.vol_scale}) — not rounded to lot size.
+        Signals are analytics, not investment advice.
+      </p>
+      </div>
+
       {/* ---- Regime context ---- */}
       <div className="signals-section-title">Regime Context</div>
       <div className="regime-grid">
@@ -294,81 +369,6 @@ const MarketSignals = () => {
           ))}
         </>
       )}
-
-      {/* ---- Actionable setups ---- */}
-      <div id="setups-analysis">
-      <div className="signals-section-title" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-        <span>Actionable Setups
-          <span style={{ color: 'var(--text-secondary)', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
-            {' '}· index bias: <strong className={setups.index_bias === 'bull' ? 'side-LONG' : setups.index_bias === 'bear' ? 'side-SHORT' : ''}>{setups.index_bias.toUpperCase()}</strong> · {setups.radar_size} names on radar
-          </span>
-        </span>
-        {setups.plans.length > 0 && (
-          <ShareButton
-            compact
-            filename="alpha-nova-setups.png"
-            shareText="Today's scored trade setups — Alpha Nova"
-            capture={() => document.getElementById('setups-analysis')}
-            style={{ marginLeft: 'auto' }}
-          />
-        )}
-      </div>
-      {setups.plans.length === 0 ? (
-        <div className="card" style={{ textAlign: 'center', padding: '32px' }}>
-          <h3 style={{ marginBottom: '6px' }}>No high-conviction setups right now</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-            {isUS
-              ? 'Nothing on the US momentum radar clears the 45/100 conviction threshold. Check back as the session develops.'
-              : 'Nothing on the futures radar clears the 45/100 conviction threshold. Check back after fresh OI data.'}
-          </p>
-        </div>
-      ) : (
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th>Side</th>
-                <th>Conviction</th>
-                <th style={{ textAlign: 'right' }}>Entry</th>
-                <th style={{ textAlign: 'right' }}>Stop</th>
-                <th style={{ textAlign: 'right' }}>Target{isUS ? ' (1.5R)' : ''}</th>
-                <th style={{ textAlign: 'right' }}>Qty*</th>
-                <th>Signal Drivers</th>
-              </tr>
-            </thead>
-            <tbody>
-              {setups.plans.map(p => (
-                <tr key={p.symbol + p.side}>
-                  <td style={{ fontWeight: 700 }}>{p.symbol}</td>
-                  <td className={`side-${p.side}`} style={{ fontWeight: 800 }}>{p.side}</td>
-                  <td>
-                    <div className="score-cell">
-                      <span style={{ fontWeight: 700, minWidth: '24px' }}>{p.score}</span>
-                      <div className="score-bar"><div style={{ width: `${p.score}%` }}></div></div>
-                    </div>
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{cur}{fmt(p.entry)}</td>
-                  <td style={{ textAlign: 'right', color: 'var(--red-loss)' }}>{cur}{fmt(p.stop)}</td>
-                  <td style={{ textAlign: 'right', color: 'var(--green-gain)' }}>
-                    {cur}{fmt(p.target)}
-                    {!isUS && <span style={{ marginLeft: '5px', fontSize: '10px', color: 'var(--text-secondary)' }}>{p.levels_locked ? 'locked' : '2R'}</span>}
-                  </td>
-                  <td style={{ textAlign: 'right' }}>{fmt(p.qty, 0)}</td>
-                  <td style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{p.why}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <p className="signals-footnote">
-        Conviction = {isUS ? 'volume intensity' : 'OI intensity'} + price momentum + liquidity + options-flow agreement + index bias + intraday & regime alignment (0–100, threshold 45).
-        {!isUS && ' New India setups use a tighter stop with a 2:1 gross target; existing open plans retain their locked original levels. This revised execution policy is not backtest-validated.'}
-        {' '}*Qty sized so a stop-out loses {setups.risk_pct}% of {cur}{fmt(setups.capital, 0)} capital, scaled by the volatility regime (×{regime.vol_scale}) — not rounded to lot size.
-        Signals are analytics, not investment advice.
-      </p>
-      </div>
 
       <SignalsPortfolio market={isUS ? 'US' : 'IN'} />
     </div>
