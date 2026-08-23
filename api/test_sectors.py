@@ -26,6 +26,57 @@ def test_us_sector_map_defined():
     assert all(isinstance(v, tuple) and len(v) == 2 for v in main.US_SECTOR_INDICES.values())
 
 
+def test_india_sector_map_has_20_groups():
+    assert len(main.SECTOR_INDICES) == 20
+    assert "Nifty Midcap 100" in main.SECTOR_INDICES
+    assert "Nifty Smallcap 100" in main.SECTOR_INDICES
+    assert "Nifty Healthcare" in main.SECTOR_INDICES
+    assert "Nifty Services Sector" in main.SECTOR_INDICES
+
+
+def test_compute_india_rotation_keeps_partial_coverage(monkeypatch):
+    import numpy as np
+    import pandas as pd
+
+    dates = pd.date_range("2026-01-09", periods=32, freq="W-FRI")
+    benchmark = pd.Series(25000 + np.arange(32) * 40, index=dates, dtype="float64")
+    missing_display = "Nifty Services Sector"
+    missing_nse_name = main.SECTOR_INDICES[missing_display][1]
+    history = {main.SECTOR_BENCHMARK[1]: benchmark}
+    for offset, (_display, (_ticker, nse_name)) in enumerate(main.SECTOR_INDICES.items(), start=1):
+        if nse_name == missing_nse_name:
+            continue
+        phase = np.arange(32) / 3 + offset
+        relative_path = 1 + 0.015 * np.sin(phase) + 0.0004 * offset * np.arange(32)
+        history[nse_name] = pd.Series(benchmark.to_numpy() * relative_path, index=dates)
+
+    monkeypatch.setattr(
+        main,
+        "fetch_weekly_index_closes",
+        lambda *_args, **_kwargs: (history, [missing_nse_name]),
+    )
+    monkeypatch.setattr(
+        main,
+        "nse_get",
+        lambda _path: {
+            "data": [
+                {"index": nse_name, "percentChange": 0.5}
+                for _display, (_ticker, nse_name) in main.SECTOR_INDICES.items()
+            ]
+        },
+    )
+
+    result = main._compute_sector_rotation("IN")
+
+    assert result["coverage"]["expected"] == 20
+    assert result["coverage"]["available"] == 19
+    assert result["coverage"]["missing"] == [missing_display]
+    assert result["trend_label"] == "vs 10W avg"
+    assert [row["score"] for row in result["sectors"]] == sorted(
+        [row["score"] for row in result["sectors"]], reverse=True
+    )
+
+
 def test_explicit_market_override(monkeypatch):
     _stub_compute(monkeypatch)
     assert client.get("/api/sectors?market=US").json()["market"] == "US"

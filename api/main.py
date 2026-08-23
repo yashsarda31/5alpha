@@ -19,6 +19,11 @@ import re
 from contextlib import asynccontextmanager
 
 try:
+    from api.sector_rotation_data import fetch_weekly_index_closes, weekly_snapshot_dates
+except ImportError:  # Vercel imports this file with api/ as the package root.
+    from sector_rotation_data import fetch_weekly_index_closes, weekly_snapshot_dates
+
+try:
     from api.signal_model.ledger import ensure_schema as ensure_signal_model_schema
 except ImportError:  # Vercel imports this file with api/ as the package root.
     from signal_model.ledger import ensure_schema as ensure_signal_model_schema
@@ -2117,6 +2122,14 @@ SECTOR_INDICES = {
     "Nifty PSU Bank": ("^CNXPSUBANK", "NIFTY PSU BANK"),
     "Nifty Fin Services": ("NIFTY_FIN_SERVICE.NS", "NIFTY FINANCIAL SERVICES"),
     "Nifty Infra": ("^CNXINFRA", "NIFTY INFRASTRUCTURE"),
+    "Nifty Midcap 100": (None, "NIFTY MIDCAP 100"),
+    "Nifty Smallcap 100": (None, "NIFTY SMALLCAP 100"),
+    "Nifty Healthcare": (None, "NIFTY HEALTHCARE INDEX"),
+    "Nifty Consumer Durables": (None, "NIFTY CONSUMER DURABLES"),
+    "Nifty India Consumption": (None, "NIFTY INDIA CONSUMPTION"),
+    "Nifty Oil & Gas": (None, "NIFTY OIL & GAS"),
+    "Nifty Commodities": (None, "NIFTY COMMODITIES"),
+    "Nifty Services Sector": (None, "NIFTY SERVICES SECTOR"),
 }
 SECTOR_BENCHMARK = ("^NSEI", "NIFTY 50")
 
@@ -2167,27 +2180,46 @@ def _compute_sector_rotation(market="IN"):
     market = "US" if str(market).upper() == "US" else "IN"
     sectors_map = US_SECTOR_INDICES if market == "US" else SECTOR_INDICES
     benchmark = US_SECTOR_BENCHMARK if market == "US" else SECTOR_BENCHMARK
-    bench_tk = benchmark[0]
-    tickers = [t[0] for t in sectors_map.values()] + [bench_tk]
-    try:
-        df = yf.download(" ".join(tickers), period="9mo", group_by="ticker",
-                         threads=True, progress=False, auto_adjust=True)
-    except Exception:
-        return None
+    missing_names = set()
 
-    def weekly_closes(tk):
+    if market == "IN":
+        requested_names = [nse_name for _ticker, nse_name in sectors_map.values()] + [benchmark[1]]
+        history, missing_history = fetch_weekly_index_closes(
+            requested_names,
+            weekly_snapshot_dates(datetime.now(timezone(timedelta(hours=5, minutes=30))).date()),
+            min_points=18,
+        )
+        bench = history.get(benchmark[1])
+        if bench is None:
+            return None
+        bench_w = bench
+        missing_nse = set(missing_history)
+        missing_names.update(
+            name for name, (_ticker, nse_name) in sectors_map.items() if nse_name in missing_nse
+        )
+
+        def closes_for(_ticker, nse_name):
+            return history.get(nse_name)
+    else:
+        bench_tk = benchmark[0]
+        tickers = [ticker for ticker, _nse_name in sectors_map.values()] + [bench_tk]
         try:
-            c = df[tk]["Close"].dropna()
+            df = yf.download(" ".join(tickers), period="9mo", group_by="ticker",
+                             threads=True, progress=False, auto_adjust=True)
         except Exception:
             return None
-        if len(c) < 40:
-            return None
-        return c
 
-    bench = weekly_closes(bench_tk)
-    if bench is None:
-        return None
-    bench_w = bench.resample("W-FRI").last().dropna()
+        def closes_for(ticker, _nse_name):
+            try:
+                closes = df[ticker]["Close"].dropna()
+            except Exception:
+                return None
+            return closes if len(closes) >= 40 else None
+
+        bench = closes_for(bench_tk, benchmark[1])
+        if bench is None:
+            return None
+        bench_w = bench.resample("W-FRI").last().dropna()
 
     # Live daily % change per sector. India overlays NSE allIndices; the US map
     # has no such feed, so there we use each ETF's latest 1-session move instead.
@@ -2202,12 +2234,14 @@ def _compute_sector_rotation(market="IN"):
 
     rows = []
     for name, (tk, nse_name) in sectors_map.items():
-        c = weekly_closes(tk)
+        c = closes_for(tk, nse_name)
         if c is None:
+            missing_names.add(name)
             continue
-        c_w = c.resample("W-FRI").last().dropna()
+        c_w = c if market == "IN" else c.resample("W-FRI").last().dropna()
         aligned = pd.concat([c_w, bench_w], axis=1, join="inner").dropna()
         if len(aligned) < RRG_NORM_WINDOW + RRG_TAIL_WEEKS + 2:
+            missing_names.add(name)
             continue
         sec_w, bmk_w = aligned.iloc[:, 0], aligned.iloc[:, 1]
 
@@ -2222,15 +2256,17 @@ def _compute_sector_rotation(market="IN"):
         tail = traj.tail(RRG_TAIL_WEEKS)
         cur_ratio, cur_mom = float(tail.iloc[-1, 0]), float(tail.iloc[-1, 1])
 
-        # Multi-timeframe returns (daily closes) and relative-to-benchmark
-        r1w, r1m, r3m = _pct_return(c, 5), _pct_return(c, 21), _pct_return(c, 63)
-        b1w, b1m, b3m = _pct_return(bench, 5), _pct_return(bench, 21), _pct_return(bench, 63)
+        # India uses official weekly NSE snapshots; US retains daily ETF closes.
+        lookbacks = (1, 4, 13) if market == "IN" else (5, 21, 63)
+        r1w, r1m, r3m = (_pct_return(c, lookback) for lookback in lookbacks)
+        b1w, b1m, b3m = (_pct_return(bench, lookback) for lookback in lookbacks)
         rel1w = None if (r1w is None or b1w is None) else r1w - b1w
         rel1m = None if (r1m is None or b1m is None) else r1m - b1m
         rel3m = None if (r3m is None or b3m is None) else r3m - b3m
 
-        sma50 = float(c.tail(50).mean()) if len(c) >= 50 else None
-        trend = (float(c.iloc[-1]) / sma50 - 1) * 100 if sma50 else None
+        trend_window = 10 if market == "IN" else 50
+        trend_reference = float(c.tail(trend_window).mean()) if len(c) >= trend_window else None
+        trend = (float(c.iloc[-1]) / trend_reference - 1) * 100 if trend_reference else None
 
         # Live "today" move: NSE for India, else the ETF's latest 1-session return.
         if market == "IN":
@@ -2263,7 +2299,7 @@ def _compute_sector_rotation(market="IN"):
             "rel_1w": None if rel1w is None else round(rel1w, 2),
             "rel_1m": None if rel1m is None else round(rel1m, 2),
             "rel_3m": None if rel3m is None else round(rel3m, 2),
-            "trend_50d": None if trend is None else round(trend, 2),
+            "trend_ref": None if trend is None else round(trend, 2),
             "live_pct": live_pct,
             "score": score,
             "outlook": outlook,
@@ -2272,7 +2308,9 @@ def _compute_sector_rotation(market="IN"):
     if not rows:
         return None
     rows.sort(key=lambda r: r["score"], reverse=True)
-    b1w = _pct_return(bench, 5)
+    benchmark_lookbacks = (1, 4) if market == "IN" else (5, 21)
+    b1w = _pct_return(bench, benchmark_lookbacks[0])
+    b1m = _pct_return(bench, benchmark_lookbacks[1])
     quad_counts = {q: sum(1 for r in rows if r["quadrant"] == q)
                    for q in ("Leading", "Weakening", "Lagging", "Improving")}
     return {
@@ -2280,10 +2318,17 @@ def _compute_sector_rotation(market="IN"):
         "sectors": rows,
         "benchmark": {"name": benchmark[1],
                       "ret_1w": None if b1w is None else round(b1w, 2),
-                      "ret_1m": round(_pct_return(bench, 21), 2) if _pct_return(bench, 21) is not None else None},
+                      "ret_1m": None if b1m is None else round(b1m, 2)},
         "quadrant_counts": quad_counts,
         "leaders": [r["name"] for r in rows if r["outlook"] == "Favored"][:5],
         "laggards": [r["name"] for r in reversed(rows) if r["outlook"] == "Headwind"][:5],
+        "coverage": {
+            "expected": len(sectors_map),
+            "available": len(rows),
+            "missing": [name for name in sectors_map if name in missing_names],
+            "source": "NSE weekly index archive" if market == "IN" else "Yahoo Finance",
+        },
+        "trend_label": "vs 10W avg" if market == "IN" else "vs 50-DMA",
         "as_of": datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%d %H:%M IST"),
     }
 
