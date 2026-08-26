@@ -733,10 +733,10 @@ const createMasterTimeline = () => {
     master.to(sceneApi.camera.position, { x: -1.5, y: 4.1, z: 17.8, duration: 3, ease: 'power2.inOut' }, 9);
     master.to(sceneApi.camera.position, { x: 1.4, y: 3.5, z: 16.4, duration: 9.5, ease: 'sine.inOut' }, 12);
     master.to(sceneApi.camera.position, { x: 0, y: 4.4, z: 18.5, duration: 3.2, ease: 'power2.inOut' }, 22);
-    master.to(canvas, { autoAlpha: 0.12, duration: 0.8 }, 26);
+    master.to(canvas, { autoAlpha: 0.12, duration: 0.55 }, 25.35);
   }
 
-  master.to('.fallback-world', { autoAlpha: 0.1, duration: 0.8 }, 26);
+  master.to('.fallback-world', { autoAlpha: 0.1, duration: 0.55 }, 25.35);
   master.to('.decision-line', { autoAlpha: 0, duration: 0.45 }, 25.7);
   master.to('.brand-corner', { autoAlpha: 0, duration: 0.32 }, 25.65);
   master.set('#endcard', { pointerEvents: 'auto' }, 26);

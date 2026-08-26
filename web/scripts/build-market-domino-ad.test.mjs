@@ -102,4 +102,12 @@ test('creative template keeps the hook visible and gates playback from zero', as
   assert.match(template, /visibilitychange/u);
   assert.match(template, /waitingForFirstVisible/u);
   assert.match(template, /window\.__MARKET_DOMINO_AD__/u);
+  assert.match(
+    template,
+    /master\.to\(canvas, \{ autoAlpha: 0\.12, duration: 0\.55 \}, 25\.35\)/u,
+  );
+  assert.match(
+    template,
+    /master\.to\('\.fallback-world', \{ autoAlpha: 0\.1, duration: 0\.55 \}, 25\.35\)/u,
+  );
 });
