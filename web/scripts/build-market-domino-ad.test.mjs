@@ -87,3 +87,19 @@ test('buildMarketDominoAd embeds runtimes and all three product screens', async 
   assert.equal(output.endsWith('\n'), true);
   assert.doesNotMatch(output, /[ \t]+\n/u);
 });
+
+test('creative template keeps the hook visible and gates playback from zero', async () => {
+  const template = await readFile(
+    new URL('assets/alpha-nova-market-domino-30s-ad.template.html', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(template, /class="beat is-opening" id="hook"/u);
+  assert.match(template, /One reaction…/u);
+  assert.match(template, /const AD_DURATION = 30;/u);
+  assert.match(template, /timeline\.pause\(0\)/u);
+  assert.match(template, /requestAnimationFrame/u);
+  assert.match(template, /visibilitychange/u);
+  assert.match(template, /waitingForFirstVisible/u);
+  assert.match(template, /window\.__MARKET_DOMINO_AD__/u);
+});

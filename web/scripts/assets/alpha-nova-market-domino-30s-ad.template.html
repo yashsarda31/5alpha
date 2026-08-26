@@ -1,0 +1,1002 @@
+<!doctype html>
+<html lang="en" data-aspect="9:16">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#050607">
+<title>Alpha Nova — Market Domino</title>
+<style>
+:root {
+  color-scheme: dark;
+  --ink: #f7f7f5;
+  --muted: rgba(247, 247, 245, 0.58);
+  --line: rgba(255, 255, 255, 0.12);
+  --green: #26ec72;
+  --red: #ff453a;
+  --cyan: #42d9ff;
+  --gold: #e8d477;
+  --safe-x: clamp(24px, 7vw, 64px);
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: grid;
+  place-items: center;
+}
+
+.stage {
+  position: relative;
+  width: 100vw;
+  max-width: 56.25dvh;
+  height: 100dvh;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(255,255,255,.075), transparent 31%),
+    radial-gradient(circle at 50% 92%, rgba(48,66,62,.16), transparent 34%),
+    linear-gradient(180deg, #0b0d0f 0%, #050607 46%, #020303 100%);
+}
+
+.stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.38), transparent 17%, transparent 78%, rgba(0,0,0,.72)),
+    radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,.42) 100%);
+}
+
+#world {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.grain {
+  position: absolute;
+  inset: -40%;
+  z-index: 11;
+  opacity: .035;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.75'/%3E%3C/svg%3E");
+  animation: grain 1s steps(2) infinite;
+}
+
+@keyframes grain {
+  0% { transform: translate3d(-2%, -2%, 0); }
+  25% { transform: translate3d(2%, 1%, 0); }
+  50% { transform: translate3d(-1%, 2%, 0); }
+  75% { transform: translate3d(1%, -1%, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+.brand-corner {
+  position: absolute;
+  z-index: 20;
+  top: max(20px, env(safe-area-inset-top));
+  left: var(--safe-x);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255,255,255,.78);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.brand-glyph {
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(255,255,255,.14), rgba(255,255,255,.035));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 8px 24px rgba(0,0,0,.28);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.beat {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  align-items: start;
+  padding: 16.5dvh var(--safe-x) 14dvh;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.beat.is-opening {
+  visibility: visible;
+  opacity: 1;
+}
+
+.copy {
+  width: 100%;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.eyebrow {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: clamp(10px, 2.8vw, 15px);
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+
+h1,
+p { margin: 0; }
+
+.beat h1 {
+  color: var(--ink);
+  font-size: clamp(39px, 11.8vw, 72px);
+  font-weight: 650;
+  line-height: .98;
+  letter-spacing: -.058em;
+  text-shadow: 0 12px 45px rgba(0,0,0,.5);
+}
+
+#chain h1 { font-size: clamp(37px, 10.8vw, 68px); }
+#pause h1 { font-size: clamp(64px, 21vw, 118px); }
+
+.accent-green { color: var(--green); }
+.accent-red { color: var(--red); }
+
+.screen-plane {
+  position: absolute;
+  z-index: 18;
+  top: 30%;
+  left: 50%;
+  width: min(88%, 520px);
+  height: 50%;
+  margin: 0;
+  visibility: hidden;
+  opacity: 0;
+  transform: translate3d(-50%, 28px, 0) perspective(900px) rotateX(4deg) rotateY(-5deg) scale(.92);
+  transform-origin: 50% 50%;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: clamp(20px, 5vw, 34px);
+  background: rgba(7,9,10,.93);
+  box-shadow:
+    0 45px 95px rgba(0,0,0,.72),
+    0 0 0 1px rgba(255,255,255,.035) inset,
+    0 1px 0 rgba(255,255,255,.18) inset;
+}
+
+.screen-plane::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(120deg, rgba(255,255,255,.11), transparent 22%, transparent 73%, rgba(255,255,255,.035));
+}
+
+.screen-label {
+  position: absolute;
+  z-index: 2;
+  top: 13px;
+  left: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 999px;
+  background: rgba(4,6,7,.78);
+  backdrop-filter: blur(12px);
+  color: rgba(255,255,255,.86);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.screen-label::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 12px var(--cyan);
+}
+
+.screen-plane img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: top center;
+  filter: saturate(.94) contrast(1.04);
+}
+
+#screen-chart img { object-position: 48% top; }
+#screen-signals img { object-position: center top; }
+#screen-sectors img { object-position: center top; }
+
+.fallback-world {
+  position: absolute;
+  z-index: 2;
+  inset: 34% 0 7%;
+  opacity: 0;
+  perspective: 800px;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+.fallback-floor {
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  bottom: 8%;
+  height: 38%;
+  transform: rotateX(72deg);
+  transform-origin: bottom;
+  background: radial-gradient(ellipse at center, rgba(255,255,255,.09), transparent 64%);
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+
+.fallback-candle {
+  --x: 0%;
+  --h: 90px;
+  --c: var(--green);
+  position: absolute;
+  left: calc(50% + var(--x));
+  bottom: 21%;
+  width: clamp(13px, 3.7vw, 22px);
+  height: var(--h);
+  border-radius: 4px;
+  transform: translateX(-50%);
+  transform-origin: 50% 100%;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c), #000 30%), var(--c) 42%, color-mix(in srgb, var(--c), #fff 22%) 65%, color-mix(in srgb, var(--c), #000 42%));
+  box-shadow: 0 0 25px color-mix(in srgb, var(--c), transparent 72%), inset 0 1px 0 rgba(255,255,255,.36);
+}
+
+.fallback-candle::before,
+.fallback-candle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 2px;
+  background: var(--c);
+  transform: translateX(-50%);
+}
+
+.fallback-candle::before { bottom: 100%; height: 27px; }
+.fallback-candle::after { top: 100%; height: 22px; }
+
+.is-css-fallback #world { display: none; }
+.is-css-fallback .fallback-world { opacity: 1; }
+
+.decision-line {
+  position: absolute;
+  z-index: 17;
+  left: 50%;
+  bottom: 22%;
+  width: 66%;
+  height: 1px;
+  opacity: 0;
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, rgba(38,236,114,.82), transparent);
+  box-shadow: 0 0 24px rgba(38,236,114,.42);
+}
+
+#endcard {
+  align-items: center;
+  padding-top: 12dvh;
+  pointer-events: none;
+}
+
+#endcard .copy {
+  display: grid;
+  justify-items: center;
+  gap: 22px;
+}
+
+.end-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: rgba(255,255,255,.82);
+  font-size: clamp(13px, 3.4vw, 18px);
+  font-weight: 680;
+  letter-spacing: .06em;
+}
+
+#endcard h1 {
+  max-width: 560px;
+  font-size: clamp(44px, 13vw, 78px);
+  line-height: .96;
+}
+
+.end-support {
+  max-width: 360px;
+  color: var(--muted);
+  font-size: clamp(14px, 3.6vw, 19px);
+  line-height: 1.45;
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 999px;
+  background: #f5f5f3;
+  color: #050607;
+  box-shadow: 0 15px 45px rgba(0,0,0,.42), inset 0 1px 0 #fff;
+  font-size: 14px;
+  font-weight: 760;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+.cta span { font-size: 18px; line-height: 1; }
+
+.disclaimer {
+  position: absolute;
+  z-index: 31;
+  left: var(--safe-x);
+  right: var(--safe-x);
+  bottom: max(22px, env(safe-area-inset-bottom));
+  color: rgba(255,255,255,.34);
+  font-size: clamp(8px, 2vw, 10px);
+  line-height: 1.35;
+  text-align: center;
+  visibility: hidden;
+  opacity: 0;
+}
+
+.progress {
+  position: absolute;
+  z-index: 40;
+  left: var(--safe-x);
+  right: var(--safe-x);
+  bottom: max(12px, env(safe-area-inset-bottom));
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,.10);
+}
+
+.progress-fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
+  background: linear-gradient(90deg, rgba(255,255,255,.45), #fff);
+}
+
+@media (max-height: 680px) {
+  .beat { padding-top: 13dvh; }
+  .screen-plane { top: 28%; height: 53%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grain { animation: none; }
+  .screen-plane { transform: translate3d(-50%, 0, 0); }
+  .cta { transition: none; }
+}
+</style>
+</head>
+<body>
+<main class="stage" id="stage" aria-label="Alpha Nova Market Domino promotion">
+  <canvas id="world" aria-hidden="true"></canvas>
+  <div class="fallback-world" aria-hidden="true">
+    <div class="fallback-floor"></div>
+    <i class="fallback-candle" style="--x:-38%;--h:110px;--c:#26ec72"></i>
+    <i class="fallback-candle" style="--x:-32%;--h:78px;--c:#ff453a"></i>
+    <i class="fallback-candle" style="--x:-26%;--h:96px;--c:#26ec72"></i>
+    <i class="fallback-candle" style="--x:-20%;--h:68px;--c:#ff453a"></i>
+    <i class="fallback-candle" style="--x:-14%;--h:88px;--c:#26ec72"></i>
+    <i class="fallback-candle" style="--x:-8%;--h:74px;--c:#ff453a"></i>
+    <i class="fallback-candle" style="--x:-2%;--h:102px;--c:#26ec72"></i>
+    <i class="fallback-candle" style="--x:4%;--h:81px;--c:#ff453a"></i>
+    <i class="fallback-candle" style="--x:10%;--h:91px;--c:#26ec72"></i>
+    <i class="fallback-candle" style="--x:16%;--h:72px;--c:#ff453a"></i>
+    <i class="fallback-candle" style="--x:22%;--h:98px;--c:#26ec72"></i>
+    <i class="fallback-candle" style="--x:28%;--h:80px;--c:#ff453a"></i>
+    <i class="fallback-candle" style="--x:34%;--h:92px;--c:#26ec72"></i>
+    <i class="fallback-candle" style="--x:40%;--h:70px;--c:#ff453a"></i>
+  </div>
+
+  <div class="brand-corner" aria-label="Alpha Nova">
+    <span class="brand-glyph">A</span>
+    <span>Alpha Nova</span>
+  </div>
+
+  <section class="beat is-opening" id="hook" aria-label="One reaction…">
+    <div class="copy">
+      <p class="eyebrow">The market moves fast</p>
+      <h1>One<br><span class="accent-green">reaction…</span></h1>
+    </div>
+  </section>
+
+  <section class="beat" id="chain" aria-label="…can trigger everything.">
+    <div class="copy">
+      <p class="eyebrow">Impulse becomes momentum</p>
+      <h1>…can trigger<br><span class="accent-red">everything.</span></h1>
+    </div>
+  </section>
+
+  <section class="beat" id="pause" aria-label="Pause.">
+    <div class="copy">
+      <p class="eyebrow">Before the next tap</p>
+      <h1>Pause.</h1>
+    </div>
+  </section>
+
+  <section class="beat" id="chart" aria-label="See the chart.">
+    <div class="copy">
+      <p class="eyebrow">Alpha Nova · Analyse</p>
+      <h1>See the chart.</h1>
+    </div>
+  </section>
+
+  <section class="beat" id="signals" aria-label="Read the signal.">
+    <div class="copy">
+      <p class="eyebrow">Alpha Nova · Signals</p>
+      <h1>Read the signal.</h1>
+    </div>
+  </section>
+
+  <section class="beat" id="sectors" aria-label="Know the regime.">
+    <div class="copy">
+      <p class="eyebrow">Alpha Nova · Sector Rotation</p>
+      <h1>Know the regime.</h1>
+    </div>
+  </section>
+
+  <section class="beat" id="decision" aria-label="Then decide.">
+    <div class="copy">
+      <p class="eyebrow">Context before action</p>
+      <h1>Then<br><span class="accent-green">decide.</span></h1>
+    </div>
+  </section>
+
+  <figure class="screen-plane" id="screen-chart" aria-label="Alpha Nova Chart Analyser screenshot">
+    <figcaption class="screen-label">Chart Analyser · RELIANCE.NS</figcaption>
+    <img src="__CHART_SCREEN_DATA_URI__" alt="Alpha Nova Chart Analyser showing RELIANCE.NS candlesticks and Stock Pro analysis">
+  </figure>
+
+  <figure class="screen-plane" id="screen-signals" aria-label="Alpha Nova India Market Signals screenshot">
+    <figcaption class="screen-label">India Market Signals</figcaption>
+    <img src="__SIGNALS_SCREEN_DATA_URI__" alt="Alpha Nova India Market Signals showing an actionable setup and regime context">
+  </figure>
+
+  <figure class="screen-plane" id="screen-sectors" aria-label="Alpha Nova Sector Rotation screenshot">
+    <figcaption class="screen-label">Sector Rotation · India</figcaption>
+    <img src="__SECTORS_SCREEN_DATA_URI__" alt="Alpha Nova Sector Rotation showing market leadership and relative rotation">
+  </figure>
+
+  <div class="decision-line" aria-hidden="true"></div>
+
+  <section class="beat" id="endcard" aria-label="Break the reaction. Build the decision.">
+    <div class="copy">
+      <div class="end-brand"><span class="brand-glyph">A</span> Alpha Nova</div>
+      <h1>Break the reaction.<br><span class="accent-green">Build the decision.</span></h1>
+      <p class="end-support">Chart. Signal. Regime. One disciplined view.</p>
+      <a class="cta" href="https://alphanova48.in/" target="_blank" rel="noopener">Explore now <span>↗</span></a>
+    </div>
+  </section>
+
+  <p class="disclaimer">Analytics for educational use. Not investment advice.</p>
+  <div class="progress" aria-hidden="true"><div class="progress-fill"></div></div>
+  <div class="grain" aria-hidden="true"></div>
+</main>
+
+<script>/*__GSAP_RUNTIME__*/</script>
+<script type="module">
+const AD_DURATION = 30;
+const BEATS = Object.freeze({
+  hook: 0,
+  chain: 4,
+  pause: 9,
+  chart: 12,
+  signals: 15.4,
+  sectors: 18.8,
+  decision: 22,
+  endcard: 26,
+  complete: 30,
+});
+
+const THREE_MODULE_URI = '__THREE_MODULE_DATA_URI__';
+const params = new URLSearchParams(window.location.search);
+const requestedFrame = Number.parseFloat(params.get('frame'));
+const hasRequestedFrame = Number.isFinite(requestedFrame);
+const forcedFallback = params.get('fallback') === '1';
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const motionScale = reducedMotion ? 0.28 : 1;
+const stage = document.querySelector('#stage');
+const canvas = document.querySelector('#world');
+const fallbackCandles = [...document.querySelectorAll('.fallback-candle')];
+const beatNames = ['hook', 'chain', 'pause', 'chart', 'signals', 'sectors', 'decision', 'endcard'];
+const screenIds = ['screen-chart', 'screen-signals', 'screen-sectors'];
+
+let renderer = 'pending';
+let threeRevision = null;
+let sceneApi = null;
+let timeline = null;
+let playbackReady = false;
+let waitingForFirstVisible = document.visibilityState !== 'visible';
+let hasSeenVisibleFrame = false;
+let started = false;
+let completed = false;
+let resumeAfterVisibility = false;
+
+const clampTime = (value) => Math.min(AD_DURATION, Math.max(0, Number(value) || 0));
+
+const beatForTime = (time) => {
+  if (time >= BEATS.endcard) return 'endcard';
+  if (time >= BEATS.decision) return 'decision';
+  if (time >= BEATS.sectors) return 'sectors';
+  if (time >= BEATS.signals) return 'signals';
+  if (time >= BEATS.chart) return 'chart';
+  if (time >= BEATS.pause) return 'pause';
+  if (time >= BEATS.chain) return 'chain';
+  return 'hook';
+};
+
+const readableBeatIds = () => beatNames.filter((name) => {
+  const node = document.getElementById(name);
+  const style = window.getComputedStyle(node);
+  return style.visibility !== 'hidden' && Number.parseFloat(style.opacity) > 0.18;
+});
+
+const resetOpeningState = () => {
+  for (const name of beatNames) {
+    const opening = name === 'hook';
+    window.gsap.set(`#${name}`, {
+      autoAlpha: opening ? 1 : 0,
+      pointerEvents: name === 'endcard' && !opening ? 'none' : undefined,
+    });
+    window.gsap.set(`#${name} .copy`, { y: 0, scale: 1 });
+  }
+  window.gsap.set(screenIds.map((id) => `#${id}`), {
+    autoAlpha: 0,
+    y: 28,
+    rotateX: 4,
+    rotateY: -5,
+    scale: 0.92,
+  });
+  window.gsap.set('.decision-line', { autoAlpha: 0, scaleX: 0 });
+  window.gsap.set('.disclaimer', { autoAlpha: 0 });
+  window.gsap.set('.progress-fill', { scaleX: 0 });
+  window.gsap.set('.brand-corner', { autoAlpha: 1 });
+};
+
+const showBeat = (master, previous, name, at) => {
+  const fadeStart = Math.max(0, at - 0.3);
+  master.to(`#${previous}`, { autoAlpha: 0, duration: 0.22, ease: 'power1.out' }, fadeStart);
+  master.set(`#${previous}`, { autoAlpha: 0 }, at);
+  master.set(`#${name}`, { autoAlpha: 1 }, at);
+  master.fromTo(
+    `#${name} .copy`,
+    { y: 12 * motionScale, scale: 0.985 },
+    { y: 0, scale: 1, duration: 0.7 * motionScale, ease: 'power3.out' },
+    at,
+  );
+};
+
+const animateDominoChain = (master) => {
+  fallbackCandles.forEach((node, index) => {
+    const at = index === 0 ? 2.85 : BEATS.chain + (index - 1) * 0.3;
+    master.to(node, {
+      rotation: -78,
+      x: 7,
+      duration: 0.78 * motionScale,
+      ease: 'power2.in',
+    }, at);
+  });
+
+  if (!sceneApi) return;
+  sceneApi.candles.forEach((candle, index) => {
+    const at = index === 0 ? 2.85 : BEATS.chain + (index - 1) * 0.3;
+    master.to(candle.rotation, {
+      z: -1.36,
+      duration: 0.8 * motionScale,
+      ease: 'power2.in',
+    }, at);
+    master.to(candle.position, {
+      x: candle.userData.initialX + 0.13,
+      y: candle.userData.initialY + 0.05,
+      duration: 0.8 * motionScale,
+      ease: 'power2.in',
+    }, at);
+  });
+
+  sceneApi.fragments.forEach((fragment, index) => {
+    const at = 4.2 + (index % 7) * 0.45;
+    master.set(fragment, { visible: true }, at);
+    master.to(fragment.position, {
+      x: fragment.userData.targetX,
+      y: fragment.userData.targetY,
+      z: fragment.userData.targetZ,
+      duration: 2.3 * motionScale,
+      ease: 'power2.out',
+    }, at);
+    master.to(fragment.rotation, {
+      x: fragment.userData.spinX,
+      z: fragment.userData.spinZ,
+      duration: 2.3 * motionScale,
+      ease: 'none',
+    }, at);
+  });
+};
+
+const animateScreens = (master) => {
+  const showScreen = (selector, at, tilt) => {
+    master.set(selector, { autoAlpha: 1 }, at);
+    master.fromTo(selector, {
+      y: 26 * motionScale,
+      rotateX: 4 * motionScale,
+      rotateY: tilt * motionScale,
+      scale: 0.94,
+    }, {
+      y: 0,
+      rotateX: 0,
+      rotateY: 0,
+      scale: 1,
+      duration: 0.9 * motionScale,
+      ease: 'power3.out',
+    }, at);
+  };
+
+  showScreen('#screen-chart', 11.72, -5);
+  master.to('#screen-chart', { autoAlpha: 0, y: -18, duration: 0.28 }, 15.05);
+  showScreen('#screen-signals', 15.12, 5);
+  master.to('#screen-signals', { autoAlpha: 0, y: -18, duration: 0.28 }, 18.45);
+  showScreen('#screen-sectors', 18.52, -4);
+  master.to('#screen-sectors', { autoAlpha: 0, y: -20, duration: 0.32 }, 21.65);
+};
+
+const animateDecision = (master) => {
+  master.to('.decision-line', { autoAlpha: 1, scaleX: 1, duration: 0.8, ease: 'power2.out' }, 22);
+  fallbackCandles.forEach((node, index) => {
+    master.to(node, {
+      rotation: 0,
+      x: 0,
+      y: -index * 4,
+      duration: 1.2 * motionScale,
+      ease: 'power3.inOut',
+    }, 22 + index * 0.09);
+  });
+
+  if (!sceneApi) return;
+  sceneApi.candles.forEach((candle, index) => {
+    master.to(candle.rotation, {
+      z: 0,
+      duration: 1.2 * motionScale,
+      ease: 'power3.inOut',
+    }, 22 + index * 0.09);
+    master.to(candle.position, {
+      x: (index - 6.5) * 0.55,
+      y: candle.userData.initialY + index * 0.1,
+      z: -0.25 * Math.abs(index - 6.5),
+      duration: 1.2 * motionScale,
+      ease: 'power3.inOut',
+    }, 22 + index * 0.09);
+  });
+};
+
+const createMasterTimeline = () => {
+  const master = window.gsap.timeline({
+    paused: true,
+    repeat: 0,
+    defaults: { ease: 'power2.inOut' },
+    onComplete: () => { completed = true; },
+  });
+  const clock = { value: 0 };
+
+  master.set('.progress-fill', { scaleX: 0 }, 0);
+  master.to('.progress-fill', { scaleX: 1, duration: AD_DURATION, ease: 'none' }, 0);
+  master.to(clock, { value: AD_DURATION, duration: AD_DURATION, ease: 'none' }, 0);
+
+  animateDominoChain(master);
+  showBeat(master, 'hook', 'chain', BEATS.chain);
+  showBeat(master, 'chain', 'pause', BEATS.pause);
+  showBeat(master, 'pause', 'chart', BEATS.chart);
+  showBeat(master, 'chart', 'signals', BEATS.signals);
+  showBeat(master, 'signals', 'sectors', BEATS.sectors);
+  showBeat(master, 'sectors', 'decision', BEATS.decision);
+  showBeat(master, 'decision', 'endcard', BEATS.endcard);
+  animateScreens(master);
+  animateDecision(master);
+
+  if (sceneApi) {
+    master.to(sceneApi.camera.position, { x: -1.5, y: 4.1, z: 17.8, duration: 3, ease: 'power2.inOut' }, 9);
+    master.to(sceneApi.camera.position, { x: 1.4, y: 3.5, z: 16.4, duration: 9.5, ease: 'sine.inOut' }, 12);
+    master.to(sceneApi.camera.position, { x: 0, y: 4.4, z: 18.5, duration: 3.2, ease: 'power2.inOut' }, 22);
+    master.to(canvas, { autoAlpha: 0.12, duration: 0.8 }, 26);
+  }
+
+  master.to('.fallback-world', { autoAlpha: 0.1, duration: 0.8 }, 26);
+  master.to('.decision-line', { autoAlpha: 0, duration: 0.45 }, 25.7);
+  master.to('.brand-corner', { autoAlpha: 0, duration: 0.32 }, 25.65);
+  master.set('#endcard', { pointerEvents: 'auto' }, 26);
+  master.to('.disclaimer', { autoAlpha: 1, duration: 0.5 }, 26.45);
+  master.set({}, {}, AD_DURATION);
+  return master;
+};
+
+const seekToFrame = (seconds) => {
+  if (!timeline) return;
+  const time = clampTime(seconds);
+  completed = time >= AD_DURATION;
+  timeline.pause(time, false);
+};
+
+const startFromZero = () => {
+  if (started || hasRequestedFrame || !playbackReady || !hasSeenVisibleFrame) return;
+  if (document.visibilityState !== 'visible') {
+    waitingForFirstVisible = true;
+    return;
+  }
+  started = true;
+  waitingForFirstVisible = false;
+  completed = false;
+  timeline.pause(0);
+  resetOpeningState();
+  requestAnimationFrame(() => timeline.play(0));
+};
+
+const maybeStart = () => {
+  if (!playbackReady) return;
+  if (hasRequestedFrame) {
+    waitingForFirstVisible = false;
+    seekToFrame(requestedFrame);
+    return;
+  }
+  startFromZero();
+};
+
+const handleVisibleFrame = () => {
+  if (document.visibilityState !== 'visible') return;
+  hasSeenVisibleFrame = true;
+  if (!started) {
+    maybeStart();
+  } else if (resumeAfterVisibility && timeline && !completed) {
+    resumeAfterVisibility = false;
+    timeline.resume();
+  }
+};
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    if (started && timeline && !timeline.paused() && !completed) {
+      resumeAfterVisibility = true;
+      timeline.pause();
+    } else if (!started) {
+      waitingForFirstVisible = true;
+    }
+    return;
+  }
+  requestAnimationFrame(handleVisibleFrame);
+});
+
+window.addEventListener('pagehide', () => {
+  if (timeline && started && !timeline.paused() && !completed) {
+    resumeAfterVisibility = true;
+    timeline.pause();
+  }
+});
+
+window.addEventListener('pageshow', () => {
+  requestAnimationFrame(handleVisibleFrame);
+});
+
+window.__MARKET_DOMINO_AD__ = Object.freeze({
+  get renderer() { return renderer; },
+  get threeRevision() { return threeRevision; },
+  get playbackReady() { return playbackReady; },
+  get waitingForFirstVisible() { return waitingForFirstVisible; },
+  get completed() { return completed; },
+  get currentBeat() { return beatForTime(timeline ? timeline.time() : 0); },
+  get time() { return Number((timeline ? timeline.time() : 0).toFixed(3)); },
+  get visibleBeats() { return readableBeatIds(); },
+  seekToFrame,
+});
+
+const createDominoScene = (THREE) => {
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x050607, 0.045);
+  const camera = new THREE.PerspectiveCamera(34, 9 / 16, 0.1, 80);
+  camera.position.set(0, 4.7, 19.5);
+  camera.lookAt(0, 1.4, 0);
+
+  const webglRenderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    alpha: true,
+    powerPreference: 'high-performance',
+  });
+  webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  webglRenderer.outputColorSpace = THREE.SRGBColorSpace;
+  webglRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  webglRenderer.toneMappingExposure = 1.05;
+
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(36, 32),
+    new THREE.MeshPhysicalMaterial({
+      color: 0x090b0c,
+      roughness: 0.32,
+      metalness: 0.72,
+      transparent: true,
+      opacity: 0.94,
+    }),
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.03;
+  floor.position.z = -4;
+  scene.add(floor);
+
+  scene.add(new THREE.HemisphereLight(0xdde9ff, 0x090b0c, 1.6));
+  const key = new THREE.DirectionalLight(0xffffff, 4.2);
+  key.position.set(-5, 9, 7);
+  scene.add(key);
+  const rim = new THREE.PointLight(0x7fffc7, 24, 22, 2);
+  rim.position.set(5, 4, 4);
+  scene.add(rim);
+  const redRim = new THREE.PointLight(0xff4138, 18, 18, 2);
+  redRim.position.set(-5, 2, -2);
+  scene.add(redRim);
+
+  const bodyGeometry = new THREE.BoxGeometry(0.42, 1, 0.34, 2, 5, 2);
+  const wickGeometry = new THREE.CylinderGeometry(0.035, 0.035, 1.65, 10);
+  const capGeometry = new THREE.BoxGeometry(0.44, 0.045, 0.36);
+  const candles = [];
+
+  for (let index = 0; index < 14; index += 1) {
+    const group = new THREE.Group();
+    const rising = index % 2 === 0;
+    const color = rising ? 0x20e96b : 0xff4038;
+    const height = 1.05 + ((index * 7) % 5) * 0.19 + (index === 0 ? 0.7 : 0);
+    const material = new THREE.MeshPhysicalMaterial({
+      color,
+      roughness: 0.22,
+      metalness: 0.42,
+      clearcoat: 0.72,
+      clearcoatRoughness: 0.18,
+      emissive: color,
+      emissiveIntensity: 0.055,
+    });
+    const body = new THREE.Mesh(bodyGeometry, material);
+    body.scale.y = height;
+    body.position.y = height / 2 + 0.26;
+    const wick = new THREE.Mesh(wickGeometry, material);
+    wick.position.y = height / 2 + 0.26;
+    wick.scale.y = 0.72 + (index % 3) * 0.13;
+    const cap = new THREE.Mesh(capGeometry, material);
+    cap.position.y = 0.25;
+    group.add(body, wick, cap);
+    group.position.set((index - 6.5) * 0.59, 0, -0.16 * Math.abs(index - 6.5));
+    group.rotation.y = 0.07 * (index - 6.5);
+    group.userData.initialX = group.position.x;
+    group.userData.initialY = group.position.y;
+    group.userData.initialZ = group.position.z;
+    scene.add(group);
+    candles.push(group);
+  }
+
+  const fragments = [];
+  const fragmentGeometry = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+  const fragmentMaterial = new THREE.MeshStandardMaterial({
+    color: 0xcfd7d3,
+    roughness: 0.3,
+    metalness: 0.65,
+  });
+  for (let index = 0; index < 18; index += 1) {
+    const fragment = new THREE.Mesh(fragmentGeometry, fragmentMaterial);
+    fragment.position.set((index % 6 - 2.5) * 0.55, 0.2, -1 - (index % 3));
+    fragment.visible = false;
+    fragment.userData.targetX = fragment.position.x + (index % 2 ? 1 : -1) * (0.4 + (index % 4) * 0.28);
+    fragment.userData.targetY = 1.2 + (index % 5) * 0.36;
+    fragment.userData.targetZ = fragment.position.z + (index % 3) * 0.5;
+    fragment.userData.spinX = 2 + index * 0.31;
+    fragment.userData.spinZ = -2 + index * 0.27;
+    scene.add(fragment);
+    fragments.push(fragment);
+  }
+
+  const resize = () => {
+    const rect = stage.getBoundingClientRect();
+    camera.aspect = rect.width / rect.height;
+    camera.updateProjectionMatrix();
+    webglRenderer.setSize(rect.width, rect.height, false);
+  };
+  resize();
+  window.addEventListener('resize', resize, { passive: true });
+
+  let live = true;
+  const render = () => {
+    if (!live) return;
+    if (document.visibilityState === 'visible') {
+      camera.lookAt(0, 1.35, -0.4);
+      webglRenderer.render(scene, camera);
+    }
+    requestAnimationFrame(render);
+  };
+  requestAnimationFrame(render);
+
+  return {
+    camera,
+    candles,
+    fragments,
+    dispose() {
+      live = false;
+      webglRenderer.dispose();
+    },
+  };
+};
+
+const finishRendererSetup = () => {
+  resetOpeningState();
+  timeline = createMasterTimeline();
+  timeline.pause(0);
+  playbackReady = true;
+  maybeStart();
+};
+
+const activateCssFallback = () => {
+  renderer = 'css';
+  stage.classList.add('is-css-fallback');
+  finishRendererSetup();
+};
+
+const initialize = async () => {
+  if (forcedFallback) {
+    activateCssFallback();
+    return;
+  }
+
+  try {
+    const THREE = await import(THREE_MODULE_URI);
+    threeRevision = THREE.REVISION;
+    sceneApi = createDominoScene(THREE);
+    renderer = 'webgl';
+    finishRendererSetup();
+  } catch (error) {
+    console.warn('WebGL unavailable; using the CSS market scene.', error);
+    activateCssFallback();
+  }
+};
+
+requestAnimationFrame(() => {
+  if (document.visibilityState === 'visible') {
+    hasSeenVisibleFrame = true;
+    maybeStart();
+  } else {
+    waitingForFirstVisible = true;
+  }
+});
+
+initialize();
+</script>
+</body>
+</html>
