@@ -158,3 +158,36 @@
   color: var(--text-secondary);
   margin: 0 2px 8px;
 }
+
+.wl-starter-label {
+  margin: 16px 0 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wl-starters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.wl-starters button {
+  width: auto;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.15));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wl-movers-link {
+  color: var(--primary-accent);
+  font-size: 13px;
+  font-weight: 600;
+}

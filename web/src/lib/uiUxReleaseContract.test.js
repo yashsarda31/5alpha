@@ -28,3 +28,11 @@ test('mobile uses one More sheet with search and recent tools', () => {
   assert.match(app, /filterToolSections/);
   assert.match(app, /recordRecentTool/);
 });
+
+test('empty watchlist offers neutral starter symbols without bypassing auth', () => {
+  const watchlist = source('../pages/Watchlist.jsx');
+  assert.match(watchlist, /Example symbols — not recommendations/);
+  assert.match(watchlist, /WATCHLIST_STARTERS/);
+  assert.match(watchlist, /Choose from Today’s movers/);
+  assert.match(watchlist, /requireWatchlistAuth/);
+});

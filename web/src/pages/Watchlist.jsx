@@ -11,6 +11,10 @@ import { authState, watchlistIntent } from '../lib/authIntent';
 import './Watchlist.css';
 
 const TOKEN_KEY = 'alphanova_auth_token';
+const WATCHLIST_STARTERS = {
+  IN: ['RELIANCE', 'TCS', 'HDFCBANK'],
+  US: ['AAPL', 'MSFT', 'NVDA'],
+};
 const authHeader = () => {
   const token = localStorage.getItem(TOKEN_KEY);
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -33,9 +37,8 @@ const useLiveSetupSymbols = () => {
   }, [data]);
 };
 
-const AddBox = ({ onAdd, onRequireAuth, isAuthenticated, error, onClearError }) => {
+const AddBox = ({ onAdd, onRequireAuth, isAuthenticated, error, onClearError, market, onMarketChange }) => {
   const [value, setValue] = useState('');
-  const [market, setMarket] = useState('IN');
   const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
@@ -73,8 +76,8 @@ const AddBox = ({ onAdd, onRequireAuth, isAuthenticated, error, onClearError }) 
         inputStyle={{ marginBottom: 0, textTransform: 'uppercase' }}
         inputProps={{ 'aria-label': 'Add a symbol to your watchlist' }}
       />
-      <button type="button" onClick={() => setMarket('IN')} style={toggleStyle(market === 'IN')} aria-pressed={market === 'IN'}>NSE</button>
-      <button type="button" onClick={() => setMarket('US')} style={toggleStyle(market === 'US')} aria-pressed={market === 'US'}>US</button>
+      <button type="button" onClick={() => onMarketChange('IN')} style={toggleStyle(market === 'IN')} aria-pressed={market === 'IN'}>NSE</button>
+      <button type="button" onClick={() => onMarketChange('US')} style={toggleStyle(market === 'US')} aria-pressed={market === 'US'}>US</button>
       <button type="submit" disabled={busy || !value.trim()} style={{ width: 'auto', whiteSpace: 'nowrap' }}>
         {busy ? 'Adding…' : '+ Add'}
       </button>
@@ -139,6 +142,7 @@ const Watchlist = () => {
   const navigate = useNavigate();
   const [quotes, setQuotes] = useState({}); // symbol -> {last, change_pct, day_low, day_high, spark}
   const [marketOpen, setMarketOpen] = useState(null);
+  const [market, setMarket] = useState('IN');
   const [sortKey, setSortKey] = useState(null); // null = user's saved order
   const [sortDir, setSortDir] = useState('desc');
   const liveSetups = useLiveSetupSymbols();
@@ -146,6 +150,14 @@ const Watchlist = () => {
   const requireWatchlistAuth = (symbol, market) => {
     const intent = watchlistIntent(symbol, market);
     navigate('/login?mode=signup', { state: authState(location, intent) });
+  };
+
+  const addStarter = (symbol) => {
+    if (!currentUser) {
+      requireWatchlistAuth(symbol, market);
+      return;
+    }
+    add(symbol, market).catch(() => {});
   };
 
   const symbolsKey = symbols.join(',');
@@ -283,7 +295,14 @@ const Watchlist = () => {
   const tableProps = { columns, rowKey: (r) => r.symbol, sortKey, sortDir, onSort };
   const empty = (
     <EmptyState title="Your watchlist is empty">
-      Track stocks across NSE and US. Add a symbol above or tap ☆ anywhere in Alpha Nova.
+      <p>Track stocks across NSE and US. Add a symbol above or start with an example.</p>
+      <p className="wl-starter-label">Example symbols — not recommendations</p>
+      <div className="wl-starters">
+        {WATCHLIST_STARTERS[market].map((symbol) => (
+          <button key={symbol} type="button" onClick={() => addStarter(symbol)}>{symbol}</button>
+        ))}
+      </div>
+      <Link className="wl-movers-link" to="/dashboard">Choose from Today’s movers</Link>
     </EmptyState>
   );
 
@@ -303,6 +322,8 @@ const Watchlist = () => {
           isAuthenticated={Boolean(currentUser)}
           error={error}
           onClearError={clearError}
+          market={market}
+          onMarketChange={setMarket}
         />
       </div>
 
