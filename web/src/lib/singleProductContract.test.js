@@ -53,6 +53,12 @@ test('signed-out Settings starts the notification auth intent', () => {
   assert.doesNotMatch(settings, /Browsing as guest/);
 });
 
+test('signed-out sidebar CTA preserves the notification auth intent', () => {
+  const app = source('../App.jsx');
+  assert.match(app, /import \{ authState, notificationIntent \} from '\.\/lib\/authIntent';/);
+  assert.match(app, /state=\{authState\(location, notificationIntent\(\)\)\}/);
+});
+
 test('Today’s Call and Leaderboard do not substitute guest variants', () => {
   const dashboard = source('../pages/Dashboard.jsx');
   const leaderboard = source('../pages/Leaderboard.jsx');

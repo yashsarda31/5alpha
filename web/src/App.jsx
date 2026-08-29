@@ -14,6 +14,7 @@ import Disclaimer from './components/Disclaimer';
 import AuthIntentHandler from './components/AuthIntentHandler';
 import SignalAlertProvider from './alerts/SignalAlertProvider';
 import { trapFocus } from './lib/focusTrap';
+import { authState, notificationIntent } from './lib/authIntent';
 
 const Login = lazy(() => import('./pages/Login'));
 const SettingsSheet = lazy(() => import('./components/SettingsSheet'));
@@ -335,7 +336,7 @@ const AppLayout = () => {
           {!currentUser && (
             <Link
               to="/login?mode=signup"
-              state={{ from: location }}
+              state={authState(location, notificationIntent())}
               className="sidebar-signup-cta"
               onClick={() => setMenuOpen(false)}
             >
