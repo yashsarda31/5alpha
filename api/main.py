@@ -4196,9 +4196,70 @@ SIGNAL_IN_REWARD_RISK = 2.0
 SIGNALS_CLOSED_TTL = 900  # 15 min
 
 
+def build_signal_data_status(
+    market_open,
+    market_note,
+    observed_at,
+    sources,
+    required,
+    latest_completed_session,
+    expected_latest_session,
+):
+    """Build the freshness contract that gates actionable publication."""
+    warnings = []
+    missing = sorted(name for name, available in required.items() if not available)
+    if missing:
+        warnings.extend(f"{name}_unavailable" for name in missing)
+        status = "provider_limited"
+    elif not observed_at:
+        warnings.append("observation_timestamp_unavailable")
+        status = "provider_limited"
+    elif latest_completed_session != expected_latest_session:
+        warnings.append("latest_completed_session_missing")
+        status = "stale"
+    else:
+        status = "fresh" if market_open else "last_session"
+    return {
+        "status": status,
+        "observed_at": observed_at,
+        "market_session": "open" if market_open else f"closed_{market_note}",
+        "sources": sorted({source for source in sources if source}),
+        "required_inputs_complete": not missing and bool(observed_at),
+        "warnings": warnings,
+    }
+
+
+def _expected_signal_session(market_open, market_note, now=None):
+    """Latest weekday session expected from the reported market state."""
+    today = (now or datetime.now(_IST)).date()
+    candidate = today
+    if not market_open and market_note in {"pre-open", "weekend"}:
+        candidate -= timedelta(days=1 if market_note == "pre-open" else 0)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate.isoformat()
+
+
+def _signal_observed_at(value):
+    """Normalize known NSE timestamps to an explicit IST ISO timestamp."""
+    if not value:
+        return None
+    for fmt in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y %H:%M"):
+        try:
+            parsed = datetime.strptime(value, fmt).replace(tzinfo=_IST)
+            return parsed.isoformat(timespec="seconds")
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(value).isoformat(timespec="seconds")
+    except (TypeError, ValueError):
+        return None
+
+
 def _apply_signal_quality_gate(plans, min_score=SIGNAL_PUBLISH_MIN_SCORE,
                                min_coverage=SIGNAL_MIN_COVERAGE_PCT, limit=8,
-                               model_version=SIGNAL_MODEL_VERSION):
+                               model_version=SIGNAL_MODEL_VERSION,
+                               data_status=None):
     """Publish candidates with strong conviction and sufficient live data.
 
     LONG and SHORT candidates are treated identically. Rejections are retained
@@ -4210,10 +4271,16 @@ def _apply_signal_quality_gate(plans, min_score=SIGNAL_PUBLISH_MIN_SCORE,
     for original in plans or []:
         plan = dict(original)
         reasons = []
+        if data_status is not None:
+            if not data_status.get("required_inputs_complete"):
+                reasons.append("inputs_incomplete")
+            elif data_status.get("status") in {"stale", "unavailable"}:
+                reasons.append("stale_inputs")
         if float(plan.get("score") or 0) < min_score:
             reasons.append("low_score")
         if float(plan.get("coverage_pct") or 0) < min_coverage:
             reasons.append("incomplete_data")
+        reasons = list(dict.fromkeys(reasons))
         plan["actionable"] = not reasons
         plan["rejection_reasons"] = reasons
         if reasons:
@@ -5185,6 +5252,7 @@ async def _us_market_signals(capital, risk_pct):
         _bounded(asyncio.to_thread(_yf_daily_closes, "^NDX"), 15),
         _bounded(asyncio.to_thread(_yf_daily_closes, "^VIX"), 15),
     )
+    radar_available = radar is not None
     radar = radar or []
     vix = float(vix_closes[-1]) if vix_closes else 0.0
 
@@ -5213,12 +5281,29 @@ async def _us_market_signals(capital, risk_pct):
         "iv": _signal_iv_regime(oc_spy, vix),
     }
 
+    observed_at = datetime.now(_IST).isoformat(timespec="seconds")
+    session_date = _expected_signal_session(is_open, why_closed)
+    data_status = build_signal_data_status(
+        market_open=is_open,
+        market_note=why_closed,
+        observed_at=observed_at,
+        sources=["CBOE", "Yahoo Finance"],
+        required={
+            "price": bool(spx_closes and ndx_closes),
+            "open_interest": radar_available and bool(oc_spy or oc_qqq),
+        },
+        latest_completed_session=session_date,
+        expected_latest_session=session_date,
+    )
     candidates, index_bias = score_us_signal_plans(radar, oc_spy, oc_qqq, regime, capital, risk_pct)
-    plans, rejected, quality = _apply_signal_quality_gate(candidates)
+    plans, rejected, quality = _apply_signal_quality_gate(
+        candidates, data_status=data_status
+    )
     return {
         "as_of": datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%dT%H:%M:%S"),
         "market_open": is_open,
         "market_note": why_closed,
+        "data_status": data_status,
         "regime": regime,
         "options": {
             "indices": [oc for oc in (oc_spy, oc_qqq) if oc],
@@ -5317,6 +5402,9 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         _bounded(asyncio.to_thread(_yf_daily_closes, "^INDIAVIX"), 15),
         _bounded(asyncio.to_thread(_ensure_delivery_fresh, 2), 8),  # best-effort EOD delivery top-up
     )
+    buildup_available = buildup_pair is not None
+    active_available = active is not None
+    spurts_available = spurts is not None
     buildups, buildup_ts = buildup_pair if buildup_pair else ({}, "")
     active = active or []
     spurts = spurts or []
@@ -5373,8 +5461,26 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         delivery = {}
     candidates, index_bias = score_signal_plans(
         radar, active, oc_nifty, buildups or {}, regime, capital, risk_pct, delivery=delivery)
+    observed_at = _signal_observed_at(buildup_ts)
+    latest_session = observed_at[:10] if observed_at else None
+    expected_session = _expected_signal_session(is_open, why_closed)
+    data_status = build_signal_data_status(
+        market_open=is_open,
+        market_note=why_closed,
+        observed_at=observed_at,
+        sources=["NSE", "Yahoo Finance"],
+        required={
+            "price": active_available and bool(nifty_closes),
+            "open_interest": buildup_available and spurts_available,
+        },
+        latest_completed_session=latest_session,
+        expected_latest_session=expected_session,
+    )
     plans, rejected, quality = _apply_signal_quality_gate(
-        candidates, limit=None, model_version=SIGNAL_IN_MODEL_VERSION
+        candidates,
+        limit=None,
+        model_version=SIGNAL_IN_MODEL_VERSION,
+        data_status=data_status,
     )
     _cache_stock_pro_context(buildups or {}, buildup_ts, radar, delivery, regime, index_bias)
     # Reuse the entry/stop/target captured when a signal first entered the
@@ -5385,6 +5491,7 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         "as_of": datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%dT%H:%M:%S"),
         "market_open": is_open,
         "market_note": why_closed,
+        "data_status": data_status,
         "regime": regime,
         "options": {
             "indices": [oc for oc in (oc_nifty, oc_bank) if oc],
