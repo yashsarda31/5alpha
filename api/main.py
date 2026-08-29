@@ -5127,8 +5127,10 @@ def fetch_us_radar(universe=None):
             bar = h.iloc[-1]
             last = float(bar["Close"])
             prev = float(h["Close"].iloc[-2])
-            px = (last / prev - 1) * 100 if prev else 0
             hi, lo = float(bar["High"]), float(bar["Low"])
+            if not all(math.isfinite(value) and value > 0 for value in (last, prev, hi, lo)):
+                continue
+            px = (last / prev - 1) * 100
             dpos = (last - lo) / (hi - lo) if hi > lo else 0.5
             vol = float(bar["Volume"] or 0)
             avg_vol = float(h["Volume"].iloc[-21:-1].mean() or 0)
@@ -5257,7 +5259,7 @@ async def _us_market_signals(capital, risk_pct):
         _bounded(asyncio.to_thread(_yf_daily_closes, "^NDX"), 15),
         _bounded(asyncio.to_thread(_yf_daily_closes, "^VIX"), 15),
     )
-    radar_available = radar is not None
+    radar_available = bool(radar)
     radar = radar or []
     vix = float(vix_closes[-1]) if vix_closes else 0.0
 

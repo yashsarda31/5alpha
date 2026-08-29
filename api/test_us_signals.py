@@ -5,9 +5,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pandas as pd
+
 os.environ.setdefault("ALPHANOVA_DB_DIR", tempfile.mkdtemp(prefix="alphanova_test_"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import main
 from main import score_us_signal_plans, _us_buildup_buckets
 
 
@@ -55,6 +58,21 @@ def test_qty_respects_risk_and_vol_scale():
     p = plans[0]
     # risk budget = 1% of 1M × 0.5 scale = 5000; qty = 5000 // per-share risk
     assert p["qty"] == int(5000 / p["risk"])
+
+
+def test_radar_skips_an_incomplete_latest_price_bar(monkeypatch):
+    index = pd.date_range("2026-08-10", periods=10, freq="D")
+    frame = pd.DataFrame({
+        "Open": [190.0] * 10,
+        "High": [202.0] * 9 + [float("nan")],
+        "Low": [188.0] * 9 + [float("nan")],
+        "Close": [200.0] * 9 + [float("nan")],
+        "Volume": [1_000_000.0] * 10,
+    }, index=index)
+    batch = pd.concat({"NVDA": frame}, axis=1)
+    monkeypatch.setattr(main.yf, "download", lambda *args, **kwargs: batch)
+
+    assert main.fetch_us_radar(["NVDA"]) == []
 
 
 def test_buckets_classify_and_shape():
