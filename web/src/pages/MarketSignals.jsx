@@ -151,7 +151,7 @@ const MarketSignals = () => {
         }
       />
 
-      <DataStatus status={data.data_status} />
+      <DataStatus status={data.data_status} refreshing={refreshing} />
 
       <nav className="signals-section-jumps" aria-label="Signal page sections">
         <a href="#setups-analysis">Setups</a>
@@ -198,12 +198,14 @@ const MarketSignals = () => {
           market={isUS ? 'US' : 'IN'}
         />
       )}
-      <p className="signals-footnote">
-        Quality Score = {isUS ? 'volume intensity' : 'OI intensity'} + price momentum + liquidity + options-flow agreement + index bias + intraday & regime alignment (0–100, publication threshold 65).
-        {!isUS && ' New India setups use a tighter stop with a 2:1 gross target; existing open plans retain their locked original levels. This revised execution policy is not backtest-validated.'}
-        {' '}*Qty sized so a stop-out loses {setups.risk_pct}% of {cur}{fmt(setups.capital, 0)} capital, scaled by the volatility regime (×{regime.vol_scale}) — not rounded to lot size.
-        Signals are analytics, not investment advice.
-      </p>
+      <CollapsibleSection title="How scoring works" className="signals-methodology">
+        <p className="signals-footnote">
+          Quality Score = {isUS ? 'volume intensity' : 'OI intensity'} + price momentum + liquidity + options-flow agreement + index bias + intraday & regime alignment (0–100, publication threshold 65).
+          {!isUS && ' New India setups use a tighter stop with a 2:1 gross target; existing open plans retain their locked original levels. This revised execution policy is not backtest-validated.'}
+          {' '}*Qty sized so a stop-out loses {setups.risk_pct}% of {cur}{fmt(setups.capital, 0)} capital, scaled by the volatility regime (×{regime.vol_scale}) — not rounded to lot size.
+          Signals are analytics, not investment advice.
+        </p>
+      </CollapsibleSection>
       </div>
 
       {/* ---- Regime context ---- */}

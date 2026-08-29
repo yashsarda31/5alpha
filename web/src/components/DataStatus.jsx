@@ -14,7 +14,7 @@ const formatObservedAt = (value) => {
   return parsed.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
 };
 
-export default function DataStatus({ status }) {
+export default function DataStatus({ status, refreshing = false }) {
   const normalized = normalizeDataStatus(status);
   const sourceCopy = normalized.sources.length
     ? normalized.sources.join(' · ')
@@ -25,6 +25,9 @@ export default function DataStatus({ status }) {
       <div className="signal-data-status__summary">
         <span className="signal-data-status__pill">{STATUS_LABELS[normalized.status]}</span>
         <span>{normalized.market_session.replaceAll('_', ' ')}</span>
+        <span className="signal-data-status__refresh" role="status">
+          {refreshing ? 'Refreshing snapshot…' : ''}
+        </span>
       </div>
       <p className="signal-data-status__meta">
         <time dateTime={normalized.observed_at || undefined}>{formatObservedAt(normalized.observed_at)}</time>

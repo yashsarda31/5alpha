@@ -401,6 +401,26 @@
 .signal-data-status__warnings summary { cursor: pointer; font-size: 12px; }
 .signal-data-status__warnings ul { margin: 8px 0 0; padding-left: 20px; font-size: 12px; color: var(--text-secondary); }
 
+.signal-data-status__refresh {
+  min-width: 112px;
+  color: var(--primary-accent);
+  font-size: 12px;
+}
+
+.signals-methodology {
+  margin-top: 10px;
+  border-color: var(--border-hairline);
+  background: transparent;
+}
+
+.signals-methodology > summary {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.signals-methodology .signals-footnote { margin: 0; }
+
 .signals-section-jumps {
   display: flex;
   gap: 8px;

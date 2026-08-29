@@ -53,3 +53,13 @@ test('mobile essentials keep readable type and touch-sized controls', () => {
   assert.match(css, /--touch-target:\s*44px/);
   assert.match(css, /\.disclaimer-alert[\s\S]*?font-size:\s*var\(--font-body-min\)/);
 });
+
+test('Signals announces refresh state and keeps methodology on demand', () => {
+  const status = source('../components/DataStatus.jsx');
+  const signals = source('../pages/MarketSignals.jsx');
+  assert.match(status, /refreshing = false/);
+  assert.match(status, /role="status"/);
+  assert.match(signals, /<DataStatus status=\{data\.data_status\} refreshing=\{refreshing\}/);
+  assert.match(signals, /title="How scoring works"/);
+  assert.match(signals, /signals-methodology/);
+});
