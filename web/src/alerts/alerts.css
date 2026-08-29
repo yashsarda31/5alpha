@@ -92,6 +92,26 @@
 }
 .signal-toast .st-close:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-primary, #fff); }
 
+@media (max-width: 850px) {
+  .toast-stack {
+    top: calc(60px + env(safe-area-inset-top, 0px));
+    right: 12px;
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 132px - env(safe-area-inset-bottom, 0px));
+  }
+
+  .signal-toast {
+    padding-right: 52px;
+  }
+
+  .signal-toast .st-close {
+    min-width: 44px;
+    min-height: 44px;
+    top: 2px;
+    right: 2px;
+  }
+}
+
 /* Sidebar bell toggle */
 .alert-bell {
   display: flex;

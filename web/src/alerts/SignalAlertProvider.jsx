@@ -5,6 +5,7 @@ import ToastStack from './ToastStack';
 import { getCached, subscribe } from '../lib/swrCache';
 import { SignalAlertContext } from './SignalAlertContext';
 import { markFirstRunStep, trackProductEvent } from '../lib/productAnalytics.js';
+import { enqueueToast, TOAST_TTL_MS } from './alertPresentation.js';
 import './alerts.css';
 
 const SEEN_KEY = 'alphanova_seen_signals';
@@ -13,9 +14,6 @@ const PREF_KEY = 'alphanova_browser_notifs';
 // on the next visit until the user actually enables (free platform: every
 // account should end up push-subscribed).
 const NUDGE_KEY = 'alphanova_notif_nudge_dismissed';
-const TOAST_TTL_MS = 10000;
-const MAX_TOASTS = 4;
-
 const notifSupported = () => typeof window !== 'undefined' && 'Notification' in window;
 // One alert per stock per day — side/kind variants of the same name were
 // reported as notification spam. (Older builds stored symbol|side|kind keys;
@@ -201,8 +199,8 @@ const SignalAlertProvider = ({ children }) => {
       id, side: plan.side, symbol: plan.symbol, score: plan.score,
       entry: plan.entry, stop: plan.stop, target: plan.target, currency: cur,
     };
-    setToasts((prev) => [...prev, toast].slice(-MAX_TOASTS));
-    setTimeout(() => dismiss(id), TOAST_TTL_MS);
+    setToasts((prev) => enqueueToast(prev, toast));
+    window.setTimeout(() => dismiss(id), TOAST_TTL_MS);
 
     // native notification only when backgrounded + opted in + permitted
     if (notifSupported() && browserEnabledRef.current &&
