@@ -53,11 +53,19 @@ const DataTable = ({
               <th
                 key={col.key}
                 className={col.sortable ? 'sortable' : ''}
-                onClick={col.sortable && onSort ? () => onSort(col.key) : undefined}
+                aria-sort={col.sortable ? (sortKey === col.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}
                 style={{ textAlign: col.align === 'right' ? 'right' : col.align || 'left', width: col.width }}
-                title={col.sortable ? `Sort by ${col.label}` : undefined}
               >
-                {col.label}{sortIndicator(col)}
+                {col.sortable && onSort ? (
+                  <button
+                    type="button"
+                    className="ui-sort-button"
+                    onClick={() => onSort(col.key)}
+                    title={`Sort by ${col.label}`}
+                  >
+                    {col.label}{sortIndicator(col)}
+                  </button>
+                ) : col.label}
               </th>
             ))}
           </tr>

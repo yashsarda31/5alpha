@@ -37,6 +37,7 @@
 }
 .ui-ph-titlerow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ui-ph-title {
+  margin: 0;
   font-family: var(--font-display);
   font-size: 25px;
   font-weight: 700;
@@ -49,6 +50,7 @@
 
 /* SectionTitle */
 .ui-section-title {
+  margin: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -163,8 +165,21 @@
   border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
 }
-.ui-table th.sortable { cursor: pointer; user-select: none; }
+.ui-table th.sortable { user-select: none; }
 .ui-table th.sortable:hover { color: var(--text-primary); }
+.ui-sort-button {
+  width: auto;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
 .ui-table td {
   padding: 9px 15px;
   border-bottom: 1px solid var(--border-hairline);

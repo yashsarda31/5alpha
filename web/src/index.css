@@ -19,6 +19,7 @@
 }
 
 :root {
+  --touch-target: 44px;
   /* Alpha Nova Dark Theme — Electric Ice Blue x Light Golden */
   --bg-main: #000000;
   --bg-panel: rgba(28, 28, 30, 0.65);
@@ -1077,9 +1078,17 @@ tr:hover td {
   }
 
   .disclaimer-alert {
-    font-size: 10px;
+    font-size: var(--font-body-min);
     padding: 8px 12px;
     margin-bottom: 16px;
+  }
+
+  .tab-item,
+  .nav-link,
+  .settings-btn,
+  .tools-sheet-close,
+  .toast-close {
+    min-height: var(--touch-target);
   }
 
   .card {

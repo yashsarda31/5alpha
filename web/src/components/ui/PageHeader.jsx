@@ -7,7 +7,7 @@ const PageHeader = ({ code, title, subtitle, right }) => (
     <div>
       <div className="ui-ph-titlerow">
         {code && <span className="ui-code-chip">{code}</span>}
-        <span className="ui-ph-title">{title}</span>
+        <h1 className="ui-ph-title">{title}</h1>
       </div>
       {subtitle && <div className="ui-ph-subtitle">{subtitle}</div>}
     </div>

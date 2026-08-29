@@ -36,3 +36,20 @@ test('empty watchlist offers neutral starter symbols without bypassing auth', ()
   assert.match(watchlist, /Choose from Today’s movers/);
   assert.match(watchlist, /requireWatchlistAuth/);
 });
+
+test('shared headings and sortable tables expose native semantics', () => {
+  const header = source('../components/ui/PageHeader.jsx');
+  const section = source('../components/ui/SectionTitle.jsx');
+  const table = source('../components/ui/DataTable.jsx');
+  assert.match(header, /<h1 className="ui-ph-title">/);
+  assert.match(section, /const Heading = `h\$\{level\}`/);
+  assert.match(table, /aria-sort=/);
+  assert.match(table, /className="ui-sort-button"/);
+  assert.match(table, /<button/);
+});
+
+test('mobile essentials keep readable type and touch-sized controls', () => {
+  const css = source('../index.css');
+  assert.match(css, /--touch-target:\s*44px/);
+  assert.match(css, /\.disclaimer-alert[\s\S]*?font-size:\s*var\(--font-body-min\)/);
+});
