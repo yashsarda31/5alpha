@@ -9,6 +9,7 @@ import LazyMarkdown from '../components/LazyMarkdown';
 import WatchlistStar from '../components/WatchlistStar';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
 import { createLatestRequestGuard } from '../lib/latestRequest';
+import { markFirstRunStep, trackProductEvent } from '../lib/productAnalytics.js';
 import './Chart.css';
 
 const currencyFor = (ticker) => {
@@ -61,6 +62,9 @@ const Chart = () => {
       // adopt the resolved name so the ₹/$ currency and star are right.
       const resolved = resChart.data.ticker || sym.trim();
       if (resolved !== ticker) setTicker(resolved);
+      const market = resolved.endsWith('.NS') || resolved.endsWith('.BO') ? 'IN' : 'US';
+      markFirstRunStep('analyse');
+      void trackProductEvent('analyse_loaded', { route: '/chart', market });
       const resFund = await axios.get(`/api/fundamentals/${resolved}`).catch(() => ({ data: null }));
       if (!requestGuardRef.current.isCurrent(requestId)) return;
       if (resFund.data && !resFund.data.error) {

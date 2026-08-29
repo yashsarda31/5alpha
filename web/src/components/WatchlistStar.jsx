@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { useWatchlist } from '../WatchlistContext';
 import { authState, watchlistIntent } from '../lib/authIntent';
+import { markFirstRunStep, trackProductEvent } from '../lib/productAnalytics.js';
 import './WatchlistStar.css';
 
 // Reusable star toggle bound to WatchlistContext. Drop it wherever a symbol
@@ -21,6 +22,9 @@ const WatchlistStar = ({ symbol, market = 'IN', size = 18, className = '', stopP
       e.preventDefault();
       e.stopPropagation();
     }
+    const eventMarket = String(market).toUpperCase() === 'US' ? 'US' : 'IN';
+    const route = ['/chart', '/watchlist', '/signals'].includes(location.pathname) ? location.pathname : '/';
+    if (!on) void trackProductEvent('watchlist_intent_started', { route, market: eventMarket });
     if (!currentUser) {
       const intent = watchlistIntent(symbol, market);
       navigate('/login?mode=signup', { state: authState(location, intent) });
@@ -30,7 +34,11 @@ const WatchlistStar = ({ symbol, market = 'IN', size = 18, className = '', stopP
     setBusy(true);
     try {
       if (on) await remove(symbol);
-      else await add(symbol, market);
+      else {
+        await add(symbol, market);
+        markFirstRunStep('durable');
+        void trackProductEvent('watchlist_saved', { route, market: eventMarket });
+      }
     } catch {
       // context handles rollback + error state
     } finally {

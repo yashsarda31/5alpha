@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import LazyMarkdown from '../components/LazyMarkdown';
 import { PageHeader, StatTile, StatGrid } from '../components/ui';
 import TickerSearch from '../components/TickerSearch';
 import ShareButton from '../components/ShareButton';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
+import { markFirstRunStep, trackProductEvent } from '../lib/productAnalytics.js';
 import './PositionSizing.css';
 
 const PREFS_KEY = 'alphanova_sizing_prefs';
@@ -17,6 +18,7 @@ const loadPrefs = () => {
 const R_TARGETS = [1, 1.5, 2, 3];
 
 const PositionSizing = () => {
+  const completionTracked = useRef(false);
   const [market, setMarket] = useState(() => (loadPrefs().market === 'US' ? 'US' : 'IN'));
   const [capital, setCapital] = useState(() => {
     const p = loadPrefs();
@@ -47,6 +49,11 @@ const PositionSizing = () => {
   // Using the calculator counts as "planned a trade" for the Discipline Arena.
   const stampSized = () => {
     try { localStorage.setItem(SIZED_KEY, new Date().toISOString().split('T')[0]); } catch { /* private mode */ }
+    markFirstRunStep('size');
+    if (!completionTracked.current) {
+      completionTracked.current = true;
+      void trackProductEvent('position_sizing_completed', { route: '/position-sizing', market });
+    }
   };
 
   const riskAmount = (capital * riskPercent) / 100;

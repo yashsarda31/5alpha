@@ -8,6 +8,8 @@ import WatchlistStar from '../components/WatchlistStar';
 import Sparkline from '../components/Sparkline';
 import { useSWR } from '../lib/swrCache';
 import { buildNoTradeGuidance, selectPrioritySetups } from '../lib/decisionBrief';
+import { markFirstRunStep, trackProductEvent, trackReturnVisit } from '../lib/productAnalytics.js';
+import FirstRunWorkflow from '../components/FirstRunWorkflow';
 import './Dashboard.css';
 
 // "₹2,987.65" / "$214.30" — null when the quote has no price yet
@@ -34,6 +36,7 @@ const MoverTile = ({ sym, market, last, chg, spark }) => {
       <WatchlistStar symbol={sym} market={market} size={15} className="dash-mover-star" />
       <Link
         to={`/chart?symbol=${sym}${market === 'US' ? '' : '.NS'}`}
+        onClick={() => markFirstRunStep('choose')}
         title={`Open ${sym} in Chart Analyser`}
         className="dash-mover-link"
       >
@@ -93,11 +96,7 @@ const MyWatchlist = () => {
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={62} />)}
         </div>
       ) : symbols.length === 0 ? (
-        <div className="dash-wl-empty">
-          <strong>Track your stocks.</strong> Tap the ☆ on any Chart, Screener result,
-          Momentum leader, or a mover below — your picks show up here with live prices,
-          so you can see what moved on <em>your</em> names in one glance.
-        </div>
+        <FirstRunWorkflow />
       ) : (
         <div className="dash-mover-grid">
           {symbols.map((sym) => {
@@ -366,6 +365,11 @@ const formatIndexValue = (value) => {
 };
 
 const Dashboard = () => {
+  useEffect(() => {
+    void trackProductEvent('today_viewed', { route: '/dashboard', market: '' });
+    void trackReturnVisit({ route: '/dashboard', market: '' });
+  }, []);
+
   // Stale-while-revalidate: last snapshot renders instantly, refresh runs behind it
   const { data: dashData, error: swrError } = useSWR(
     'dashboard',
@@ -413,7 +417,7 @@ const Dashboard = () => {
 
       <SectionTitle>Market Details</SectionTitle>
       <div className="dash-grid">
-        <div>
+        <div id="market-movers">
           <SectionTitle>Top Movers{moversMarket === 'US' ? ' · US markets' : ''}</SectionTitle>
           <div className="dash-mover-grid">
             {loading ? (

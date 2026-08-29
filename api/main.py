@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -42,6 +42,11 @@ try:
 except ImportError:  # Vercel imports this file with api/ as the package root.
     from signal_model.ledger import ensure_schema as ensure_signal_model_schema
     from signal_model.portfolio import build_portfolio_snapshot, resolve_position
+
+try:
+    from api.analytics_events import aggregate_activation, delete_device, record_event
+except ImportError:  # Vercel imports this file with api/ as the package root.
+    from analytics_events import aggregate_activation, delete_device, record_event
 
 try:
     from api.stock_pro import calculate_stock_pro_signal
@@ -7858,6 +7863,54 @@ def predict_resolve(authorization: str = Header(None)):
         conn.close()
 
 
+class AnalyticsEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event: str
+    device_id: str
+    occurred_at: str
+    route: str
+    market: str
+
+
+class AnalyticsDeviceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device_id: str
+
+
+@app.post("/api/analytics/events", status_code=202)
+def create_analytics_event(payload: AnalyticsEventRequest):
+    conn = _auth_db()
+    try:
+        record_event(conn, payload.model_dump(), datetime.now(timezone.utc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        conn.close()
+    try:
+        _blob_push_db()
+    except Exception:
+        pass
+    return {"accepted": True}
+
+
+@app.delete("/api/analytics/device")
+def reset_analytics_device(payload: AnalyticsDeviceRequest):
+    conn = _auth_db()
+    try:
+        deleted = delete_device(conn, payload.device_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        conn.close()
+    try:
+        _blob_push_db()
+    except Exception:
+        pass
+    return {"deleted": deleted}
+
+
 # --- Admin metrics (owner-only user analytics) ---
 # Read-only aggregate view of the users/sessions tables for the alpha-nova-metrics
 # dashboard. Gated by ADMIN_METRICS_KEY: required on Vercel so signup data is never
@@ -7891,6 +7944,7 @@ def _admin_metrics_data(growth_days=90, recent_limit=25):
         active_sessions = conn.execute(
             "SELECT COUNT(*) FROM sessions WHERE expires_at > ?", (_utc_now(),)
         ).fetchone()[0]
+        activation = aggregate_activation(conn, datetime.now(timezone.utc))
     finally:
         conn.close()
 
@@ -7962,6 +8016,7 @@ def _admin_metrics_data(growth_days=90, recent_limit=25):
         },
         "growth": growth,
         "recent": recent,
+        "activation": activation,
     }
 
 @app.get("/api/admin/metrics")

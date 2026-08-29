@@ -8,6 +8,7 @@ import { usePrediction } from '../PredictionContext';
 import { authState, notificationIntent } from '../lib/authIntent';
 import InstallApp from './InstallApp';
 import { trapFocus } from '../lib/focusTrap';
+import { resetProductAnalytics } from '../lib/productAnalytics.js';
 
 const AlertBell = () => {
   const { browserEnabled, toggleBrowser, permission } = useSignalAlerts();
@@ -128,6 +129,7 @@ const SettingsSheet = ({ open, onClose }) => {
   const { currentUser, logout } = useAuth();
   const location = useLocation();
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+  const [analyticsResetStatus, setAnalyticsResetStatus] = useState('');
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
 
@@ -147,6 +149,12 @@ const SettingsSheet = ({ open, onClose }) => {
   const handleKeyChange = (e) => {
     setApiKey(e.target.value);
     localStorage.setItem('gemini_api_key', e.target.value);
+  };
+
+  const resetAnalytics = async () => {
+    setAnalyticsResetStatus('Resetting…');
+    const ok = await resetProductAnalytics();
+    setAnalyticsResetStatus(ok ? 'Anonymous analytics reset.' : 'Could not reset analytics. Try again.');
   };
 
   return (
@@ -209,6 +217,10 @@ const SettingsSheet = ({ open, onClose }) => {
         <div className="settings-section">
           <div className="settings-section-title">App</div>
           <InstallApp />
+          <button type="button" className="secondary" onClick={resetAnalytics} style={{ marginTop: 10 }}>
+            Reset anonymous product analytics
+          </button>
+          <p className="settings-hint" aria-live="polite">{analyticsResetStatus}</p>
         </div>
 
         <div className="settings-section">

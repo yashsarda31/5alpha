@@ -4,6 +4,7 @@ import { useAuth } from '../AuthContext';
 import ToastStack from './ToastStack';
 import { getCached, subscribe } from '../lib/swrCache';
 import { SignalAlertContext } from './SignalAlertContext';
+import { markFirstRunStep, trackProductEvent } from '../lib/productAnalytics.js';
 import './alerts.css';
 
 const SEEN_KEY = 'alphanova_seen_signals';
@@ -284,7 +285,13 @@ const SignalAlertProvider = ({ children }) => {
     const on = perm === 'granted';
     setBrowserEnabled(on);
     try { localStorage.setItem(PREF_KEY, on ? 'on' : 'off'); } catch { /* noop */ }
-    if (on) subscribePush(); // register this device for server pushes
+    if (on) {
+      const status = await subscribePush();
+      if (status === 'ok') {
+        markFirstRunStep('durable');
+        void trackProductEvent('alerts_enabled', { route: '/signals', market: '' });
+      }
+    }
   }, []);
 
   // Get this device fully push-subscribed, prompting for permission if needed.
@@ -304,7 +311,12 @@ const SignalAlertProvider = ({ children }) => {
     if (perm !== 'granted') return 'denied';
     setBrowserEnabled(true);
     try { localStorage.setItem(PREF_KEY, 'on'); } catch { /* noop */ }
-    return subscribePush();
+    const status = await subscribePush();
+    if (status === 'ok') {
+      markFirstRunStep('durable');
+      void trackProductEvent('alerts_enabled', { route: '/signals', market: '' });
+    }
+    return status;
   }, []);
 
   // Every device with granted permission (and no explicit opt-out) subscribes
