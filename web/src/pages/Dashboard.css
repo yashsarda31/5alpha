@@ -147,6 +147,36 @@
 .dash-nav-title { color: var(--primary-gold); font-weight: 700; font-size: 14px; }
 .dash-nav-desc { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 
+.dash-next-actions {
+  margin: 18px 0 24px;
+}
+
+.dash-next-actions__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dash-next-actions__grid a {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--text-primary);
+  text-decoration: none;
+  background: var(--surface-tile);
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.dash-next-actions__grid a:hover,
+.dash-next-actions__grid a:focus-visible {
+  border-color: var(--primary-accent-border);
+  background: var(--primary-accent-soft);
+}
+
 /* My Watchlist (personalized top section) */
 .dash-section-head {
   display: flex;
@@ -480,4 +510,5 @@
 @media (max-width: 560px) {
   .dash-no-trade { align-items: flex-start; flex-direction: column; }
   .dash-setup-levels { grid-template-columns: 1fr; }
+  .dash-next-actions__grid { grid-template-columns: 1fr; }
 }

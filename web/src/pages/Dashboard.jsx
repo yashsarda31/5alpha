@@ -262,6 +262,17 @@ const PrioritySetups = ({ signals, loading }) => {
   );
 };
 
+const NextActions = () => (
+  <section className="dash-next-actions" aria-label="Next actions">
+    <SectionTitle>Next Actions</SectionTitle>
+    <div className="dash-next-actions__grid">
+      <Link to="/signals">Review Signals</Link>
+      <Link to="/chart">Analyse a symbol</Link>
+      <Link to="/position-sizing">Size a position</Link>
+    </div>
+  </section>
+);
+
 // Daily NIFTY call — the retention hook. Pre-lock: two buttons. Locked: your
 // pick + streak. Resolved: ✓/✗ result. Placed below movers, above modules.
 const TodaysCall = () => {
@@ -409,11 +420,13 @@ const Dashboard = () => {
 
       <PulseStrip indices={indices} movers={movers} loading={loading} signals={signalsData} />
 
+      <PrioritySetups signals={signalsData} loading={signalsLoading} />
+
+      <NextActions />
+
       <div style={{ marginBottom: 8 }}>
         <MyWatchlist />
       </div>
-
-      <PrioritySetups signals={signalsData} loading={signalsLoading} />
 
       <SectionTitle>Market Details</SectionTitle>
       <div className="dash-grid">
