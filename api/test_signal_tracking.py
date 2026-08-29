@@ -153,15 +153,29 @@ def test_resolve_stop_first_when_bar_spans_both(monkeypatch):
     conn.close()
 
 
-def test_resolve_skips_entry_day(monkeypatch):
-    # A bar dated on the entry day must NOT resolve the position (intraday entry
-    # can't be judged against its own daily high/low) — this was the same-day bug.
+def test_entry_day_close_beyond_stop_without_intraday_becomes_unresolved(monkeypatch):
     conn = _reset()
     ed = (datetime.now(IST).date() - timedelta(days=1)).strftime("%Y-%m-%d")
-    _insert(conn, symbol="SAME", side="LONG", entry=100, stop=95, target=110, entry_date=ed)
-    _patch_yf(monkeypatch, _fake_hist([(ed, 99, 130, 90, 100)]))  # entry-day bar spans both
-    assert main._resolve_signal_positions(conn) == 0
-    assert conn.execute("SELECT status FROM signal_positions WHERE symbol='SAME'").fetchone()["status"] == "open"
+    _insert(
+        conn,
+        symbol="SAME",
+        side="LONG",
+        entry=100,
+        stop=95,
+        target=110,
+        entry_date=ed,
+        signal_at=f"{ed}T10:15:00+05:30",
+    )
+    _patch_yf(monkeypatch, _fake_hist([(ed, 100, 103, 92, 94)]))
+    monkeypatch.setattr(main, "_pf_intraday_bars", lambda row: None)
+    assert main._resolve_signal_positions(conn) == 1
+    row = conn.execute(
+        "SELECT status, resolution_reason FROM signal_positions WHERE symbol='SAME'"
+    ).fetchone()
+    assert tuple(row) == (
+        "unresolved",
+        "missing_post_entry_intraday_evidence",
+    )
     conn.close()
 
 
@@ -236,6 +250,34 @@ def test_snapshot_stats(monkeypatch):
     assert snap["equity_curve"][-1]["cum_pct"] == 0.5
 
 
+def test_snapshot_excludes_unresolved_from_performance_and_slots(monkeypatch):
+    monkeypatch.setattr(
+        main, "_yf_quote_change", lambda symbol: {"last": 100.0, "change_pct": 0.0}
+    )
+    rows = [
+        {
+            "market": "IN",
+            "symbol": "AMB",
+            "side": "LONG",
+            "kind": "f",
+            "score": 70,
+            "entry": 100,
+            "stop": 95,
+            "target": 110,
+            "entry_date": "2026-08-28",
+            "status": "unresolved",
+            "resolution_reason": "missing_post_entry_intraday_evidence",
+            "source": "live_engine",
+            "model_version": "test-v1",
+        },
+    ]
+    snap = main._signal_portfolio_snapshot(rows)
+    assert snap["stats"]["closed"] == 0
+    assert snap["stats"]["open"] == 0
+    assert snap["stats"]["unresolved"] == 1
+    assert snap["unresolved"][0]["symbol"] == "AMB"
+
+
 def test_portfolio_endpoint_shape(monkeypatch):
     _reset()
     monkeypatch.setattr(main, "_resolve_signal_positions", lambda conn: 0)
@@ -250,6 +292,8 @@ def test_portfolio_endpoint_shape(monkeypatch):
     assert r.status_code == 200
     j = r.json()
     assert "stats" in j and "open" in j and "closed" in j and "equity_curve" in j
+    assert "unresolved" in j
+    assert "unresolved" in j["stats"]
 
 
 def test_track_record_epoch_purges_only_signal_history():

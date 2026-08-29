@@ -35,8 +35,13 @@ except ImportError:  # Vercel imports this file with api/ as the package root.
 
 try:
     from api.signal_model.ledger import ensure_schema as ensure_signal_model_schema
+    from api.signal_model.portfolio import (
+        build_portfolio_snapshot,
+        resolve_position,
+    )
 except ImportError:  # Vercel imports this file with api/ as the package root.
     from signal_model.ledger import ensure_schema as ensure_signal_model_schema
+    from signal_model.portfolio import build_portfolio_snapshot, resolve_position
 
 try:
     from api.stock_pro import calculate_stock_pro_signal
@@ -5852,7 +5857,8 @@ def _auth_db():
         source TEXT NOT NULL DEFAULT 'legacy_mixed',
         model_version TEXT NOT NULL DEFAULT 'legacy',
         signal_at TEXT,
-        coverage_pct REAL
+        coverage_pct REAL,
+        resolution_reason TEXT
     )""")
     # Existing production snapshots predate provenance. Preserve them as an
     # explicitly mixed legacy sample instead of guessing which rows were live.
@@ -5861,6 +5867,7 @@ def _auth_db():
         "ALTER TABLE signal_positions ADD COLUMN model_version TEXT NOT NULL DEFAULT 'legacy'",
         "ALTER TABLE signal_positions ADD COLUMN signal_at TEXT",
         "ALTER TABLE signal_positions ADD COLUMN coverage_pct REAL",
+        "ALTER TABLE signal_positions ADD COLUMN resolution_reason TEXT",
     ):
         try:
             conn.execute(ddl)
@@ -6921,54 +6928,38 @@ def _locked_signal_plan_levels(plans, mkt):
     return out
 
 
-def _resolve_one_position(r):
-    """Walk COMPLETE daily bars AFTER the entry day; return (status, exit_price,
-    exit_date) once target/stop is touched or the time stop trips, else None.
-
-    The entry day is skipped on purpose: the position was entered intraday, and
-    that day's daily high/low includes pre-entry action, so it can't honestly
-    say whether the stop/target was hit after we were in. (This was the bug that
-    manufactured a wall of same-day stop-outs.) Fills are gap-aware: a bar that
-    opens through the level fills at the open, not the level. Network call."""
+def _pf_daily_bars(r):
+    """Complete daily bars from the publication session onward."""
     yf_sym = _pf_yf_symbol(r["market"], r["symbol"])
     try:
-        hist = yf.Ticker(yf_sym).history(start=r["entry_date"], auto_adjust=True)
+        return yf.Ticker(yf_sym).history(start=r["entry_date"], auto_adjust=True)
     except Exception:
         return None
-    if hist is None or hist.empty:
+
+
+def _pf_intraday_bars(r):
+    """Five-minute bars for the publication session, when the provider retains them."""
+    if not r.get("signal_at"):
         return None
-    entry, stop, target, side = float(r["entry"]), float(r["stop"]), float(r["target"]), r["side"]
-    for ts, bar in hist.iterrows():
-        d = ts.strftime("%Y-%m-%d")
-        if d <= r["entry_date"]:      # skip the entry day (and anything earlier)
-            continue
-        op, hi, lo = float(bar["Open"]), float(bar["High"]), float(bar["Low"])
-        if side == "LONG":
-            if op <= stop:            # gapped through the stop → fill at the open
-                return "loss", op, d
-            if lo <= stop:
-                return "loss", stop, d
-            if op >= target:          # gapped through the target
-                return "win", op, d
-            if hi >= target:
-                return "win", target, d
-        else:
-            if op >= stop:
-                return "loss", op, d
-            if hi >= stop:
-                return "loss", stop, d
-            if op <= target:
-                return "win", op, d
-            if lo <= target:
-                return "win", target, d
-    # Time stop: close a position that has sat open past the max hold.
     try:
-        entry_dt = datetime.strptime(r["entry_date"], "%Y-%m-%d").date()
-    except ValueError:
+        entry_day = datetime.strptime(r["entry_date"], "%Y-%m-%d")
+        end_day = (entry_day + timedelta(days=1)).strftime("%Y-%m-%d")
+        return yf.Ticker(_pf_yf_symbol(r["market"], r["symbol"])).history(
+            start=r["entry_date"], end=end_day, interval="5m", auto_adjust=True
+        )
+    except Exception:
         return None
-    if (_market_date(r["market"]) - entry_dt).days >= SIGNAL_PF_MAX_HOLD_DAYS:
-        return "closed", round(float(hist["Close"].iloc[-1]), 2), _market_today(r["market"])
-    return None
+
+
+def _resolve_one_position(r):
+    """Resolve one paper position from evidence observable after publication."""
+    return resolve_position(
+        r,
+        _pf_intraday_bars(r),
+        _pf_daily_bars(r),
+        _market_date(r["market"]),
+        SIGNAL_PF_MAX_HOLD_DAYS,
+    )
 
 _pf_healed = False
 
@@ -7191,17 +7182,34 @@ def _resolve_signal_positions(conn):
         res = _resolve_one_position(r)
         if not res:
             continue
-        status, exit_price, exit_date = res
-        ret = (exit_price - r["entry"]) / r["entry"] * 100 * (1 if r["side"] == "LONG" else -1)
+        ret = None
+        if res.exit_price is not None:
+            ret = (
+                (res.exit_price - r["entry"])
+                / r["entry"]
+                * 100
+                * (1 if r["side"] == "LONG" else -1)
+            )
         conn.execute(
             """UPDATE signal_positions
-               SET status=?, exit=?, exit_date=?, ret_pct=?, last_price=?, updated_at=?
+               SET status=?, exit=?, exit_date=?, ret_pct=?, last_price=?, updated_at=?,
+                   resolution_reason=?
                WHERE id=?""",
-            (status, round(exit_price, 2), exit_date, round(ret, 2), round(exit_price, 2), _utc_now(), r["id"]))
+            (
+                res.status,
+                round(res.exit_price, 2) if res.exit_price is not None else None,
+                res.exit_date,
+                round(ret, 2) if ret is not None else None,
+                round(res.exit_price, 2) if res.exit_price is not None else r.get("last_price"),
+                _utc_now(),
+                res.reason,
+                r["id"],
+            ),
+        )
         closed += 1
     return closed
 
-def _signal_portfolio_snapshot(rows):
+def _legacy_signal_portfolio_snapshot(rows):
     """Build the track-record payload from all position rows. Open positions are
     marked to market with live quotes; stats + equity curve come from closed
     trades. Each position is SIGNAL_PF_WEIGHT of the book."""
@@ -7320,6 +7328,32 @@ def _signal_portfolio_snapshot(rows):
     })
     return {"stats": stats, "open": open_out, "closed": closed_out[:50],
             "equity_curve": curve, "as_of": datetime.now(_IST).strftime("%Y-%m-%d %H:%M IST")}
+
+
+def _signal_portfolio_snapshot(rows):
+    """Build the public track record through the extracted deterministic core."""
+    active_market = next(
+        (row.get("market") for row in rows if row.get("market")), "IN"
+    )
+
+    def quote_loader(market, symbol):
+        quote = _yf_quote_change(_pf_yf_symbol(market, symbol))
+        return quote.get("last") if quote else None
+
+    snapshot = build_portfolio_snapshot(
+        rows,
+        quote_loader=quote_loader,
+        market_date=_market_date(active_market),
+        slots=SIGNAL_PF_SLOTS,
+        weight=SIGNAL_PF_WEIGHT,
+    )
+    sources = {}
+    for row in rows:
+        source = row.get("source") or "legacy_mixed"
+        sources[source] = sources.get(source, 0) + 1
+    snapshot["stats"]["provenance"] = dict(sorted(sources.items()))
+    snapshot["as_of"] = datetime.now(_IST).strftime("%Y-%m-%d %H:%M IST")
+    return snapshot
 
 @app.get("/api/signals/portfolio")
 async def get_signal_portfolio(market: str = None):
