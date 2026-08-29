@@ -19,3 +19,12 @@ test('Today prioritizes state, setups, next actions, then watchlist', () => {
   assert.match(dashboard, /to="\/chart"[^>]*>Analyse a symbol/);
   assert.match(dashboard, /to="\/position-sizing"[^>]*>Size a position/);
 });
+
+test('mobile uses one More sheet with search and recent tools', () => {
+  const app = source('../App.jsx');
+  assert.doesNotMatch(app, /aria-label="Open navigation menu"/);
+  assert.match(app, /placeholder="Search tools"/);
+  assert.match(app, /Recent tools/);
+  assert.match(app, /filterToolSections/);
+  assert.match(app, /recordRecentTool/);
+});

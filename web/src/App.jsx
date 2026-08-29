@@ -15,6 +15,7 @@ import AuthIntentHandler from './components/AuthIntentHandler';
 import SignalAlertProvider from './alerts/SignalAlertProvider';
 import { trapFocus } from './lib/focusTrap';
 import { authState, notificationIntent } from './lib/authIntent';
+import { filterToolSections, readRecentTools, recordRecentTool } from './lib/toolNavigation';
 
 const Login = lazy(() => import('./pages/Login'));
 const SettingsSheet = lazy(() => import('./components/SettingsSheet'));
@@ -161,7 +162,7 @@ const NavItem = ({ to, label, onNavigate, ...rest }) => {
   );
 };
 
-const MobileTabBar = ({ onMore }) => (
+const MobileTabBar = ({ onMore, menuOpen }) => (
   <nav className="mobile-tabbar" aria-label="Primary">
     {TAB_ITEMS.map((item) => {
       const Icon = item.Icon;
@@ -177,7 +178,13 @@ const MobileTabBar = ({ onMore }) => (
       </NavLink>
       );
     })}
-    <button className="tab-item" onClick={onMore} aria-label="More pages">
+    <button
+      className={`tab-item ${menuOpen ? 'active' : ''}`}
+      onClick={onMore}
+      aria-label="More pages"
+      aria-controls="mobile-navigation"
+      aria-expanded={menuOpen}
+    >
       <Menu size={20} aria-hidden="true" />
       <span>More</span>
     </button>
@@ -215,11 +222,15 @@ const AppLayout = () => {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [toolQuery, setToolQuery] = useState('');
+  const [recentTools, setRecentTools] = useState(() => {
+    try { return readRecentTools(window.localStorage); } catch { return []; }
+  });
   const isMobileNav = useMobileNav();
   const drawerRef = useRef(null);
-  const hamburgerRef = useRef(null);
   const menuTriggerRef = useRef(null);
   const settingsTriggerRef = useRef(null);
+  const visibleToolSections = filterToolSections(MORE_NAV_SECTIONS, toolQuery);
 
   const openMenu = (event) => {
     menuTriggerRef.current = event.currentTarget;
@@ -228,7 +239,17 @@ const AppLayout = () => {
 
   const closeMenu = (restoreFocus = false) => {
     setMenuOpen(false);
+    setToolQuery('');
     if (restoreFocus) window.requestAnimationFrame(() => menuTriggerRef.current?.focus());
+  };
+
+  const visitTool = (item) => {
+    try {
+      setRecentTools(recordRecentTool(window.localStorage, { to: item.to, label: item.label }));
+    } catch {
+      setRecentTools((current) => [{ to: item.to, label: item.label }, ...current.filter((saved) => saved.to !== item.to)].slice(0, 4));
+    }
+    closeMenu(false);
   };
 
   // While the nav drawer is open, stop touch scrolls from reaching the page
@@ -241,7 +262,7 @@ const AppLayout = () => {
   React.useEffect(() => {
     if (!isMobileNav || !menuOpen) return undefined;
     const frame = window.requestAnimationFrame(() => {
-      drawerRef.current?.querySelector('.nav-link')?.focus();
+      drawerRef.current?.querySelector('.tool-search-input, .nav-link')?.focus();
     });
     const onKey = (event) => {
       if (event.key === 'Escape') {
@@ -267,7 +288,7 @@ const AppLayout = () => {
   const closeSettings = () => {
     setSettingsOpen(false);
     window.requestAnimationFrame(() => {
-      if (isMobileNav) hamburgerRef.current?.focus();
+      if (isMobileNav) menuTriggerRef.current?.focus();
       else settingsTriggerRef.current?.focus();
     });
   };
@@ -278,14 +299,6 @@ const AppLayout = () => {
     <SignalAlertProvider>
       <AuthIntentHandler />
       <div className="mobile-topbar">
-        <button
-          ref={hamburgerRef}
-          className="hamburger-btn"
-          onClick={openMenu}
-          aria-label="Open navigation menu"
-          aria-controls="mobile-navigation"
-          aria-expanded={menuOpen}
-        >☰</button>
         <span className="mobile-title">
           <AppLogo size={20} />
           <span><span className="brand-alpha">Alpha</span> Nova</span>
@@ -305,12 +318,13 @@ const AppLayout = () => {
           <div className="brand-row">
             <AppLogo size={26} />
             <span className="brand-wordmark"><span className="brand-alpha">Alpha</span> Nova</span>
+            <button type="button" className="tools-sheet-close" onClick={() => closeMenu(true)} aria-label="Close tools">×</button>
           </div>
           <span className="brand-edition">Pro Terminal V3</span>
         </div>
 
         <nav>
-          <div className="nav-section">
+          <div className="nav-section primary-nav-section">
             <div className="nav-section-title">Daily workflow</div>
             {PRIMARY_NAV_ITEMS.map((item) => (
               <NavItem key={item.to} {...item} onNavigate={() => setMenuOpen(false)} />
@@ -318,17 +332,35 @@ const AppLayout = () => {
           </div>
           <details
             className="nav-more"
-            open={MORE_ROUTE_PATHS.has(location.pathname) ? true : undefined}
+            open={isMobileNav || MORE_ROUTE_PATHS.has(location.pathname) ? true : undefined}
           >
             <summary>More tools</summary>
-            {MORE_NAV_SECTIONS.map((section) => (
+            <label className="tool-search">
+              <span className="sr-only">Search tools</span>
+              <input
+                className="tool-search-input"
+                value={toolQuery}
+                onChange={(event) => setToolQuery(event.target.value)}
+                placeholder="Search tools"
+              />
+            </label>
+            {!toolQuery && recentTools.length > 0 && (
+              <div className="nav-section mobile-recent-tools">
+                <div className="nav-section-title">Recent tools</div>
+                {recentTools.map((item) => (
+                  <Link key={item.to} className="nav-link" to={item.to} onClick={() => visitTool(item)}>{item.label}</Link>
+                ))}
+              </div>
+            )}
+            {visibleToolSections.map((section) => (
               <div className="nav-section" key={section.title}>
                 <div className="nav-section-title">{section.title}</div>
                 {section.items.map((item) => (
-                  <NavItem key={item.to} {...item} onNavigate={() => setMenuOpen(false)} />
+                  <NavItem key={item.to} {...item} onNavigate={() => visitTool(item)} />
                 ))}
               </div>
             ))}
+            {visibleToolSections.length === 0 && <p className="tool-search-empty">No matching tools.</p>}
           </details>
         </nav>
 
@@ -340,7 +372,7 @@ const AppLayout = () => {
               className="sidebar-signup-cta"
               onClick={() => setMenuOpen(false)}
             >
-              Save watchlist &amp; enable alerts
+              Save watchlist & enable alerts
             </Link>
           )}
           <button className="settings-btn" onClick={openSettings}>
@@ -348,7 +380,7 @@ const AppLayout = () => {
             <span className="settings-btn-label">
               <span>Settings</span>
               <span className="settings-btn-email">
-                {currentUser ? currentUser.email : 'Save watchlist & enable alerts'}
+                {currentUser ? currentUser.email : 'Account & preferences'}
               </span>
             </span>
           </button>
@@ -387,7 +419,7 @@ const AppLayout = () => {
         </Suspense>
       </div>
 
-      <MobileTabBar onMore={openMenu} />
+      <MobileTabBar onMore={openMenu} menuOpen={menuOpen} />
       {settingsOpen && (
         <Suspense fallback={null}>
           <SettingsSheet open onClose={closeSettings} />

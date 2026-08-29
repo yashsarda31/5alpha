@@ -867,7 +867,7 @@ tr:hover td {
   .mobile-topbar {
     display: flex;
     align-items: center;
-    gap: 12px;
+    justify-content: center;
     position: sticky;
     top: 0;
     z-index: 900;
@@ -878,23 +878,6 @@ tr:hover td {
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     backdrop-filter: blur(20px) saturate(180%);
     border-bottom: 1px solid var(--border-color);
-  }
-
-  .hamburger-btn {
-    width: 42px;
-    height: 42px;
-    padding: 0;
-    flex: 0 0 auto;
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text-primary);
-    font-size: 18px;
-    border-radius: 10px;
-    border: 1px solid var(--border-color);
-  }
-
-  .hamburger-btn:hover {
-    background: rgba(255, 255, 255, 0.15);
-    transform: none;
   }
 
   .mobile-title {
@@ -913,23 +896,67 @@ tr:hover td {
 
   .sidebar {
     position: fixed;
-    top: 0;
+    top: 18vh;
     left: 0;
-    height: 100dvh;
-    width: min(300px, 85vw);
-    transform: translateX(-105%);
+    right: 0;
+    bottom: 0;
+    height: 82dvh;
+    width: 100%;
+    transform: translateY(105%);
     transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     z-index: 1000;
-    overflow-y: auto;
+    overflow: hidden;
     /* reaching the drawer's end must not hand the scroll to the page behind */
     overscroll-behavior: contain;
-    padding: 24px 20px;
+    padding: 20px 20px calc(12px + env(safe-area-inset-bottom, 0px));
     background: rgba(18, 18, 20, 0.97);
-    border-right: 1px solid var(--border-color);
+    border: 1px solid var(--border-color);
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
   }
 
   .sidebar.open {
-    transform: translateX(0);
+    transform: translateY(0);
+  }
+
+  .sidebar .primary-nav-section,
+  .sidebar .nav-more > summary {
+    display: none;
+  }
+
+  .sidebar .brand-block {
+    margin-bottom: 12px;
+  }
+
+  .sidebar .brand-row {
+    margin-bottom: 0;
+  }
+
+  .tools-sheet-close {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    margin-left: auto;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+  }
+
+  .tool-search {
+    display: block;
+    padding: 0 8px;
+  }
+
+  .tool-search input {
+    width: 100%;
+    min-height: 44px;
+    margin: 0 0 12px;
+  }
+
+  .mobile-recent-tools {
+    display: flex;
   }
 
   .sidebar-backdrop {
@@ -1008,7 +1035,9 @@ tr:hover td {
 
   /* the drawer already lists everything the tab bar can't fit */
   .sidebar-footer {
+    position: static;
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    flex: 0 0 auto;
   }
 
   h2 {
@@ -1170,6 +1199,28 @@ tr:hover td {
   letter-spacing: 0.04em;
   cursor: pointer;
   line-height: 1.4;
+}
+
+.nav-more summary::after {
+  content: '⌄';
+  margin-left: auto;
+  transition: transform 0.18s ease;
+}
+
+.nav-more[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.tool-search,
+.mobile-recent-tools,
+.tools-sheet-close {
+  display: none;
+}
+
+.tool-search-empty {
+  padding: 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .disclaimer-view {
