@@ -107,8 +107,11 @@ const TrackRecord = () => {
     );
   }
 
-  const { stats: st, open, closed, equity_curve: curve, as_of } = data;
+  const { stats: st, open, closed, unresolved = [], equity_curve: curve, as_of } = data;
   const hasClosed = st.closed > 0;
+  const forwardClosed = st.forward?.closed || 0;
+  const sampleLabel = forwardClosed < 100 ? `Small forward sample · ${forwardClosed}/100` : 'Forward sample established';
+  const costLabel = st.costs_status === 'net_verified' ? 'Net of verified costs' : 'Gross of verified costs';
 
   const openCols = [
     { key: 'symbol', label: 'Symbol', render: (r) => <SymbolLink symbol={r.symbol} market={r.market} /> },
@@ -135,9 +138,25 @@ const TrackRecord = () => {
     { key: 'exit_date', label: 'Closed', align: 'right', render: (r) => <span style={{ color: 'var(--text-secondary)' }}>{r.exit_date}</span> },
   ];
 
+  const unresolvedCols = [
+    { key: 'symbol', label: 'Symbol', render: (r) => <SymbolLink symbol={r.symbol} market={r.market} /> },
+    { key: 'side', label: 'Side', align: 'center', render: (r) => <Badge tone={sideTone(r.side)}>{r.side}</Badge> },
+    { key: 'entry_date', label: 'Entry date', align: 'right' },
+    {
+      key: 'resolution_reason', label: 'Reason',
+      render: (r) => String(r.resolution_reason || 'Evidence unavailable').replaceAll('_', ' '),
+    },
+  ];
+
   return (
     <div className="fade-in">
       {header}
+
+      <div className="track-record-evidence" role="status" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+        <Badge tone="neutral">{sampleLabel}</Badge>
+        <Badge tone="neutral">{costLabel}</Badge>
+        {unresolved.length > 0 && <Badge tone="neutral">Needs resolution · {unresolved.length}</Badge>}
+      </div>
 
       <StatGrid style={{ marginBottom: 20 }}>
         <StatTile label="Win Rate" tone={st.win_rate === null ? 'neutral' : st.win_rate >= 50 ? 'gain' : 'loss'}
@@ -178,11 +197,21 @@ const TrackRecord = () => {
         <EmptyState title="No closed trades yet">Positions close here once they touch their target or stop.</EmptyState>
       )}
 
+      {unresolved.length > 0 && (
+        <section aria-labelledby="unresolved-positions-title">
+          <div id="unresolved-positions-title" style={{ margin: '26px 0 8px', fontSize: 13, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+            Needs resolution
+          </div>
+          <DataTable columns={unresolvedCols} rows={unresolved} rowKey={(r, i) => `${r.market}-${r.symbol}-unresolved-${i}`} />
+        </section>
+      )}
+
       <p style={{ color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.6, marginTop: 20 }}>
         How it works: every scored signal is paper-traded at its published entry price as a {open[0]?.weight_pct || 10}%-of-book
         position, first-come-first-served up to {st.slots} concurrent positions. A position closes when the day's range touches
         its <b>target</b> (win) or <b>stop</b> (loss), or after a 30-day time stop. Returns are per-position; the model return
-        weights each at {open[0]?.weight_pct || 10}%. Illustrative track record, not investment advice · {as_of}
+        weights each at {open[0]?.weight_pct || 10}%. Ambiguous entry-day outcomes remain unresolved and are excluded from performance.
+        {' '}{costLabel}. Illustrative track record, not investment advice · {as_of}
       </p>
     </div>
   );

@@ -34,7 +34,7 @@ export default function SignalSetupCards({ plans = [], currency = '₹', market 
           <dl className="signal-setup-card__levels">
             <div><dt>Entry</dt><dd>{currency}{formatNumber(plan.entry)}</dd></div>
             <div><dt>Stop</dt><dd>{currency}{formatNumber(plan.stop)}</dd></div>
-            <div><dt>Target{market === 'US' ? ' (1.5R)' : ''}</dt><dd>{currency}{formatNumber(plan.target)}</dd></div>
+            <div><dt>Target {plan.target_label || (market === 'US' ? '1.5R' : '')}</dt><dd>{currency}{formatNumber(plan.target)}</dd></div>
             <div><dt>Quantity</dt><dd>{formatNumber(plan.qty, 0)}</dd></div>
           </dl>
           <p className="signal-setup-card__drivers">{plan.why || 'Signal drivers unavailable'}</p>

@@ -4,7 +4,11 @@ import axios from 'axios';
 import { PageHeader, StatusPill } from '../components/ui';
 import ShareButton from '../components/ShareButton';
 import SignalsPortfolio from '../components/SignalsPortfolio';
+import DataStatus from '../components/DataStatus';
+import CollapsibleSection from '../components/CollapsibleSection';
+import SignalSetupCards from '../components/SignalSetupCards';
 import { getCached, useSWR } from '../lib/swrCache';
+import { signalEmptyState } from '../lib/signalView.js';
 import './MarketSignals.css';
 
 const BUCKET_META = {
@@ -147,6 +151,17 @@ const MarketSignals = () => {
         }
       />
 
+      <DataStatus status={data.data_status} />
+
+      <nav className="signals-section-jumps" aria-label="Signal page sections">
+        <a href="#setups-analysis">Setups</a>
+        <a href="#signal-regime">Regime</a>
+        {!isUS && rvFc && <a href="#signal-volatility">Volatility</a>}
+        <a href="#signal-options">Options</a>
+        <a href="#signal-buildups">Buildups</a>
+        <a href="#signal-portfolio">Portfolio</a>
+      </nav>
+
       {/* ---- Actionable setups ---- */}
       <div id="setups-analysis">
       <div className="signals-section-title" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
@@ -167,55 +182,24 @@ const MarketSignals = () => {
       </div>
       {setups.plans.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '32px' }}>
-          <h3 style={{ marginBottom: '6px' }}>No high-conviction setups right now</h3>
+          <h3 style={{ marginBottom: '6px' }}>{signalEmptyState(data).title}</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-            {isUS
-              ? 'Nothing on the US momentum radar clears the 45/100 conviction threshold. Check back as the session develops.'
-              : 'Nothing on the futures radar clears the 45/100 conviction threshold. Check back after fresh OI data.'}
+            {signalEmptyState(data).detail}
           </p>
         </div>
       ) : (
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th>Side</th>
-                <th>Conviction</th>
-                <th style={{ textAlign: 'right' }}>Entry</th>
-                <th style={{ textAlign: 'right' }}>Stop</th>
-                <th style={{ textAlign: 'right' }}>Target{isUS ? ' (1.5R)' : ''}</th>
-                <th style={{ textAlign: 'right' }}>Qty*</th>
-                <th>Signal Drivers</th>
-              </tr>
-            </thead>
-            <tbody>
-              {setups.plans.map(p => (
-                <tr key={p.symbol + p.side}>
-                  <td style={{ fontWeight: 700 }}>{p.symbol}</td>
-                  <td className={`side-${p.side}`} style={{ fontWeight: 800 }}>{p.side}</td>
-                  <td>
-                    <div className="score-cell">
-                      <span style={{ fontWeight: 700, minWidth: '24px' }}>{p.score}</span>
-                      <div className="score-bar"><div style={{ width: `${p.score}%` }}></div></div>
-                    </div>
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{cur}{fmt(p.entry)}</td>
-                  <td style={{ textAlign: 'right', color: 'var(--red-loss)' }}>{cur}{fmt(p.stop)}</td>
-                  <td style={{ textAlign: 'right', color: 'var(--green-gain)' }}>
-                    {cur}{fmt(p.target)}
-                    {!isUS && <span style={{ marginLeft: '5px', fontSize: '10px', color: 'var(--text-secondary)' }}>{p.levels_locked ? 'locked' : '2R'}</span>}
-                  </td>
-                  <td style={{ textAlign: 'right' }}>{fmt(p.qty, 0)}</td>
-                  <td style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{p.why}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <SignalSetupCards
+          plans={setups.plans.map((p) => ({
+            ...p,
+            observed_at: p.observed_at || data.data_status?.observed_at,
+            target_label: !isUS ? (p.levels_locked ? 'locked' : '2R') : '1.5R',
+          }))}
+          currency={cur}
+          market={isUS ? 'US' : 'IN'}
+        />
       )}
       <p className="signals-footnote">
-        Conviction = {isUS ? 'volume intensity' : 'OI intensity'} + price momentum + liquidity + options-flow agreement + index bias + intraday & regime alignment (0–100, threshold 45).
+        Quality Score = {isUS ? 'volume intensity' : 'OI intensity'} + price momentum + liquidity + options-flow agreement + index bias + intraday & regime alignment (0–100, publication threshold 65).
         {!isUS && ' New India setups use a tighter stop with a 2:1 gross target; existing open plans retain their locked original levels. This revised execution policy is not backtest-validated.'}
         {' '}*Qty sized so a stop-out loses {setups.risk_pct}% of {cur}{fmt(setups.capital, 0)} capital, scaled by the volatility regime (×{regime.vol_scale}) — not rounded to lot size.
         Signals are analytics, not investment advice.
@@ -223,7 +207,7 @@ const MarketSignals = () => {
       </div>
 
       {/* ---- Regime context ---- */}
-      <div className="signals-section-title">Regime Context</div>
+      <div id="signal-regime" className="signals-section-title">Regime Context</div>
       <div className="regime-grid">
         <div className="regime-card regime-hero">
           <div className="label">Market Regime</div>
@@ -268,7 +252,7 @@ const MarketSignals = () => {
 
       {/* ---- Volatility forecast (Nifty-only model) ---- */}
       {!isUS && rvFc && (
-        <>
+        <CollapsibleSection id="signal-volatility" title="Volatility forecast" className="desktop-detail-open">
           <div className="signals-section-title">Volatility Forecast
             <span style={{ color: 'var(--text-secondary)', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
               · SARIMAX + GARCH-t ensemble · next {rvFc.horizon_days} sessions · as of {rvFc.as_of}
@@ -298,10 +282,11 @@ const MarketSignals = () => {
               weights from a {rvFc.backtest?.n_origins}-origin out-of-sample backtest ({rvFc.backtest?.sample}). Not investment advice.
             </div>
           </div>
-        </>
+        </CollapsibleSection>
       )}
 
       {/* ---- Options intelligence ---- */}
+      <CollapsibleSection id="signal-options" title="Options intelligence" className="desktop-detail-open">
       <div className="signals-section-title">Options Intelligence</div>
       <div className="oc-summary-grid">
         {options.indices.map(oc => {
@@ -330,6 +315,9 @@ const MarketSignals = () => {
         })}
       </div>
 
+      </CollapsibleSection>
+
+      <CollapsibleSection id="signal-buildups" title="Futures buildups" className="desktop-detail-open">
       <div className="buildup-grid">
         {Object.entries(bucketMeta).map(([key, meta]) => {
           const rows = options.buildups?.[key] || [];
@@ -358,8 +346,10 @@ const MarketSignals = () => {
         })}
       </div>
 
+      </CollapsibleSection>
+
       {options.ideas?.length > 0 && (
-        <>
+        <CollapsibleSection id="signal-structures" title="Index option structures" className="desktop-detail-open">
           <div className="signals-section-title">Index Option Structures</div>
           {options.ideas.map((idea, i) => (
             <div className="idea-row" key={i}>
@@ -367,10 +357,12 @@ const MarketSignals = () => {
               <span>{idea.text}</span>
             </div>
           ))}
-        </>
+        </CollapsibleSection>
       )}
 
-      <SignalsPortfolio market={isUS ? 'US' : 'IN'} />
+      <CollapsibleSection id="signal-portfolio" title="Current model portfolio" className="desktop-detail-open">
+        <SignalsPortfolio market={isUS ? 'US' : 'IN'} />
+      </CollapsibleSection>
     </div>
   );
 };

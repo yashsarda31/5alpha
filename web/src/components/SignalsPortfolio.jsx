@@ -75,6 +75,9 @@ const SignalsPortfolio = ({ market }) => {
     heldColumn,
     { key: 'weight_pct', label: 'Weight', align: 'right', render: (row) => `${row.weight_pct}%` },
   ];
+  const forwardClosed = data?.stats?.forward?.closed || 0;
+  const sampleLabel = forwardClosed < 100 ? `Small forward sample · ${forwardClosed}/100` : 'Forward sample established';
+  const openRows = data?.open || [];
   return (
     <section className="signals-portfolio" aria-labelledby="signals-portfolio-title">
       <div className="signals-section-title" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -96,13 +99,36 @@ const SignalsPortfolio = ({ market }) => {
           <button type="button" onClick={revalidate} className="secondary" style={{ width: 'auto' }}>Retry</button>
         </EmptyState>
       ) : (
-        <DataTable
-          columns={fullColumns}
-          rows={data?.open || []}
-          rowKey={(row) => `${row.market}-${row.symbol}`}
-          loading={!data}
-          empty={<EmptyState title="No open positions">The model book is all cash.</EmptyState>}
-        />
+        <>
+          {data && <p className="signals-portfolio__sample">{sampleLabel} · Gross of verified costs</p>}
+          <div className="signals-portfolio__table">
+            <DataTable
+              columns={fullColumns}
+              rows={openRows}
+              rowKey={(row) => `${row.market}-${row.symbol}`}
+              loading={!data}
+              empty={<EmptyState title="No open positions">The model book is all cash.</EmptyState>}
+            />
+          </div>
+          {data && openRows.length > 0 && (
+            <div className="signals-portfolio__cards" aria-label="Current model positions">
+              {openRows.map((row) => (
+                <article key={`${row.market}-${row.symbol}`}>
+                  <header>{symbolColumn.render(row)} {sideColumn.render(row)}</header>
+                  <dl>
+                    <div><dt>Entry</dt><dd>{money(row.entry, row.market)}</dd></div>
+                    <div><dt>Current</dt><dd>{money(row.current, row.market)}</dd></div>
+                    <div><dt>Unreal. P&amp;L</dt><dd>{pnlColumn.render(row)}</dd></div>
+                    <div><dt>Stop</dt><dd>{money(row.stop, row.market)}</dd></div>
+                    <div><dt>Target</dt><dd>{money(row.target, row.market)}</dd></div>
+                    <div><dt>Held</dt><dd>{heldColumn.render(row)}</dd></div>
+                    <div><dt>Weight</dt><dd>{row.weight_pct}%</dd></div>
+                  </dl>
+                </article>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </section>
   );
