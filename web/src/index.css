@@ -1232,6 +1232,13 @@ tr:hover td {
   font-size: 13px;
 }
 
+/* Keep mobile sheet controls after the desktop hide rule in the cascade. */
+@media (max-width: 768px) {
+  .tool-search { display: block; }
+  .mobile-recent-tools { display: flex; }
+  .tools-sheet-close { display: inline-flex; }
+}
+
 .disclaimer-view {
   width: auto;
   padding: 4px 8px;

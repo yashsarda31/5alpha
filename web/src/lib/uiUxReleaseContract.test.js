@@ -22,19 +22,24 @@ test('Today prioritizes state, setups, next actions, then watchlist', () => {
 
 test('mobile uses one More sheet with search and recent tools', () => {
   const app = source('../App.jsx');
+  const css = source('../index.css');
   assert.doesNotMatch(app, /aria-label="Open navigation menu"/);
   assert.match(app, /placeholder="Search tools"/);
   assert.match(app, /Recent tools/);
   assert.match(app, /filterToolSections/);
   assert.match(app, /recordRecentTool/);
+  assert.ok(css.lastIndexOf('.tool-search { display: block; }') > css.lastIndexOf('.tool-search,'));
 });
 
 test('empty watchlist offers neutral starter symbols without bypassing auth', () => {
   const watchlist = source('../pages/Watchlist.jsx');
+  const emptyState = source('../components/ui/EmptyState.jsx');
   assert.match(watchlist, /Example symbols — not recommendations/);
   assert.match(watchlist, /WATCHLIST_STARTERS/);
   assert.match(watchlist, /Choose from Today’s movers/);
   assert.match(watchlist, /requireWatchlistAuth/);
+  assert.match(emptyState, /<div className="ui-empty-body">/);
+  assert.doesNotMatch(emptyState, /<p className="ui-empty-body">/);
 });
 
 test('shared headings and sortable tables expose native semantics', () => {
