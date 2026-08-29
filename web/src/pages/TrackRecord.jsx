@@ -206,7 +206,7 @@ const TrackRecord = () => {
         </section>
       )}
 
-      <p style={{ color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.6, marginTop: 20 }}>
+      <p className="track-record-methodology">
         How it works: every scored signal is paper-traded at its published entry price as a {open[0]?.weight_pct || 10}%-of-book
         position, first-come-first-served up to {st.slots} concurrent positions. A position closes when the day's range touches
         its <b>target</b> (win) or <b>stop</b> (loss), or after a 30-day time stop. Returns are per-position; the model return

@@ -27,3 +27,18 @@ test('Track Record separates unresolved rows and labels small samples', () => {
   assert.match(track, /Small forward sample/);
   assert.match(track, /Gross of verified costs/);
 });
+
+test('acknowledged compliance notice remains reopenable', () => {
+  const disclaimer = source('../components/Disclaimer.jsx');
+  assert.match(disclaimer, /Educational analytics/);
+  assert.match(disclaimer, /View notice/);
+  assert.match(disclaimer, /setDismissed\(false\)/);
+  assert.match(disclaimer, /localStorage/);
+});
+
+test('essential explanatory text has explicit readability floors', () => {
+  const css = source('../index.css') + source('../pages/MarketSignals.css') + source('../pages/Dashboard.css');
+  assert.match(css, /--font-body-min:\s*14px/);
+  assert.match(css, /--font-meta-min:\s*12px/);
+  assert.match(css, /line-height:\s*1\.4/);
+});

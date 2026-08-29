@@ -427,7 +427,7 @@
 .dash-no-trade p {
   margin: 5px 0 0;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-body-min);
   line-height: 1.55;
 }
 .dash-no-trade.unavailable strong { color: var(--text-primary); }

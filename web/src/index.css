@@ -47,6 +47,8 @@
   /* Glass Terminal design tokens */
   --font-mono: 'SF Mono', ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
   --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  --font-body-min: 14px;
+  --font-meta-min: 12px;
   --r-sm: 8px;
   --r-tile: 12px;
   --r-card: 16px;
@@ -723,7 +725,7 @@ button.secondary:hover {
 }
 
 .disclaimer-alert {
-  font-size: 12px;
+  font-size: var(--font-body-min);
   color: var(--text-secondary);
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-color);
@@ -733,6 +735,7 @@ button.secondary:hover {
   display: flex;
   align-items: center;
   gap: 8px;
+  line-height: 1.5;
 }
 
 .disclaimer-dismiss {
@@ -756,7 +759,11 @@ button.secondary:hover {
 
 /* One-line reminder shown after the full notice is dismissed */
 .disclaimer-mini {
-  font-size: 10.5px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-meta-min);
   color: var(--text-tertiary);
   text-align: center;
   margin-bottom: 16px;
@@ -1162,7 +1169,25 @@ tr:hover td {
   font-weight: 650;
   letter-spacing: 0.04em;
   cursor: pointer;
-  user-select: none;
+  line-height: 1.4;
+}
+
+.disclaimer-view {
+  width: auto;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--primary-accent);
+  font-size: inherit;
+  text-decoration: underline;
+  box-shadow: none;
+}
+
+.track-record-methodology {
+  color: var(--text-secondary);
+  font-size: var(--font-body-min);
+  line-height: 1.5;
+  margin-top: 20px;
 }
 
 .nav-more summary:hover {
