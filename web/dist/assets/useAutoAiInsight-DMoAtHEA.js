@@ -1,0 +1,1 @@
+import{a as e,n as t}from"./jsx-runtime-C_urxT9I.js";var n=e(t(),1);function r(e,t){let r=(0,n.useRef)(null);(0,n.useEffect)(()=>{!e||r.current===e||localStorage.getItem(`gemini_api_key`)&&(r.current=e,t())},[e])}export{r as t};

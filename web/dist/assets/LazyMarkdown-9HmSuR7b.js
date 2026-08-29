@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/MarkdownRenderer-DwiPbKlg.js","assets/jsx-runtime-C_urxT9I.js"])))=>i.map(i=>d[i]);
+import{a as e,n as t,t as n}from"./jsx-runtime-C_urxT9I.js";import{t as r}from"./preload-helper-Czpn1I53.js";var i=e(t(),1),a=n(),o=(0,i.lazy)(()=>r(()=>import(`./MarkdownRenderer-DwiPbKlg.js`),__vite__mapDeps([0,1]))),s=({children:e})=>(0,a.jsx)(i.Suspense,{fallback:null,children:(0,a.jsx)(o,{children:e})});export{s as t};

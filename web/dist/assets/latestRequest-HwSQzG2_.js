@@ -1,0 +1,1 @@
+var e=()=>{let e=0;return{begin(){return e+=1,e},isCurrent(t){return t===e}}};export{e as t};
