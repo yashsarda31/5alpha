@@ -77,6 +77,12 @@ describe('chart normalization', () => {
     expect(result.sma20).toEqual([170, 172]);
   });
 
+  it('keeps finite OHLCV bars when an optional indicator is absent', () => {
+    const result = normalizeChart({ ticker: 'NVDA', dates: ['a', 'b'], open: [10, 11], high: [12, 13], low: [9, 10], close: [11, 12], volume: [1, 2], sma20: [10, 11], rsi: [50, 55] });
+    expect(result.close).toEqual([11, 12]);
+    expect(result.sma50).toEqual([]);
+  });
+
   it('normalizes optional fundamentals without manufacturing values', () => {
     expect(normalizeFundamentals({ market_cap: '120000', pe_ratio: null })).toEqual({
       marketCap: 120000,
