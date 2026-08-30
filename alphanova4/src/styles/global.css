@@ -90,6 +90,16 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--electric-hot); 
 .signal-dossier dd { margin: .3rem 0 0; font-family: var(--font-number); }
 .primary-action { min-height: var(--control-min); border: 1px solid var(--electric); color: var(--space-0); background: var(--electric-hot); border-radius: 999px; padding: .55rem 1.1rem; font-weight: 800; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.analyse-layout { display: grid; gap: 1rem; }
+.ticker-search { display: flex; gap: .6rem; }
+.ticker-search input { min-width: 0; flex: 1; min-height: var(--control-min); border: 1px solid rgba(118,228,255,.25); border-radius: 999px; background: rgba(2,10,24,.8); color: var(--white); padding: 0 1rem; font: 1rem var(--font-number); }
+.analyse-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
+.analyse-heading h1 { margin: .45rem 0 0; font-size: clamp(2.4rem,8vw,6.5rem); line-height: .9; letter-spacing: -.07em; }
+.analyse-heading > strong { font: 700 clamp(1.5rem,5vw,3.5rem) var(--font-number); color: var(--electric-hot); }
+.metric-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .5rem; }
+.metric-grid span { display: grid; gap: .4rem; border: 1px solid rgba(118,228,255,.15); border-radius: 14px; padding: .8rem; color: var(--muted); font-size: .7rem; text-transform: uppercase; }
+.metric-grid strong { color: var(--white); font: 1rem var(--font-number); }
+.insight-report { max-height: 18rem; overflow: auto; white-space: pre-wrap; border: 1px solid rgba(118,228,255,.16); border-radius: 16px; padding: 1rem; color: var(--white); background: rgba(2,10,24,.75); font: .8rem/1.6 var(--font-ui); }
 
 @media (min-width: 900px) {
   .semantic-stage { align-items: center; padding: 128px 8vw 112px; }
@@ -106,6 +116,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--electric-hot); 
   .mover-list { display: none; }
   .signals-layout { grid-template-columns: 1fr; }
   .signal-dossier { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .metric-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
