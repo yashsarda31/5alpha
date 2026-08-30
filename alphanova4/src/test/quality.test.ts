@@ -15,12 +15,12 @@ describe('initial rendering tier', () => {
 });
 
 describe('frame budget hysteresis', () => {
-  it('downgrades once after sustained frames over 33ms and never auto-upgrades', () => {
+  it('downgrades once after sustained frames over the 22ms balanced budget and never auto-upgrades', () => {
     let now = 0;
     const monitor = new FrameBudgetMonitor('full', 30, () => now);
-    Array.from({ length: 29 }, () => monitor.push(40));
+    Array.from({ length: 29 }, () => monitor.push(24));
     expect(monitor.tier).toBe('full');
-    monitor.push(40);
+    monitor.push(24);
     expect(monitor.tier).toBe('balanced');
 
     now += 11_000;

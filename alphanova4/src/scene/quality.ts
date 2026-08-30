@@ -36,7 +36,7 @@ export class FrameBudgetMonitor {
     if (this.frames.length > this.windowSize) this.frames.shift();
     if (this.frames.length < this.windowSize) return this.tier;
     const average = this.frames.reduce((sum, value) => sum + value, 0) / this.frames.length;
-    if (average > 33 && this.now() - this.lastDowngradeAt >= 10_000) {
+    if (average > 22 && this.now() - this.lastDowngradeAt >= 10_000) {
       this.tier = downgrade(this.tier);
       this.lastDowngradeAt = this.now();
       this.frames.length = 0;

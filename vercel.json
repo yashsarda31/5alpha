@@ -14,11 +14,11 @@
       "src": "api/main.py",
       "use": "@vercel/python",
       "config": {
-        "excludeFiles": "{web/**,research/**,data/**,docs/**,install-tests/**,.agents/**,.codex/**,.superpowers/**,.worktrees/**,tmp/**,OpenBB/**,nourishfit/**,sales-momentum/**,api/.pytest_cache/**,api/fundamentals_function/**,api/scripts/**,api/requirements-train.txt,api/test_*.py,api/signal_model/costs.py,api/signal_model/execution.py,api/signal_model/features.py,api/signal_model/providers.py,api/signal_model/replay.py,api/signal_model/training.py,api/signal_model/validation.py,*.pptx,*.jpeg,*.json,test_*.py,verify_*.py,alpha-nova-*.html,alphanova48-growth-dashboard.html,run_server.py,requirements.txt}"
+        "excludeFiles": "{web/**,alphanova4/**,research/**,data/**,docs/**,install-tests/**,.agents/**,.codex/**,.superpowers/**,.worktrees/**,tmp/**,OpenBB/**,nourishfit/**,sales-momentum/**,api/.pytest_cache/**,api/fundamentals_function/**,api/scripts/**,api/requirements-train.txt,api/test_*.py,api/signal_model/costs.py,api/signal_model/execution.py,api/signal_model/features.py,api/signal_model/providers.py,api/signal_model/replay.py,api/signal_model/training.py,api/signal_model/validation.py,*.pptx,*.jpeg,*.json,test_*.py,verify_*.py,alpha-nova-*.html,alphanova48-growth-dashboard.html,run_server.py,requirements.txt}"
       }
     },
     {
-      "src": "web/package.json",
+      "src": "alphanova4/package.json",
       "use": "@vercel/static-build",
       "config": {
         "distDir": "dist"
@@ -36,17 +36,17 @@
         "cache-control": "public, max-age=31536000, immutable",
         "x-content-type-options": "nosniff"
       },
-      "dest": "/web/assets/$1"
+      "dest": "/alphanova4/assets/$1"
     },
     {
       "src": "/favicon.svg",
       "headers": { "cache-control": "public, max-age=86400" },
-      "dest": "/web/favicon.svg"
+      "dest": "/alphanova4/favicon.svg"
     },
     {
       "src": "/robots.txt",
       "headers": { "cache-control": "public, max-age=86400" },
-      "dest": "/web/robots.txt"
+      "dest": "/alphanova4/robots.txt"
     },
     {
       "src": "/manifest.webmanifest",
@@ -54,42 +54,42 @@
         "content-type": "application/manifest+json",
         "cache-control": "public, max-age=3600"
       },
-      "dest": "/web/manifest.webmanifest"
+      "dest": "/alphanova4/manifest.webmanifest"
     },
     {
       "src": "/sw.js",
       "headers": { "cache-control": "no-cache" },
-      "dest": "/web/sw.js"
+      "dest": "/alphanova4/sw.js"
     },
     {
       "src": "/apple-touch-icon-v2\\.png",
       "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "dest": "/web/apple-touch-icon-v2.png"
+      "dest": "/alphanova4/apple-touch-icon-v2.png"
     },
     {
       "src": "/apple-touch-icon-v3\\.png",
       "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "dest": "/web/apple-touch-icon-v3.png"
+      "dest": "/alphanova4/apple-touch-icon-v3.png"
     },
     {
       "src": "/apple-touch-icon-v4\\.png",
       "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "dest": "/web/apple-touch-icon-v4.png"
+      "dest": "/alphanova4/apple-touch-icon-v4.png"
     },
     {
       "src": "/brand/(.*)",
       "headers": { "cache-control": "public, max-age=86400" },
-      "dest": "/web/brand/$1"
+      "dest": "/alphanova4/brand/$1"
     },
     {
       "src": "/icons/(.*)",
       "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "dest": "/web/icons/$1"
+      "dest": "/alphanova4/icons/$1"
     },
     {
       "src": "/fonts/(.*)",
       "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "dest": "/web/fonts/$1"
+      "dest": "/alphanova4/fonts/$1"
     },
     {
       "handle": "filesystem"
@@ -103,7 +103,7 @@
         "permissions-policy": "camera=(), microphone=(), geolocation=()",
         "strict-transport-security": "max-age=63072000; includeSubDomains"
       },
-      "dest": "/web/index.html"
+      "dest": "/alphanova4/index.html"
     }
   ]
 }

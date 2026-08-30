@@ -1,3 +1,12 @@
-import { expect,test } from '@playwright/test';import { mockApi } from './fixtures';
-test('animation budget and universe lifetime remain bounded',async({page})=>{await mockApi(page);await page.goto('/dashboard');await expect(page.locator('canvas')).toHaveCount(1);const average=await page.evaluate(async()=>{const deltas:number[]=[];let previous=performance.now();while(deltas.length<120)await new Promise<void>((resolve)=>requestAnimationFrame((now)=>{deltas.push(now-previous);previous=now;resolve();}));return deltas.reduce((sum,value)=>sum+value,0)/deltas.length;});expect(average).toBeLessThanOrEqual(33);for(let loop=0;loop<3;loop+=1)for(const path of ['/dashboard','/signals','/chart?symbol=NVDA','/watchlist']){await page.goto(path);await page.getByRole('main').waitFor();}await expect(page.locator('canvas')).toHaveCount(1);});
+import { expect,test } from '@playwright/test';
+import { mockApi } from './fixtures';
+
+test('animation budget and universe lifetime remain bounded',async({page})=>{
+  await mockApi(page);await page.goto('/dashboard');await expect(page.locator('canvas')).toHaveCount(1);
+  const average=await page.evaluate(async()=>{const sample=(count:number)=>new Promise<number[]>((resolve)=>{const values:number[]=[];let previous=performance.now();const next=(now:number)=>{values.push(now-previous);previous=now;if(values.length===count)resolve(values);else requestAnimationFrame(next);};requestAnimationFrame(next);});await sample(30);const values=await sample(180);return values.reduce((sum,value)=>sum+value,0)/values.length;});
+  const tier=await page.locator('.nova-shell').getAttribute('data-tier');expect(average).toBeLessThanOrEqual(tier==='essential'?33:22);
+  for(let loop=0;loop<3;loop+=1)for(const path of ['/dashboard','/signals','/chart?symbol=NVDA','/watchlist']){await page.goto(path);await page.getByRole('main').waitFor();}
+  await expect(page.locator('canvas')).toHaveCount(1);
+});
+
 test('captures deterministic review image',async({page},testInfo)=>{await mockApi(page);await page.goto('/dashboard');await page.getByText('NIFTY 50').waitFor();if(['mobile-390','tablet-768','desktop-1440'].includes(testInfo.project.name))await page.screenshot({path:`e2e/screenshots/${testInfo.project.name}.png`,fullPage:true});});
