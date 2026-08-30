@@ -6,6 +6,23 @@ import type { ChartViewModel, FundamentalsViewModel } from '../data/contracts';
 import type { UniverseRuntime } from '../scene/createUniverse';
 import { createAnalyseZone } from '../scene/zones/analyseZone';
 
+const latest = (values: Array<number | null>) => values.at(-1);
+const fixed = (value: number | null | undefined) => value == null ? 'Unavailable' : value.toFixed(2);
+const chartSummary = (chart: ChartViewModel) => {
+  const close = latest(chart.close);
+  const sma20 = latest(chart.sma20);
+  const distance = close != null && sma20 != null && sma20 !== 0 ? `${((close / sma20 - 1) * 100).toFixed(2)}%` : 'Unavailable';
+  return [
+    `Ticker: ${chart.ticker}`,
+    `Latest Close: ${fixed(close)}`,
+    `Latest High: ${fixed(latest(chart.high))}`,
+    `Latest Low: ${fixed(latest(chart.low))}`,
+    `Current 20 SMA: ${fixed(sma20)}`,
+    `Distance from 20 SMA: ${distance}`,
+    `Latest 14-period RSI: ${fixed(latest(chart.rsi))}`,
+  ].join('\n');
+};
+
 export const AnalyseRoute = ({ runtime }: { runtime: UniverseRuntime | null }) => {
   const [params, setParams] = useSearchParams();
   const symbol = params.get('symbol')?.trim().toUpperCase() || 'NVDA';
@@ -30,8 +47,10 @@ export const AnalyseRoute = ({ runtime }: { runtime: UniverseRuntime | null }) =
   const search = (event: FormEvent) => { event.preventDefault(); const next = query.trim().toUpperCase(); if (next) { setError(null); setChart(null); setFundamentals(null); setParams({ symbol: next }); } };
   const generate = async () => {
     if (!chart) return; setAiError(null); setInsight(null);
+    const apiKey = localStorage.getItem('gemini_api_key')?.trim();
+    if (!apiKey) { setAiError('Add your Gemini API key in Settings to generate the market insight.'); return; }
     try {
-      const result = await apiRequest<{ report?: string; analysis?: string }>('/api/ai/chart', { method: 'POST', body: JSON.stringify({ ticker: chart.ticker, api_key: localStorage.getItem('gemini_api_key'), chart: { dates: chart.dates.slice(-60), close: chart.close.slice(-60), sma20: chart.sma20.slice(-60), sma50: chart.sma50.slice(-60), rsi: chart.rsi.slice(-60) } }) });
+      const result = await apiRequest<{ report?: string; analysis?: string }>('/api/ai/chart', { method: 'POST', body: JSON.stringify({ ticker: chart.ticker, data_summary: chartSummary(chart), apiKey }) });
       setInsight(result.report ?? result.analysis ?? 'No insight returned.');
     } catch (reason) { setAiError(reason instanceof Error ? reason.message : 'Insight unavailable'); }
   };

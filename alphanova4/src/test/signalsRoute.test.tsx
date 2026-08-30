@@ -29,4 +29,18 @@ describe('Signals route', () => {
     expect(await screen.findByText('HOLD (INSUFFICIENT EVIDENCE)')).toBeVisible();
     expect(screen.queryByText('BUY')).not.toBeInTheDocument();
   });
+
+  it('loads the current signals API contract without false provider warnings', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response({
+      signals_market: 'US',
+      data_status: { status: 'last_session', observed_at: '2026-08-31T00:30:31+05:30' },
+      regime: { overall: 'RISK-ON' },
+      setups: { plans: [{ symbol: 'CRM', side: 'LONG', score: 73, entry: 247.32, stop: 231, target: 271.8, why: 'Open position with locked levels' }] },
+    }))));
+    render(<MemoryRouter initialEntries={['/signals']}><App universeFactory={fakeUniverse} /></MemoryRouter>);
+    expect(await screen.findByRole('heading', { name: 'LONG CRM' })).toBeVisible();
+    expect(screen.getByText(/stale/i)).toBeVisible();
+    expect(screen.queryByText(/provider_limited/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Open position with locked levels')).toBeVisible();
+  });
 });

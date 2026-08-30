@@ -6,9 +6,10 @@ const record = (value: unknown): RawRecord => value && typeof value === 'object'
 
 const dataState = (value: unknown): DataState => {
   const state = textValue(value)?.toLowerCase();
-  return state === 'ready' || state === 'stale' || state === 'provider_limited' || state === 'unavailable'
-    ? state
-    : 'provider_limited';
+  if (state === 'ready' || state === 'fresh') return 'ready';
+  if (state === 'stale' || state === 'last_session') return 'stale';
+  if (state === 'unavailable') return 'unavailable';
+  return 'provider_limited';
 };
 
 const normalizeSetup = (raw: unknown, fallbackObservedAt: string | null): SignalSetup | null => {
@@ -31,7 +32,7 @@ const normalizeSetup = (raw: unknown, fallbackObservedAt: string | null): Signal
     stop,
     target,
     invalidation: textValue(row.invalidation),
-    methodology: textValue(row.rationale) ?? reasons ?? 'Methodology unavailable',
+    methodology: textValue(row.rationale) ?? textValue(row.why) ?? reasons ?? 'Methodology unavailable',
     riskContext: textValue(row.risk_context),
   };
 };
@@ -47,7 +48,8 @@ export const normalizeSignals = (raw: unknown): SignalsViewModel => {
   const setups = rawPlans.map((plan) => normalizeSetup(plan, observedAt)).filter((plan): plan is SignalSetup => plan !== null);
   const advancing = finiteNumber(breadthBody.adv);
   const declining = finiteNumber(breadthBody.dec);
-  let status = dataState(statusBody.state);
+  let status = dataState(statusBody.state ?? statusBody.status);
+  if (statusBody.required_inputs_complete === false) status = 'provider_limited';
   if (rawPlans.length > 0 && setups.length === 0) status = 'provider_limited';
   return {
     status,

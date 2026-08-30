@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import { fakeUniverse } from './fakeUniverse';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 const chart = (ticker: string) => ({ ticker, dates:['a','b'], open:[10,11], high:[12,13], low:[9,10], close:[11,12], volume:[1,2], sma20:[10,11], sma50:[9,10], rsi:[50,55] });
 const ok = (body: unknown, status=200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type':'application/json' } });
 
@@ -18,10 +18,41 @@ describe('Analyse route', () => {
     expect(await screen.findByRole('heading', { name: 'RELIANCE.NS trajectory' })).toBeVisible();
   });
   it('keeps AI errors inside the panel', async () => {
+    localStorage.setItem('gemini_api_key', 'test-key');
     vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve(path === '/api/ai/chart' ? ok({ detail: 'provider unavailable' }, 503) : path.includes('fundamentals') ? ok({}) : ok(chart('NVDA')))));
     render(<MemoryRouter initialEntries={['/chart?symbol=NVDA']}><App universeFactory={fakeUniverse}/></MemoryRouter>);
     await screen.findByRole('heading', { name: 'NVDA trajectory' }); await userEvent.click(screen.getByRole('button', { name: 'Generate market insight' }));
     expect(await screen.findByRole('status')).toHaveTextContent('provider unavailable');
     expect(screen.getByRole('navigation', { name: 'Core research' })).toBeVisible();
+  });
+
+  it('posts the API chart contract and renders the returned insight', async () => {
+    localStorage.setItem('gemini_api_key', 'test-key');
+    let aiInit: RequestInit | undefined;
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === '/api/ai/chart') aiInit = init;
+      return Promise.resolve(path === '/api/ai/chart' ? ok({ report: 'Trend structure is constructive.' }) : path.includes('fundamentals') ? ok({}) : ok(chart('NVDA')));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MemoryRouter initialEntries={['/chart?symbol=NVDA']}><App universeFactory={fakeUniverse}/></MemoryRouter>);
+    await screen.findByRole('heading', { name: 'NVDA trajectory' });
+    await userEvent.click(screen.getByRole('button', { name: 'Generate market insight' }));
+    expect(await screen.findByText('Trend structure is constructive.')).toBeVisible();
+    const payload = JSON.parse(String(aiInit?.body));
+    expect(payload).toMatchObject({ ticker: 'NVDA', apiKey: 'test-key' });
+    expect(payload.data_summary).toContain('Latest Close: 12.00');
+    expect(payload).not.toHaveProperty('api_key');
+    expect(payload).not.toHaveProperty('chart');
+  });
+
+  it('does not call the AI endpoint without a Gemini API key', async () => {
+    localStorage.removeItem('gemini_api_key');
+    const fetchMock = vi.fn((path: string) => Promise.resolve(path.includes('fundamentals') ? ok({}) : ok(chart('NVDA'))));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MemoryRouter initialEntries={['/chart?symbol=NVDA']}><App universeFactory={fakeUniverse}/></MemoryRouter>);
+    await screen.findByRole('heading', { name: 'NVDA trajectory' });
+    await userEvent.click(screen.getByRole('button', { name: 'Generate market insight' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Add your Gemini API key');
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/ai/chart', expect.anything());
   });
 });
