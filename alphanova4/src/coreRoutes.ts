@@ -4,3 +4,5 @@ export const CORE_ROUTES = [
   { path: '/chart', label: 'Analyse' },
   { path: '/watchlist', label: 'Watchlist' },
 ] as const;
+
+export type CoreRoutePath = typeof CORE_ROUTES[number]['path'];
