@@ -53,6 +53,20 @@ export interface SignalsViewModel {
   setups: SignalSetup[];
 }
 
+export interface TodaySignalSummary {
+  status: DataState;
+  regime: string;
+  breadth: BreadthViewModel | null;
+  setupCount: number;
+  observedAt: string | null;
+}
+
+export interface TodayViewModel {
+  status: DataState;
+  dashboard: DashboardViewModel;
+  signalSummary: TodaySignalSummary;
+}
+
 export interface ChartViewModel {
   ticker: string;
   dates: string[];
