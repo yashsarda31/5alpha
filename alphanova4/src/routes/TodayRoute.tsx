@@ -37,7 +37,7 @@ const composeToday = (
 
 const number = (value: number) => value.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
-export const TodayRoute = ({ runtime }: { runtime: UniverseRuntime }) => {
+export const TodayRoute = ({ runtime }: { runtime: UniverseRuntime | null }) => {
   const loadDashboard = useCallback((signal: AbortSignal) => apiRequest<unknown>('/api/dashboard', { signal }).then(normalizeDashboard), []);
   const loadSignals = useCallback((signal: AbortSignal) => apiRequest<unknown>('/api/signals', { signal }).then(normalizeSignals), []);
   const dashboard = useResource('dashboard', loadDashboard, 120_000);
@@ -45,8 +45,8 @@ export const TodayRoute = ({ runtime }: { runtime: UniverseRuntime }) => {
   const model = useMemo(() => composeToday(dashboard, signals), [dashboard, signals]);
   const zone = useMemo(() => createTodayZone(), []);
 
-  useEffect(() => { runtime.registerZone(zone); }, [runtime, zone]);
-  useEffect(() => { runtime.renderZone('today', model); }, [runtime, model]);
+  useEffect(() => { runtime?.registerZone(zone); }, [runtime, zone]);
+  useEffect(() => { runtime?.renderZone('today', model); }, [runtime, model]);
 
   if (dashboard.status === 'loading' && signals.status === 'loading') {
     return <section className="today-route"><div role="status" className="data-message">Synchronising market universe…</div></section>;

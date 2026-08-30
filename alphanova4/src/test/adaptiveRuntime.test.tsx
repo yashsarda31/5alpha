@@ -1,0 +1,7 @@
+import { fireEvent,render,screen,waitFor } from '@testing-library/react';import { MemoryRouter } from 'react-router-dom';import { afterEach,describe,expect,it,vi } from 'vitest';import App from '../App';import { fakeUniverse } from './fakeUniverse';
+afterEach(()=>vi.unstubAllGlobals());
+const media=(matches:boolean)=>vi.stubGlobal('matchMedia',vi.fn(()=>({matches,media:'',onchange:null,addListener:vi.fn(),removeListener:vi.fn(),addEventListener:vi.fn(),removeEventListener:vi.fn(),dispatchEvent:vi.fn()})));
+describe('adaptive runtime',()=>{
+  it('starts Essential when reduced motion is requested',()=>{media(true);const runtime=fakeUniverse();render(<MemoryRouter initialEntries={['/dashboard']}><App universeFactory={()=>runtime}/></MemoryRouter>);expect(runtime.setTier).toHaveBeenCalledWith('essential');});
+  it('keeps navigation usable after context restoration fails',async()=>{media(false);const runtime=fakeUniverse();runtime.rebuild=vi.fn(()=>false);runtime.mount=vi.fn((host:HTMLElement)=>host.appendChild(document.createElement('canvas')));render(<MemoryRouter initialEntries={['/dashboard']}><App universeFactory={()=>runtime}/></MemoryRouter>);const canvas=document.querySelector('canvas')!;fireEvent(canvas,new Event('webglcontextlost',{cancelable:true}));fireEvent(canvas,new Event('webglcontextrestored'));expect(await screen.findByText('Simplified graphics active')).toBeVisible();await waitFor(()=>expect(runtime.setTier).toHaveBeenCalledWith('essential'));expect(screen.getByRole('navigation',{name:'Core research'})).toBeVisible();});
+});

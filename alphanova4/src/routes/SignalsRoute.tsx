@@ -11,7 +11,7 @@ import type { UniverseRuntime } from '../scene/createUniverse';
 import { createSignalsZone } from '../scene/zones/signalsZone';
 const money = (value: number) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(value);
 
-export const SignalsRoute = ({ runtime }: { runtime: UniverseRuntime }) => {
+export const SignalsRoute = ({ runtime }: { runtime: UniverseRuntime | null }) => {
   const load = useMemo(() => (signal: AbortSignal) => apiRequest('/api/signals', { signal }).then(normalizeSignals), []);
   const resource = useResource<SignalsViewModel>('signals', load, 60_000);
   const model = resource.data ?? normalizeSignals({ data_status: { state: 'unavailable' }, setups: { plans: [] } });
@@ -20,8 +20,8 @@ export const SignalsRoute = ({ runtime }: { runtime: UniverseRuntime }) => {
   const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
   const { observe } = useSignalAlerts();
   const selected = model.setups.find((setup) => setup.symbol === params.get('symbol')) ?? model.setups[0] ?? null;
-  useEffect(() => { runtime.registerZone(zone); }, [runtime, zone]);
-  useEffect(() => { runtime.renderZone('signals', model); }, [runtime, model]);
+  useEffect(() => { runtime?.registerZone(zone); }, [runtime, zone]);
+  useEffect(() => { runtime?.renderZone('signals', model); }, [runtime, model]);
   useEffect(() => { if (resource.status === 'ready' || resource.status === 'stale') observe(model.setups); }, [resource.status, model.setups, observe]);
 
   if (resource.status === 'loading') return <section className="route-panel"><p role="status">Scanning evidence field…</p></section>;

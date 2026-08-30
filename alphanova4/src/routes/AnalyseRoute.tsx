@@ -6,7 +6,7 @@ import type { ChartViewModel, FundamentalsViewModel } from '../data/contracts';
 import type { UniverseRuntime } from '../scene/createUniverse';
 import { createAnalyseZone } from '../scene/zones/analyseZone';
 
-export const AnalyseRoute = ({ runtime }: { runtime: UniverseRuntime }) => {
+export const AnalyseRoute = ({ runtime }: { runtime: UniverseRuntime | null }) => {
   const [params, setParams] = useSearchParams();
   const symbol = params.get('symbol')?.trim().toUpperCase() || 'NVDA';
   const [query, setQuery] = useState(symbol);
@@ -16,13 +16,13 @@ export const AnalyseRoute = ({ runtime }: { runtime: UniverseRuntime }) => {
   const [insight, setInsight] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const zone = useMemo(() => createAnalyseZone(), []);
-  useEffect(() => { runtime.registerZone(zone); }, [runtime, zone]);
+  useEffect(() => { runtime?.registerZone(zone); }, [runtime, zone]);
   useEffect(() => {
     const controller = new AbortController();
     apiRequest(`/api/chart/${encodeURIComponent(symbol)}`, { signal: controller.signal }).then(normalizeChart).then((next) => {
       if (controller.signal.aborted) return;
       if (!next.close.length) throw new Error('No finite chart data available');
-      setChart(next); runtime.renderZone('analyse', next);
+      setChart(next); runtime?.renderZone('analyse', next);
       apiRequest(`/api/fundamentals/${encodeURIComponent(next.ticker)}`, { signal: controller.signal }).then(normalizeFundamentals).then(setFundamentals).catch(() => undefined);
     }).catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof ApiError && reason.status === 404 ? `${symbol} was not found. Check the symbol and try again.` : reason instanceof Error ? reason.message : 'Chart unavailable'); });
     return () => controller.abort();

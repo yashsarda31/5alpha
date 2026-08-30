@@ -26,6 +26,7 @@ export interface UniverseRuntime {
   pause(): void;
   resume(): void;
   rebuild(): boolean;
+  subscribeFrame?(listener: (frameMs: number) => void): () => void;
   dispose(): void;
 }
 
@@ -48,6 +49,10 @@ export const createUniverse = (dependencies: UniverseDependencies = {}): Univers
   let host: HTMLElement | null = null;
   let frame: number | null = null;
   let disposed = false;
+  let paused = true;
+  let previousFrame: number | null = null;
+  const frameListeners = new Set<(frameMs: number) => void>();
+  const pending = new Map<ZoneId, unknown>();
 
   const resize = () => {
     if (!host) return;
@@ -57,16 +62,23 @@ export const createUniverse = (dependencies: UniverseDependencies = {}): Univers
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
   };
-  const loop: FrameRequestCallback = () => {
+  const loop: FrameRequestCallback = (time) => {
     frame = requestFrame(loop);
+    if (previousFrame !== null) frameListeners.forEach((listener) => listener(time - previousFrame!));
+    previousFrame = time;
     renderer.render(scene, camera);
   };
   const pause = () => {
     if (frame !== null) cancelFrame(frame);
     frame = null;
+    previousFrame = null;
+    paused = true;
   };
   const resume = () => {
     if (!disposed && frame === null) frame = requestFrame(loop);
+    paused = false;
+    pending.forEach((model, id) => zones.get(id)?.update(model));
+    pending.clear();
   };
 
   return {
@@ -91,7 +103,8 @@ export const createUniverse = (dependencies: UniverseDependencies = {}): Univers
       scene.add(zone.root);
     },
     renderZone(id, model) {
-      zones.get(id)?.update(model);
+      if (paused) pending.set(id, model);
+      else zones.get(id)?.update(model);
     },
     setTier(tier) {
       const profile = QUALITY[tier];
@@ -101,6 +114,7 @@ export const createUniverse = (dependencies: UniverseDependencies = {}): Univers
     pause,
     resume,
     rebuild: () => !disposed,
+    subscribeFrame(listener) { frameListeners.add(listener); return () => frameListeners.delete(listener); },
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -111,6 +125,8 @@ export const createUniverse = (dependencies: UniverseDependencies = {}): Univers
         zone.dispose();
       });
       zones.clear();
+      pending.clear();
+      frameListeners.clear();
       renderer.dispose();
       renderer.domElement.remove();
       host = null;
