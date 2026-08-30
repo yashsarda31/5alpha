@@ -1,0 +1,8 @@
+* { box-sizing: border-box; }
+html, body, #root { min-height: 100%; margin: 0; }
+body {
+  background: var(--space-0);
+  color: var(--white);
+  font-family: var(--font-ui);
+}
+button, a, input { min-height: var(--control-min); }
