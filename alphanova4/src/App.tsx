@@ -8,6 +8,10 @@ import { useUniverse } from './hooks/useUniverse';
 import { TodayRoute } from './routes/TodayRoute';
 import { SignalsRoute } from './routes/SignalsRoute';
 import { AnalyseRoute } from './routes/AnalyseRoute';
+import { WatchlistRoute } from './routes/WatchlistRoute';
+import { LoginSheet } from './components/LoginSheet';
+import { AuthProvider } from './auth/AuthProvider';
+import { WatchlistProvider } from './watchlist/WatchlistProvider';
 import { createUniverse, type UniverseRuntime } from './scene/createUniverse';
 
 const RouteStub = ({ label }: { label: string }) => (
@@ -20,7 +24,7 @@ const RouteStub = ({ label }: { label: string }) => (
 
 const routeLabel = (pathname: string) => CORE_ROUTES.find(({ path }) => pathname === path)?.label ?? 'Account';
 
-export default function App({ universeFactory = createUniverse }: { universeFactory?: () => UniverseRuntime }) {
+function AppShell({ universeFactory = createUniverse }: { universeFactory?: () => UniverseRuntime }) {
   const location = useLocation();
   const label = routeLabel(location.pathname);
   const [focusMode, setFocusMode] = useState(false);
@@ -29,8 +33,9 @@ export default function App({ universeFactory = createUniverse }: { universeFact
     { path: '/dashboard', element: <TodayRoute runtime={runtime} /> },
     { path: '/signals', element: <SignalsRoute runtime={runtime} /> },
     { path: '/chart', element: <AnalyseRoute runtime={runtime} /> },
-    ...CORE_ROUTES.filter(({ path }) => !['/dashboard', '/signals', '/chart'].includes(path)).map(({ path, label }) => ({ path, element: <RouteStub label={label} /> })),
-    { path: '/login', element: <RouteStub label="Account" /> },
+    { path: '/watchlist', element: <WatchlistRoute runtime={runtime} /> },
+    ...CORE_ROUTES.filter(({ path }) => !['/dashboard', '/signals', '/chart', '/watchlist'].includes(path)).map(({ path, label }) => ({ path, element: <RouteStub label={label} /> })),
+    { path: '/login', element: <LoginSheet /> },
     { path: '*', element: <Navigate to="/dashboard" replace /> },
   ]);
 
@@ -64,4 +69,8 @@ export default function App({ universeFactory = createUniverse }: { universeFact
       <AppDock />
     </div>
   );
+}
+
+export default function App(props: { universeFactory?: () => UniverseRuntime }) {
+  return <AuthProvider><WatchlistProvider><AppShell {...props} /></WatchlistProvider></AuthProvider>;
 }
