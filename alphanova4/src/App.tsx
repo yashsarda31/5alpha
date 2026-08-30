@@ -6,6 +6,7 @@ import { SceneStatus } from './components/SceneStatus';
 import { CORE_ROUTES } from './coreRoutes';
 import { useUniverse } from './hooks/useUniverse';
 import { TodayRoute } from './routes/TodayRoute';
+import { SignalsRoute } from './routes/SignalsRoute';
 import { createUniverse, type UniverseRuntime } from './scene/createUniverse';
 
 const RouteStub = ({ label }: { label: string }) => (
@@ -25,7 +26,8 @@ export default function App({ universeFactory = createUniverse }: { universeFact
   const { hostRef, runtime } = useUniverse({ factory: universeFactory, tier: 'balanced' });
   const routeElement = useRoutes([
     { path: '/dashboard', element: <TodayRoute runtime={runtime} /> },
-    ...CORE_ROUTES.filter(({ path }) => path !== '/dashboard').map(({ path, label }) => ({ path, element: <RouteStub label={label} /> })),
+    { path: '/signals', element: <SignalsRoute runtime={runtime} /> },
+    ...CORE_ROUTES.filter(({ path }) => path !== '/dashboard' && path !== '/signals').map(({ path, label }) => ({ path, element: <RouteStub label={label} /> })),
     { path: '/login', element: <RouteStub label="Account" /> },
     { path: '*', element: <Navigate to="/dashboard" replace /> },
   ]);

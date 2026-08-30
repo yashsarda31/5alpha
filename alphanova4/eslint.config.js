@@ -8,6 +8,7 @@ export default tseslint.config(
   { ignores: ['dist', 'playwright-report', 'test-results'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  { files: ['public/sw.js'], languageOptions: { globals: globals.serviceworker } },
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
