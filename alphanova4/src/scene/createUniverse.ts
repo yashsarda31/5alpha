@@ -50,6 +50,7 @@ export const createUniverse = (dependencies: UniverseDependencies = {}): Univers
   let frame: number | null = null;
   let disposed = false;
   let paused = true;
+  let continuous = true;
   let previousFrame: number | null = null;
   const frameListeners = new Set<(frameMs: number) => void>();
   const pending = new Map<ZoneId, unknown>();
@@ -61,8 +62,14 @@ export const createUniverse = (dependencies: UniverseDependencies = {}): Univers
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
+    if (!paused && !continuous) renderer.render(scene, camera);
   };
   const loop: FrameRequestCallback = (time) => {
+    if (disposed || paused || !continuous) {
+      frame = null;
+      previousFrame = null;
+      return;
+    }
     frame = requestFrame(loop);
     if (previousFrame !== null) frameListeners.forEach((listener) => listener(time - previousFrame!));
     previousFrame = time;
@@ -75,10 +82,13 @@ export const createUniverse = (dependencies: UniverseDependencies = {}): Univers
     paused = true;
   };
   const resume = () => {
-    if (!disposed && frame === null) frame = requestFrame(loop);
+    if (disposed) return;
     paused = false;
     pending.forEach((model, id) => zones.get(id)?.update(model));
     pending.clear();
+    if (continuous) {
+      if (frame === null) frame = requestFrame(loop);
+    } else renderer.render(scene, camera);
   };
 
   return {
@@ -101,15 +111,29 @@ export const createUniverse = (dependencies: UniverseDependencies = {}): Univers
       }
       zones.set(zone.id, zone as SpatialZone<unknown>);
       scene.add(zone.root);
+      if (!paused && !continuous) renderer.render(scene, camera);
     },
     renderZone(id, model) {
       if (paused) pending.set(id, model);
-      else zones.get(id)?.update(model);
+      else {
+        zones.get(id)?.update(model);
+        if (!continuous) renderer.render(scene, camera);
+      }
     },
     setTier(tier) {
       const profile = QUALITY[tier];
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, profile.maxPixelRatio));
       zones.forEach((zone) => zone.setTier(profile));
+      const nextContinuous = tier !== 'essential';
+      if (continuous !== nextContinuous) {
+        continuous = nextContinuous;
+        if (!continuous) {
+          if (frame !== null) cancelFrame(frame);
+          frame = null;
+          previousFrame = null;
+        } else if (!paused && frame === null) frame = requestFrame(loop);
+      }
+      if (!paused && !continuous) renderer.render(scene, camera);
     },
     pause,
     resume,

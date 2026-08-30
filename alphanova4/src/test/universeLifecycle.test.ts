@@ -12,6 +12,29 @@ const createRenderer = (): RendererPort => ({
 });
 
 describe('UniverseRuntime lifecycle', () => {
+  it('renders Essential tier on demand instead of keeping a continuous frame loop', () => {
+    const renderer = createRenderer();
+    const cancelFrame = vi.fn();
+    const requestFrame = vi.fn(() => 71);
+    const zone: SpatialZone<{ value: number }> = {
+      id: 'today',
+      root: new Group(),
+      camera: { position: new Vector3(0, 0, 10), target: new Vector3() },
+      update: vi.fn(), setTier: vi.fn(), dispose: vi.fn(),
+    };
+    const universe = createUniverse({ rendererFactory: () => renderer, requestFrame, cancelFrame });
+
+    universe.registerZone(zone);
+    universe.mount(document.createElement('div'));
+    universe.setTier('essential');
+    const rendersAfterTierChange = vi.mocked(renderer.render).mock.calls.length;
+    universe.renderZone('today', { value: 42 });
+
+    expect(cancelFrame).toHaveBeenCalledWith(71);
+    expect(zone.update).toHaveBeenCalledWith({ value: 42 });
+    expect(renderer.render).toHaveBeenCalledTimes(rendersAfterTierChange + 1);
+  });
+
   it('mounts one canvas and disposes renderer, zone, and animation once', () => {
     const renderer = createRenderer();
     const cancelFrame = vi.fn();

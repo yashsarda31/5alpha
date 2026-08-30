@@ -32,6 +32,7 @@ export const AnalyseRoute = ({ runtime }: { runtime: UniverseRuntime | null }) =
   const [error, setError] = useState<string | null>(null);
   const [insight, setInsight] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [requestVersion, setRequestVersion] = useState(0);
   const zone = useMemo(() => createAnalyseZone(), []);
   useEffect(() => { runtime?.registerZone(zone); }, [runtime, zone]);
   useEffect(() => {
@@ -43,8 +44,15 @@ export const AnalyseRoute = ({ runtime }: { runtime: UniverseRuntime | null }) =
       apiRequest(`/api/fundamentals/${encodeURIComponent(next.ticker)}`, { signal: controller.signal }).then(normalizeFundamentals).then(setFundamentals).catch(() => undefined);
     }).catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof ApiError && reason.status === 404 ? `${symbol} was not found. Check the symbol and try again.` : reason instanceof Error ? reason.message : 'Chart unavailable'); });
     return () => controller.abort();
-  }, [runtime, symbol]);
-  const search = (event: FormEvent) => { event.preventDefault(); const next = query.trim().toUpperCase(); if (next) { setError(null); setChart(null); setFundamentals(null); setParams({ symbol: next }); } };
+  }, [requestVersion, runtime, symbol]);
+  const search = (event: FormEvent) => {
+    event.preventDefault();
+    const next = query.trim().toUpperCase();
+    if (!next) return;
+    setError(null); setChart(null); setFundamentals(null); setInsight(null); setAiError(null);
+    if (next === symbol) setRequestVersion((current) => current + 1);
+    else setParams({ symbol: next });
+  };
   const generate = async () => {
     if (!chart) return; setAiError(null); setInsight(null);
     const apiKey = localStorage.getItem('gemini_api_key')?.trim();

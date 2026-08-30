@@ -3,12 +3,26 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
+import { SignalAlertProvider } from '../alerts/SignalAlertProvider';
 import { fakeUniverse } from './fakeUniverse';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 const response = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
 describe('Signals route', () => {
+  it('recovers from malformed persisted alert history without blanking the app', async () => {
+    localStorage.setItem('alphanova_seen_signals', 'not-json');
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response({
+      signals_market: 'IN', data_status: { state: 'ready', observed_at: '2026-08-30T09:30:00+05:30' },
+      regime: { overall: 'RISK-ON' }, setups: { plans: [{ symbol: 'RELIANCE', side: 'LONG', score: 78, entry: 1400, stop: 1350, target: 1500 }] },
+    }))));
+
+    render(<MemoryRouter initialEntries={['/signals']}><SignalAlertProvider><App universeFactory={fakeUniverse} /></SignalAlertProvider></MemoryRouter>);
+
+    expect(await screen.findByRole('heading', { name: 'LONG RELIANCE' })).toBeVisible();
+    expect(screen.getByRole('navigation', { name: 'Core research' })).toBeVisible();
+  });
+
   it('shows a selectable evidence dossier and projects its zone', async () => {
     const runtime = fakeUniverse();
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response({

@@ -10,6 +10,22 @@ const chart = (ticker: string) => ({ ticker, dates:['a','b'], open:[10,11], high
 const ok = (body: unknown, status=200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type':'application/json' } });
 
 describe('Analyse route', () => {
+  it('retries the current symbol when Analyse symbol is submitted again', async () => {
+    let chartRequests = 0;
+    vi.stubGlobal('fetch', vi.fn((path: string) => {
+      if (path.includes('fundamentals')) return Promise.resolve(ok({}));
+      chartRequests += 1;
+      return Promise.resolve(chartRequests === 1 ? ok({ detail: 'temporary chart failure' }, 503) : ok(chart('NVDA')));
+    }));
+    render(<MemoryRouter initialEntries={['/chart?symbol=NVDA']}><App universeFactory={fakeUniverse}/></MemoryRouter>);
+
+    expect(await screen.findByText('temporary chart failure')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Analyse symbol' }));
+
+    expect(await screen.findByRole('heading', { name: 'NVDA trajectory' })).toBeVisible();
+    expect(chartRequests).toBe(2);
+  });
+
   it('loads a URL-backed ticker and adopts a newer search', async () => {
     vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve(ok(path.includes('RELIANCE') ? chart('RELIANCE.NS') : path.includes('fundamentals') ? {} : chart('NVDA')))));
     render(<MemoryRouter initialEntries={['/chart?symbol=NVDA']}><App universeFactory={fakeUniverse}/></MemoryRouter>);
@@ -43,6 +59,28 @@ describe('Analyse route', () => {
     expect(payload.data_summary).toContain('Latest Close: 12.00');
     expect(payload).not.toHaveProperty('api_key');
     expect(payload).not.toHaveProperty('chart');
+  });
+
+  it('clears the previous AI insight when analysing a different symbol', async () => {
+    localStorage.setItem('gemini_api_key', 'test-key');
+    vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve(
+      path === '/api/ai/chart'
+        ? ok({ report: 'NVDA-specific market structure.' })
+        : path.includes('fundamentals')
+          ? ok({})
+          : ok(chart(path.includes('AAPL') ? 'AAPL' : 'NVDA')),
+    )));
+    render(<MemoryRouter initialEntries={['/chart?symbol=NVDA']}><App universeFactory={fakeUniverse}/></MemoryRouter>);
+    await screen.findByRole('heading', { name: 'NVDA trajectory' });
+    await userEvent.click(screen.getByRole('button', { name: 'Generate market insight' }));
+    expect(await screen.findByText('NVDA-specific market structure.')).toBeVisible();
+
+    await userEvent.clear(screen.getByRole('searchbox'));
+    await userEvent.type(screen.getByRole('searchbox'), 'AAPL');
+    await userEvent.click(screen.getByRole('button', { name: 'Analyse symbol' }));
+
+    expect(await screen.findByRole('heading', { name: 'AAPL trajectory' })).toBeVisible();
+    expect(screen.queryByText('NVDA-specific market structure.')).not.toBeInTheDocument();
   });
 
   it('does not call the AI endpoint without a Gemini API key', async () => {

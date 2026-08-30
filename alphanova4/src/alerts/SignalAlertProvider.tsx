@@ -4,12 +4,20 @@ const SEEN_KEY = 'alphanova_seen_signals';
 type Value = { latest: string | null; observe: (setups: SignalSetup[]) => void };
 const Context = createContext<Value>({ latest: null, observe: () => undefined });
 const marketDayKey = (setup: SignalSetup) => `${setup.symbol}:${(setup.observedAt ?? new Date().toISOString()).slice(0, 10)}`;
+const storedSeenKeys = (): string[] => {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]');
+    return Array.isArray(value) ? value.filter((key): key is string => typeof key === 'string') : [];
+  } catch {
+    return [];
+  }
+};
 
 export const SignalAlertProvider = ({ children }: { children: ReactNode }) => {
   const seeded = useRef(false);
   const [latest, setLatest] = useState<string | null>(null);
   const observe = useCallback((setups: SignalSetup[]) => {
-    const prior = new Set<string>(JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]') as string[]);
+    const prior = new Set<string>(storedSeenKeys());
     const keys = setups.map(marketDayKey);
     if (!seeded.current) { seeded.current = true; localStorage.setItem(SEEN_KEY, JSON.stringify([...new Set([...prior, ...keys])].slice(-500))); return; }
     const fresh = setups.find((setup) => !prior.has(marketDayKey(setup)));
