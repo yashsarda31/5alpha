@@ -90,7 +90,7 @@
     .range-btn { padding: 6px 10px; border: 0; border-radius: 9px; color: var(--faint); background: transparent; font-size: 11px; font-weight: 800; }
     .range-btn.active { color: #17130c; background: var(--gold); }
 
-    .kpi-grid { display: grid; grid-template-columns: repeat(7, minmax(145px, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(8, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }
     .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(18px); }
     .kpi { position: relative; overflow: hidden; min-height: 132px; padding: 18px; }
     .kpi::after { content: ""; position: absolute; inset: auto -25px -45px auto; width: 90px; height: 90px; border-radius: 50%; background: rgba(229,192,120,.05); }
@@ -246,6 +246,7 @@
       const state = { data: null, key: "", url: "", days: 30 };
       const byId = (id) => document.getElementById(id);
       const fmt = (value) => Number(value || 0).toLocaleString("en-IN");
+      const fmtOne = (value) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 });
       const pct = (value) => `${Math.round(Number(value || 0))}%`;
       const parseDate = (value) => { const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; };
       const dateLabel = (value, year = false) => {
@@ -311,6 +312,13 @@
 
       function renderKpis() {
         const totals = state.data.totals;
+        const visitors = state.data.visitors;
+        const visitorsAvailable = visitors && ["today", "yesterday", "average_7d"]
+          .every((field) => Number.isFinite(Number(visitors[field])));
+        const visitorValue = visitorsAvailable ? fmt(visitors.today) : "—";
+        const visitorMeta = visitorsAvailable
+          ? `Yesterday ${fmt(visitors.yesterday)} · 7-day avg ${fmtOne(visitors.average_7d)}`
+          : "Backend update required";
         const periodNew = selectedSeries().reduce((sum, row) => sum + Number(row.new || 0), 0);
         const activation = totals.users ? totals.ever_logged_in / totals.users * 100 : 0;
         const trend = trendMeta(totals.new_7d, totals.new_previous_7d);
@@ -322,6 +330,7 @@
           ["Active · 7 days", fmt(totals.active_7d), `${totals.users ? pct(totals.active_7d / totals.users * 100) : "0%"} of users`, ""],
           ["Active · 30 days", fmt(totals.active_30d), `${totals.users ? pct(totals.active_30d / totals.users * 100) : "0%"} of users`, ""],
           ["Live sessions", fmt(totals.active_sessions), "Unexpired tokens", ""],
+          ["Unique visitors today", visitorValue, escapeHtml(visitorMeta), ""],
         ];
         byId("kpiGrid").innerHTML = cards.map(([label, value, meta, className]) => `<article class="card kpi ${className}"><div class="kpi-label">${escapeHtml(label)}</div><div class="kpi-value">${escapeHtml(value)}</div><div class="kpi-meta">${meta}</div></article>`).join("");
       }
