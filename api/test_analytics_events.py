@@ -139,5 +139,30 @@ def test_site_visit_aggregation_counts_distinct_browsers_by_ist_day(conn):
         "today": 2,
         "yesterday": 1,
         "average_7d": 0.6,
+        "unique_30d": 4,
         "tracked_since": "2026-08-28T04:30:00+00:00",
     }
+
+
+def test_site_visit_aggregation_deduplicates_the_latest_thirty_ist_days(conn):
+    now = datetime(2026, 9, 2, 18, 45, tzinfo=timezone.utc)  # 3 Sep, 00:15 IST
+    repeat = "7d1c74ef-8da5-4a78-9eab-8f35145d172f"
+
+    def add(device, occurred_at, event="site_visit", route="/"):
+        record_event(conn, {
+            "event": event,
+            "device_id": device,
+            "occurred_at": occurred_at,
+            "route": route,
+            "market": "" if event == "site_visit" else "IN",
+        }, now)
+
+    add(repeat, "2026-09-02T18:35:00Z")
+    add(repeat, "2026-08-14T12:00:00Z")
+    add("0e1334ee-e1b1-4e55-b262-9420bb550251", "2026-08-04T18:30:00Z")
+    add("9d708c18-8202-437a-9a2a-106454a80bb9", "2026-08-04T18:29:59Z")
+    add("ef06d730-4053-4c69-9297-2f91d95c46e5", "2026-09-02T18:40:00Z",
+        event="analyse_loaded", route="/chart")
+    add("27557797-d00d-4690-a5cc-d1c1bbfac012", "2026-09-02T19:00:00Z")
+
+    assert aggregate_visitors(conn, now)["unique_30d"] == 2

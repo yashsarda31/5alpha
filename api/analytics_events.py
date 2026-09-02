@@ -181,6 +181,8 @@ def aggregate_visitors(conn: sqlite3.Connection, now: datetime) -> dict:
     today = current.astimezone(IST).date()
     days = [today - timedelta(days=offset) for offset in range(7)]
     devices_by_day = {day: set() for day in days}
+    window_30d_start = today - timedelta(days=29)
+    unique_30d = set()
     tracked_since = None
 
     rows = conn.execute(
@@ -198,6 +200,8 @@ def aggregate_visitors(conn: sqlite3.Connection, now: datetime) -> dict:
         if tracked_since is None or occurred < tracked_since:
             tracked_since = occurred
         day = occurred.astimezone(IST).date()
+        if window_30d_start <= day <= today:
+            unique_30d.add(device_id)
         if day in devices_by_day:
             devices_by_day[day].add(device_id)
 
@@ -207,5 +211,6 @@ def aggregate_visitors(conn: sqlite3.Connection, now: datetime) -> dict:
         "today": counts[today],
         "yesterday": counts[today - timedelta(days=1)],
         "average_7d": round(sum(counts.values()) / 7, 1),
+        "unique_30d": len(unique_30d),
         "tracked_since": tracked_since.isoformat() if tracked_since else None,
     }

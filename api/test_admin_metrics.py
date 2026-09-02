@@ -128,5 +128,6 @@ def test_admin_metrics_includes_daily_unique_visitors():
         "today": 1,
         "yesterday": 0,
         "average_7d": 0.1,
+        "unique_30d": 1,
         "tracked_since": "2026-09-02T18:35:00+00:00",
     }
