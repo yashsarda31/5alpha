@@ -16,6 +16,7 @@ import SignalAlertProvider from './alerts/SignalAlertProvider';
 import { trapFocus } from './lib/focusTrap';
 import { authState, notificationIntent } from './lib/authIntent';
 import { filterToolSections, readRecentTools, recordRecentTool } from './lib/toolNavigation';
+import { trackDailySiteVisit } from './lib/productAnalytics.js';
 
 const Login = lazy(() => import('./pages/Login'));
 const SettingsSheet = lazy(() => import('./components/SettingsSheet'));
@@ -200,6 +201,14 @@ const ScrollToTop = () => {
   React.useEffect(() => {
     if (navType !== 'POP') window.scrollTo(0, 0);
   }, [pathname, navType]);
+  return null;
+};
+
+const SiteVisitTracker = () => {
+  const { pathname } = useLocation();
+  React.useEffect(() => {
+    void trackDailySiteVisit();
+  }, [pathname]);
   return null;
 };
 
@@ -435,6 +444,7 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <SiteVisitTracker />
         <Routes>
           {/* No auth wall: every visitor lands in the complete terminal. */}
           <Route
