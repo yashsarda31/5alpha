@@ -26,3 +26,6 @@ def test_growth_dashboard_renders_optional_daily_visitor_kpi():
     assert "state.data.visitors" in html
     assert "Yesterday ${fmt(visitors.yesterday)} · 7-day avg ${fmtOne(visitors.average_7d)}" in html
     assert '"Backend update required"' in html
+    assert '["Unique visitors · 30 days"' in html
+    assert "visitors.unique_30d" in html
+    assert '"One browser counted once"' in html
