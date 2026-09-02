@@ -16,11 +16,13 @@ ALLOWED_EVENTS = {
     "watchlist_saved",
     "alerts_enabled",
     "return_visit",
+    "site_visit",
 }
 ALLOWED_FIELDS = {"event", "device_id", "occurred_at", "route", "market"}
 ALLOWED_ROUTES = {"/", "/dashboard", "/chart", "/position-sizing", "/watchlist", "/signals"}
 ALLOWED_MARKETS = {"IN", "US", ""}
 RETENTION_DAYS = 90
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -170,4 +172,40 @@ def aggregate_activation(conn: sqlite3.Connection, now: datetime) -> dict:
             "day_7": _cohort(device_events, current, 7),
         },
         "retention_days": RETENTION_DAYS,
+    }
+
+
+def aggregate_visitors(conn: sqlite3.Connection, now: datetime) -> dict:
+    ensure_schema(conn)
+    current = _utc(now)
+    today = current.astimezone(IST).date()
+    days = [today - timedelta(days=offset) for offset in range(7)]
+    devices_by_day = {day: set() for day in days}
+    tracked_since = None
+
+    rows = conn.execute(
+        "SELECT device_id, occurred_at FROM analytics_events WHERE event = ?",
+        ("site_visit",),
+    ).fetchall()
+    for row in rows:
+        device_id, occurred_at = row[0], row[1]
+        try:
+            occurred = _utc(occurred_at)
+        except ValueError:
+            continue
+        if occurred > current:
+            continue
+        if tracked_since is None or occurred < tracked_since:
+            tracked_since = occurred
+        day = occurred.astimezone(IST).date()
+        if day in devices_by_day:
+            devices_by_day[day].add(device_id)
+
+    counts = {day: len(devices) for day, devices in devices_by_day.items()}
+    return {
+        "timezone": "Asia/Kolkata",
+        "today": counts[today],
+        "yesterday": counts[today - timedelta(days=1)],
+        "average_7d": round(sum(counts.values()) / 7, 1),
+        "tracked_since": tracked_since.isoformat() if tracked_since else None,
     }

@@ -44,9 +44,19 @@ except ImportError:  # Vercel imports this file with api/ as the package root.
     from signal_model.portfolio import build_portfolio_snapshot, resolve_position
 
 try:
-    from api.analytics_events import aggregate_activation, delete_device, record_event
+    from api.analytics_events import (
+        aggregate_activation,
+        aggregate_visitors,
+        delete_device,
+        record_event,
+    )
 except ImportError:  # Vercel imports this file with api/ as the package root.
-    from analytics_events import aggregate_activation, delete_device, record_event
+    from analytics_events import (
+        aggregate_activation,
+        aggregate_visitors,
+        delete_device,
+        record_event,
+    )
 
 try:
     from api.stock_pro import calculate_stock_pro_signal
@@ -7936,8 +7946,9 @@ def _parse_ts(value):
     except (ValueError, AttributeError):
         return None
 
-def _admin_metrics_data(growth_days=90, recent_limit=25):
+def _admin_metrics_data(growth_days=90, recent_limit=25, now=None):
     _blob_pull_db(force=True)  # newest snapshot from the blob before reading
+    now = now or datetime.now(timezone.utc)
     conn = _auth_db()
     try:
         users = conn.execute(
@@ -7946,11 +7957,11 @@ def _admin_metrics_data(growth_days=90, recent_limit=25):
         active_sessions = conn.execute(
             "SELECT COUNT(*) FROM sessions WHERE expires_at > ?", (_utc_now(),)
         ).fetchone()[0]
-        activation = aggregate_activation(conn, datetime.now(timezone.utc))
+        activation = aggregate_activation(conn, now)
+        visitors = aggregate_visitors(conn, now)
     finally:
         conn.close()
 
-    now = datetime.now(timezone.utc)
     today = now.date()
 
     def within(ts, days):
@@ -8019,6 +8030,7 @@ def _admin_metrics_data(growth_days=90, recent_limit=25):
         "growth": growth,
         "recent": recent,
         "activation": activation,
+        "visitors": visitors,
     }
 
 @app.get("/api/admin/metrics")

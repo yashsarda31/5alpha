@@ -6,6 +6,7 @@ os.environ.setdefault("ALPHANOVA_DB_DIR", tempfile.mkdtemp(prefix="alphanova_tes
 
 import main  # noqa: E402
 from main import _admin_metrics_data, _require_admin, _parse_ts, _auth_db  # noqa: E402
+from api.analytics_events import ensure_schema  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 import pytest  # noqa: E402
 
@@ -105,3 +106,27 @@ def test_require_admin_gating():
         _require_admin("sekret")  # correct key: no raise
     finally:
         main.ADMIN_METRICS_KEY = orig
+
+
+def test_admin_metrics_includes_daily_unique_visitors():
+    now = datetime(2026, 9, 2, 18, 45, tzinfo=timezone.utc)
+    conn = _auth_db()
+    ensure_schema(conn)
+    conn.execute("DELETE FROM analytics_events")
+    conn.execute(
+        "INSERT INTO analytics_events(event, device_id, occurred_at, route, market, created_at) VALUES(?,?,?,?,?,?)",
+        ("site_visit", "7d1c74ef-8da5-4a78-9eab-8f35145d172f",
+         "2026-09-02T18:35:00Z", "/", "", now.isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+    metrics = _admin_metrics_data(now=now)
+
+    assert metrics["visitors"] == {
+        "timezone": "Asia/Kolkata",
+        "today": 1,
+        "yesterday": 0,
+        "average_7d": 0.1,
+        "tracked_since": "2026-09-02T18:35:00+00:00",
+    }
