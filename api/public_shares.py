@@ -67,36 +67,70 @@ def _public_query(path, query):
     return urlencode(sorted(dict(pairs).items()))
 
 
-def create_share(conn, *, path, query="", title="Alpha Nova research", share_id=None, created_at=None):
-    ensure_share_schema(conn)
+def valid_share_id(share_id):
+    return bool(ID_PATTERN.fullmatch(str(share_id or "")))
+
+
+def build_share(*, path, query="", title="Alpha Nova research", share_id=None, created_at=None):
     safe_path = _shareable_path(path)
     safe_query = _public_query(safe_path, query)
     safe_title = " ".join(str(title or "Alpha Nova research").split())[:100] or "Alpha Nova research"
     identifier = share_id or secrets.token_urlsafe(12)
-    if not ID_PATTERN.fullmatch(identifier):
+    if not valid_share_id(identifier):
         raise ValueError("Invalid share identifier")
     created = created_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    target = f"{ORIGIN}{safe_path}{f'?{safe_query}' if safe_query else ''}"
+    return {
+        "id": identifier,
+        "path": safe_path,
+        "query": safe_query,
+        "url": f"{ORIGIN}/s/{identifier}",
+        "target_url": target,
+        "title": safe_title,
+        "created_at": created,
+    }
+
+
+def create_share(conn, *, path, query="", title="Alpha Nova research", share_id=None, created_at=None):
+    ensure_share_schema(conn)
+    share = build_share(
+        path=path,
+        query=query,
+        title=title,
+        share_id=share_id,
+        created_at=created_at,
+    )
     conn.execute(
         "INSERT INTO public_shares (id, path, query, title, created_at) VALUES (?, ?, ?, ?, ?)",
-        (identifier, safe_path, safe_query, safe_title, created),
+        (share["id"], share["path"], share["query"], share["title"], share["created_at"]),
     )
     conn.commit()
-    target = f"{ORIGIN}{safe_path}{f'?{safe_query}' if safe_query else ''}"
-    return {"id": identifier, "url": f"{ORIGIN}/s/{identifier}", "target_url": target, "title": safe_title, "created_at": created}
+    return share
+
+
+def normalize_share(payload):
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return build_share(
+            path=payload.get("path"),
+            query=payload.get("query", ""),
+            title=payload.get("title", "Alpha Nova research"),
+            share_id=payload.get("id"),
+            created_at=payload.get("created_at"),
+        )
+    except (TypeError, ValueError):
+        return None
 
 
 def get_share(conn, share_id):
     ensure_share_schema(conn)
-    if not ID_PATTERN.fullmatch(str(share_id or "")):
+    if not valid_share_id(share_id):
         return None
     row = conn.execute("SELECT id, path, query, title, created_at FROM public_shares WHERE id = ?", (share_id,)).fetchone()
     if not row:
         return None
-    data = dict(row)
-    query_suffix = f"?{data['query']}" if data["query"] else ""
-    data["target_url"] = f"{ORIGIN}{data['path']}{query_suffix}"
-    data["url"] = f"{ORIGIN}/s/{data['id']}"
-    return data
+    return normalize_share(dict(row))
 
 
 def render_share_page(share):

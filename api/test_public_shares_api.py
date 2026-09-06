@@ -51,6 +51,26 @@ def test_missing_public_share_is_404(share_db):
     assert error.value.status_code == 404
 
 
+def test_cloud_share_uses_immutable_record_instead_of_auth_database(monkeypatch):
+    monkeypatch.setattr(main, "_blob_token", lambda: "vercel_blob_rw_test_store_token")
+    monkeypatch.setattr(main.secrets, "token_urlsafe", lambda size: "cloudShare123")
+    monkeypatch.setattr(main, "_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "_auth_db", lambda: pytest.fail("auth database must not be used"))
+    stored = []
+    monkeypatch.setattr(main, "_public_share_blob_put", lambda share: stored.append(share))
+
+    created = main.create_public_share(main.PublicShareCreate(
+        path="/delivery-radar",
+        query="symbol=RELIANCE&token=secret",
+        title="Delivery Radar",
+    ), request=object())
+
+    assert created["id"] == "cloudShare123"
+    assert created["path"] == "/delivery-radar"
+    assert created["query"] == "symbol=RELIANCE"
+    assert stored == [created]
+
+
 def test_public_share_request_rejects_oversized_fields():
     with pytest.raises(ValidationError):
         main.PublicShareCreate(path="/screener", query="x" * 2001)

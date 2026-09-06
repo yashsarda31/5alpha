@@ -95,9 +95,23 @@ except ImportError:  # local `uvicorn main:app` with api/ as working directory
     from public_delivery_pages import render_delivery_preview, render_radar_page, render_stock_page
 
 try:
-    from api.public_shares import create_share as create_public_share_record, get_share, render_share_page
+    from api.public_shares import (
+        build_share as build_public_share_record,
+        create_share as create_public_share_record,
+        get_share,
+        normalize_share as normalize_public_share_record,
+        render_share_page,
+        valid_share_id,
+    )
 except ImportError:  # local `uvicorn main:app` with api/ as working directory
-    from public_shares import create_share as create_public_share_record, get_share, render_share_page
+    from public_shares import (
+        build_share as build_public_share_record,
+        create_share as create_public_share_record,
+        get_share,
+        normalize_share as normalize_public_share_record,
+        render_share_page,
+        valid_share_id,
+    )
 
 try:
     from api.fundamentals_gateway import (
@@ -8527,9 +8541,74 @@ class PublicShareCreate(BaseModel):
     title: str = Field(default="Alpha Nova research", max_length=200)
 
 
+PUBLIC_SHARE_BLOB_PREFIX = "research/public-shares/"
+
+
+def _public_share_blob_put(share):
+    token = _blob_token()
+    pathname = f"{PUBLIC_SHARE_BLOB_PREFIX}{share['id']}.json"
+    response = requests.put(
+        f"{BLOB_API}/?pathname={pathname}",
+        data=json.dumps(share, separators=(",", ":")).encode("utf-8"),
+        headers=_blob_api_headers(
+            token,
+            **{
+                "x-vercel-blob-access": "private",
+                "x-add-random-suffix": "0",
+                "x-allow-overwrite": "0",
+                "x-content-type": "application/json",
+            },
+        ),
+        timeout=15,
+    )
+    if response.status_code in (409, 412):
+        raise HTTPException(status_code=503, detail="Share identifier collision. Please retry.")
+    response.raise_for_status()
+    return True
+
+
+def _public_share_blob_get(share_id):
+    if not valid_share_id(share_id):
+        return None
+    token = _blob_token()
+    pathname = f"{PUBLIC_SHARE_BLOB_PREFIX}{share_id}.json"
+    response = requests.get(
+        f"{BLOB_API}?url={pathname}",
+        headers=_blob_api_headers(token),
+        timeout=10,
+    )
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    metadata = response.json()
+    data = _blob_download(metadata.get("downloadUrl") or metadata["url"], token)
+    if not data:
+        return None
+    try:
+        share = normalize_public_share_record(json.loads(data))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return share if share and share["id"] == share_id else None
+
+
 @app.post("/api/public-shares")
 def create_public_share(payload: PublicShareCreate, request: Request):
     _rate_limit(request, "public-share", limit=20, window_s=3600)
+    if _blob_token():
+        try:
+            created = build_public_share_record(
+                path=payload.path,
+                query=payload.query,
+                title=payload.title,
+                share_id=secrets.token_urlsafe(12),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            _public_share_blob_put(created)
+        except requests.RequestException as exc:
+            raise HTTPException(status_code=503, detail="Share storage is temporarily unavailable.") from exc
+        return created
     _blob_pull_db(force=True)
     conn = _auth_db()
     try:
@@ -8550,6 +8629,11 @@ def create_public_share(payload: PublicShareCreate, request: Request):
 
 
 def _load_public_share(share_id):
+    if _blob_token():
+        try:
+            return _public_share_blob_get(share_id)
+        except requests.RequestException as exc:
+            raise HTTPException(status_code=503, detail="Share storage is temporarily unavailable.") from exc
     _blob_pull_db(force=True)
     conn = _auth_db()
     try:
