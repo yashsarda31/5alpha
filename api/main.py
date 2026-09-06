@@ -8100,11 +8100,124 @@ DELIVERY_CSV_URL = "https://nsearchives.nseindia.com/products/content/sec_bhavda
 DELIVERY_HISTORY_DAYS = 120         # calendar days kept for public comparisons
 DELIVERY_BACKFILL_TRADING_DAYS = 30
 DELIVERY_PUBLISH_HOUR, DELIVERY_PUBLISH_MINUTE = 19, 15  # IST; file is up ~7pm
+DELIVERY_BLOB_PREFIX = "research/delivery-db-v/"
+DELIVERY_BLOB_KEEP_SNAPSHOTS = 7
 _DELIVERY_LOCK = threading.Lock()
 _DELIVERY_CHECKED_AT = 0.0
+_delivery_blob_context = threading.local()
+
+
+def _delivery_operation_db_path():
+    if not _blob_token():
+        return AUTH_DB_PATH
+    path = getattr(_delivery_blob_context, "path", None)
+    if not path:
+        path = os.path.join(AUTH_DB_DIR, f"delivery-{threading.get_ident()}.db")
+        _delivery_blob_context.path = path
+    return path
+
+
+def _delivery_blob_pull(force=False):
+    """Load the newest immutable delivery snapshot into this worker."""
+    token = _blob_token()
+    if not token:
+        return True
+    path = _delivery_operation_db_path()
+    if (
+        not force
+        and os.path.exists(path)
+        and time.time() - getattr(_delivery_blob_context, "pulled_at", 0.0) < 300
+    ):
+        return True
+    try:
+        blobs = sorted(
+            _blob_list(DELIVERY_BLOB_PREFIX),
+            key=lambda item: item.get("pathname", ""),
+            reverse=True,
+        )
+        if blobs:
+            newest = blobs[0]
+            snapshot_name = newest.get("pathname")
+            if snapshot_name != getattr(_delivery_blob_context, "snapshot", None) or not os.path.exists(path):
+                data = _blob_download(newest.get("downloadUrl") or newest["url"], token)
+                if not data or not data.startswith(b"SQLite format 3"):
+                    raise RuntimeError("latest delivery snapshot is unavailable or invalid")
+                temp_path = f"{path}.pull-{secrets.token_hex(4)}"
+                with open(temp_path, "wb") as handle:
+                    handle.write(data)
+                os.replace(temp_path, path)
+            _delivery_blob_context.snapshot = snapshot_name
+        _delivery_blob_context.pulled_at = time.time()
+        return True
+    except Exception as exc:
+        print(f"Delivery snapshot pull failed: {exc}")
+        _delivery_blob_context.pulled_at = 0.0
+        if force:
+            raise HTTPException(
+                status_code=503,
+                detail="Delivery storage is temporarily unavailable. Please retry.",
+            )
+        return False
+
+
+def _delivery_blob_push():
+    """Publish a unique delivery snapshot; only the daily refresh writes here."""
+    token = _blob_token()
+    if not token:
+        return True
+    path = _delivery_operation_db_path()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    pathname = f"{DELIVERY_BLOB_PREFIX}{stamp}-{secrets.token_hex(4)}.db"
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read()
+        response = requests.put(
+            f"{BLOB_API}/?pathname={pathname}",
+            data=data,
+            headers=_blob_api_headers(
+                token,
+                **{
+                    "x-vercel-blob-access": "private",
+                    "x-add-random-suffix": "0",
+                    "x-allow-overwrite": "0",
+                    "x-content-type": "application/octet-stream",
+                },
+            ),
+            timeout=30,
+        )
+        response.raise_for_status()
+        _delivery_blob_context.snapshot = pathname
+        _delivery_blob_context.pulled_at = time.time()
+        try:
+            blobs = sorted(
+                _blob_list(DELIVERY_BLOB_PREFIX),
+                key=lambda item: item.get("pathname", ""),
+                reverse=True,
+            )
+            stale = [
+                item["url"]
+                for item in blobs[DELIVERY_BLOB_KEEP_SNAPSHOTS:]
+                if item.get("url")
+            ]
+            if stale:
+                requests.post(
+                    f"{BLOB_API}/delete",
+                    json={"urls": stale},
+                    headers=_blob_api_headers(token),
+                    timeout=10,
+                ).raise_for_status()
+        except Exception as exc:
+            print(f"Delivery snapshot prune failed: {exc}")
+        return True
+    except Exception as exc:
+        print(f"Delivery snapshot push failed: {exc}")
+        raise HTTPException(status_code=503, detail="Delivery snapshot could not be persisted.")
 
 def _delivery_db():
-    conn = _auth_db()
+    if not _delivery_blob_pull():
+        raise HTTPException(status_code=503, detail="Delivery storage is temporarily unavailable.")
+    conn = sqlite3.connect(_delivery_operation_db_path())
+    conn.row_factory = sqlite3.Row
     conn.execute("""CREATE TABLE IF NOT EXISTS delivery_daily (
         symbol     TEXT NOT NULL,
         trade_date TEXT NOT NULL,
@@ -8160,17 +8273,11 @@ def _ingest_delivery_day(conn, day, text, universe):
 
 
 def _persist_delivery_rows(rows, retention_cutoff, attempts=4):
-    """Merge fetched delivery rows into the latest shared DB revision.
-
-    Fetching a month of NSE files is slow enough that another request may update
-    the auth/analytics database before the conditional Blob write. Pull the
-    newest revision immediately before each write and replay these idempotent
-    delivery upserts so unrelated concurrent changes are preserved.
-    """
+    """Merge fetched rows into the newest dedicated delivery snapshot."""
     attempts = max(1, int(attempts))
     last_conflict = None
     for attempt in range(attempts):
-        _blob_pull_db(force=True)
+        _delivery_blob_pull(force=True)
         conn = _delivery_db()
         try:
             upsert_delivery_rows(conn, rows)
@@ -8180,7 +8287,7 @@ def _persist_delivery_rows(rows, retention_cutoff, attempts=4):
         finally:
             conn.close()
         try:
-            _blob_push_db()
+            _delivery_blob_push()
             return latest
         except HTTPException as exc:
             last_conflict = exc
@@ -8199,10 +8306,7 @@ def _ensure_delivery_fresh(max_fetch=3, force=False):
         if not force and time.time() - _DELIVERY_CHECKED_AT < 3600:
             return {"added": 0, "skipped": "recently checked"}
         expected = _delivery_expected_day()
-        # Same SQLite file as auth/push_subs: pull fresh so the push after
-        # ingesting can't overwrite newer writes (e.g. a push subscription)
-        # with this instance's stale snapshot. At most hourly per instance.
-        _blob_pull_db(force=True)
+        _delivery_blob_pull(force=True)
         conn = _delivery_db()
         try:
             latest = conn.execute("SELECT MAX(trade_date) FROM delivery_daily").fetchone()[0]

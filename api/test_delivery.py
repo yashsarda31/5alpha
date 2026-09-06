@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import tempfile
+import threading
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -103,7 +104,7 @@ def test_ingest_filters_and_parses():
     conn.close()
 
 
-def test_delivery_persistence_replays_rows_after_blob_conflict(tmp_path, monkeypatch):
+def test_delivery_persistence_replays_rows_after_snapshot_retry(tmp_path, monkeypatch):
     db_path = tmp_path / "delivery-conflict.db"
     monkeypatch.setattr(main, "AUTH_DB_PATH", str(db_path))
     monkeypatch.setattr(main, "_blob_token", lambda: None)
@@ -130,8 +131,8 @@ def test_delivery_persistence_replays_rows_after_blob_conflict(tmp_path, monkeyp
             raise HTTPException(status_code=503, detail="concurrent write")
         return True
 
-    monkeypatch.setattr(main, "_blob_pull_db", fake_pull)
-    monkeypatch.setattr(main, "_blob_push_db", fake_push)
+    monkeypatch.setattr(main, "_delivery_blob_pull", fake_pull)
+    monkeypatch.setattr(main, "_delivery_blob_push", fake_push)
     rows = [{
         "symbol": "RELIANCE",
         "trade_date": "2026-09-04",
@@ -157,6 +158,19 @@ def test_delivery_persistence_replays_rows_after_blob_conflict(tmp_path, monkeyp
     assert latest == "2026-09-04"
     assert pulls == [True, True]
     assert len(pushes) == 2
+
+
+def test_cloud_delivery_database_is_isolated_from_auth_database(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "AUTH_DB_DIR", str(tmp_path))
+    monkeypatch.setattr(main, "AUTH_DB_PATH", str(tmp_path / "alphanova.db"))
+    monkeypatch.setattr(main, "_blob_token", lambda: "vercel_blob_rw_test_store_token")
+    monkeypatch.setattr(main, "_delivery_blob_context", threading.local())
+
+    path = main._delivery_operation_db_path()
+
+    assert path != main.AUTH_DB_PATH
+    assert os.path.dirname(path) == str(tmp_path)
+    assert os.path.basename(path).startswith("delivery-")
 
 
 # --- spurt signals ---
