@@ -1,6 +1,9 @@
 import os
+import sqlite3
 import tempfile
 from datetime import date, datetime, timedelta, timezone
+
+from fastapi import HTTPException
 
 # Isolate the DB before main is imported (no-op if another test imported it first;
 # fresh table names keep these tests correct either way)
@@ -14,7 +17,9 @@ from main import (  # noqa: E402
     _delivery_score,
     _delivery_signals,
     _ingest_delivery_day,
+    _persist_delivery_rows,
 )
+import main  # noqa: E402
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -96,6 +101,62 @@ def test_ingest_filters_and_parses():
     assert conn.execute("SELECT COUNT(*) FROM delivery_daily").fetchone()[0] == 1
     conn.commit()
     conn.close()
+
+
+def test_delivery_persistence_replays_rows_after_blob_conflict(tmp_path, monkeypatch):
+    db_path = tmp_path / "delivery-conflict.db"
+    monkeypatch.setattr(main, "AUTH_DB_PATH", str(db_path))
+    monkeypatch.setattr(main, "_blob_token", lambda: None)
+
+    pulls = []
+    pushes = []
+
+    def fake_pull(force=False):
+        if not force:
+            return True
+        pulls.append(force)
+        if len(pulls) == 2:
+            conn = sqlite3.connect(db_path)
+            conn.execute("DELETE FROM delivery_daily")
+            conn.execute("CREATE TABLE concurrent_marker (value TEXT)")
+            conn.execute("INSERT INTO concurrent_marker VALUES ('preserved')")
+            conn.commit()
+            conn.close()
+        return True
+
+    def fake_push():
+        pushes.append(True)
+        if len(pushes) == 1:
+            raise HTTPException(status_code=503, detail="concurrent write")
+        return True
+
+    monkeypatch.setattr(main, "_blob_pull_db", fake_pull)
+    monkeypatch.setattr(main, "_blob_push_db", fake_push)
+    rows = [{
+        "symbol": "RELIANCE",
+        "trade_date": "2026-09-04",
+        "series": "EQ",
+        "prev_close": 1390.0,
+        "close": 1400.0,
+        "deliv_per": 55.0,
+        "traded_qty": 100,
+        "delivered_qty": 55,
+        "turnover_lacs": 10.0,
+        "clv": 0.5,
+        "source_url": "https://nsearchives.nseindia.com/example.csv",
+        "ingested_at": "2026-09-04T14:00:00Z",
+        "validation_status": "valid",
+    }]
+
+    latest = _persist_delivery_rows(rows, "2026-06-01", attempts=2)
+
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT value FROM concurrent_marker").fetchone()[0] == "preserved"
+    assert conn.execute("SELECT delivered_qty FROM delivery_daily").fetchone()[0] == 55
+    conn.close()
+    assert latest == "2026-09-04"
+    assert pulls == [True, True]
+    assert len(pushes) == 2
 
 
 # --- spurt signals ---

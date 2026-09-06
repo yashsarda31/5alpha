@@ -8158,6 +8158,37 @@ def _ingest_delivery_day(conn, day, text, universe):
     rows = parse_delivery_rows(text, universe, day, source_url=source_url)
     return upsert_delivery_rows(conn, rows)
 
+
+def _persist_delivery_rows(rows, retention_cutoff, attempts=4):
+    """Merge fetched delivery rows into the latest shared DB revision.
+
+    Fetching a month of NSE files is slow enough that another request may update
+    the auth/analytics database before the conditional Blob write. Pull the
+    newest revision immediately before each write and replay these idempotent
+    delivery upserts so unrelated concurrent changes are preserved.
+    """
+    attempts = max(1, int(attempts))
+    last_conflict = None
+    for attempt in range(attempts):
+        _blob_pull_db(force=True)
+        conn = _delivery_db()
+        try:
+            upsert_delivery_rows(conn, rows)
+            conn.execute("DELETE FROM delivery_daily WHERE trade_date < ?", (retention_cutoff,))
+            conn.commit()
+            latest = conn.execute("SELECT MAX(trade_date) FROM delivery_daily").fetchone()[0]
+        finally:
+            conn.close()
+        try:
+            _blob_push_db()
+            return latest
+        except HTTPException as exc:
+            last_conflict = exc
+            if exc.status_code != 503 or attempt + 1 >= attempts:
+                raise
+    raise last_conflict
+
+
 def _ensure_delivery_fresh(max_fetch=3, force=False):
     """Bring delivery_daily up to the last expected trading day. Cheap when
     already fresh; fetches at most max_fetch missing files otherwise."""
@@ -8201,7 +8232,7 @@ def _ensure_delivery_fresh(max_fetch=3, force=False):
             # delivered quantity rather than relabelling delivery percentage.
             missing = sorted(set(missing) | set(quantity_missing))
 
-            added = 0
+            pending_rows = []
             universe = _delivery_universe()
             for day in missing[:max_fetch]:  # oldest first so gaps fill forward
                 try:
@@ -8210,15 +8241,19 @@ def _ensure_delivery_fresh(max_fetch=3, force=False):
                     print(f"Delivery fetch failed for {day}: {e}")
                     continue
                 if text:
-                    added += _ingest_delivery_day(conn, day, text, universe)
-            conn.execute("DELETE FROM delivery_daily WHERE trade_date < ?",
-                         ((expected - timedelta(days=DELIVERY_HISTORY_DAYS)).isoformat(),))
-            conn.commit()
+                    source_url = DELIVERY_CSV_URL.format(d=day.strftime("%d%m%Y"))
+                    pending_rows.extend(parse_delivery_rows(
+                        text, universe, day, source_url=source_url
+                    ))
             latest = conn.execute("SELECT MAX(trade_date) FROM delivery_daily").fetchone()[0]
         finally:
             conn.close()
-        if added:
-            _blob_push_db()
+        added = len(pending_rows)
+        if pending_rows:
+            latest = _persist_delivery_rows(
+                pending_rows,
+                (expected - timedelta(days=DELIVERY_HISTORY_DAYS)).isoformat(),
+            )
             API_CACHE.pop("delivery_signals", None)
         _DELIVERY_CHECKED_AT = time.time()
         return {"added": added, "latest": latest}
