@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 import yfinance as yf
@@ -17,6 +17,13 @@ import time
 import io
 import re
 from contextlib import asynccontextmanager
+
+try:
+    from api.signal_timing import (classify_batch as classify_timed_batch,
+                                   source_age_seconds, source_is_fresh, timing_comparison)
+except ImportError:
+    from signal_timing import (classify_batch as classify_timed_batch,
+                               source_age_seconds, source_is_fresh, timing_comparison)
 
 try:
     from api.sector_rotation_data import (
@@ -62,6 +69,35 @@ try:
     from api.stock_pro import calculate_stock_pro_signal
 except ImportError:  # local `uvicorn main:app` with api/ as working directory
     from stock_pro import calculate_stock_pro_signal
+
+try:
+    from api.delivery_research import (
+        delivery_quantity_backfill_dates,
+        delivery_radar_rows,
+        ensure_delivery_columns,
+        parse_delivery_rows,
+        stock_delivery_history,
+        upsert_delivery_rows,
+    )
+except ImportError:  # local `uvicorn main:app` with api/ as working directory
+    from delivery_research import (
+        delivery_quantity_backfill_dates,
+        delivery_radar_rows,
+        ensure_delivery_columns,
+        parse_delivery_rows,
+        stock_delivery_history,
+        upsert_delivery_rows,
+    )
+
+try:
+    from api.public_delivery_pages import render_delivery_preview, render_radar_page, render_stock_page
+except ImportError:  # local `uvicorn main:app` with api/ as working directory
+    from public_delivery_pages import render_delivery_preview, render_radar_page, render_stock_page
+
+try:
+    from api.public_shares import create_share as create_public_share_record, get_share, render_share_page
+except ImportError:  # local `uvicorn main:app` with api/ as working directory
+    from public_shares import create_share as create_public_share_record, get_share, render_share_page
 
 try:
     from api.fundamentals_gateway import (
@@ -224,13 +260,13 @@ _EDGE_PREFIX_RULES = (
 def _edge_cache_ttl(path, query_market):
     """(s-maxage, stale-while-revalidate) for a cacheable public path, else None."""
     if path == "/api/dashboard":
-        return _dashboard_edge_cache_ttl()
+        return _dashboard_edge_cache_ttl(query_market)
     if path == "/api/signals":
         mkt = query_market.upper() if query_market and query_market.upper() in ("IN", "US") \
             else _dashboard_movers_market()
-        # short live TTL: client polls still reach the function often enough to
-        # drive _broadcast_new_plans (push has no cron behind it)
-        return (60, 300) if _signals_live(mkt) else (450, 1800)
+        # Never serve stale signal decisions at the CDN. The bounded internal
+        # cache and scheduled generator own freshness.
+        return None
     if path in _EDGE_STATIC_RULES:
         return _EDGE_STATIC_RULES[path]
     for prefix, smax, swr in _EDGE_PREFIX_RULES:
@@ -246,6 +282,8 @@ async def _edge_cache_headers(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if request.url.path == "/api/signals" or request.url.path.startswith("/api/signals/run"):
+        response.headers["Cache-Control"] = "private, no-store"
     if (
         request.method == "GET"
         and response.status_code == 200
@@ -411,17 +449,19 @@ class AIFundamentalsRequest(BaseModel):
     fundamentals_data: str
     apiKey: str
 
-class ScreenerRequest(BaseModel):
-    tickers: str = "AAPL, MSFT, NVDA, RELIANCE.NS, TCS.NS, HDFCBANK.NS"
-    # `X | None` (not bare `X`) — pydantic v2 422s on an explicit JSON null
-    # for a non-Optional field (the Android push-subscribe bug class)
-    universe: str | None = None  # named preset ('nifty100', 'nifty200', 'sp100', 'nasdaq100')
-    max_pe: float | None = None
-    min_div_yield: float | None = None
-    min_roe: float | None = None
-    min_eps_growth: float | None = None
-    min_momentum: float | None = None      # composite (1m+6m+12m)/3 return %; needs price history
-    min_alpha_score: float | None = None   # Alpha Nova Score 0-100
+try:
+    from api.screener_engine import ScreenerRules, run_scan as run_screener_scan
+    from api.screener_universe import resolve_universe as resolve_screener_universe
+except ImportError:
+    from screener_engine import ScreenerRules, run_scan as run_screener_scan
+    from screener_universe import resolve_universe as resolve_screener_universe
+from typing import Literal
+from pydantic import Field
+
+
+class ScreenerRequest(ScreenerRules):
+    tickers: str = Field(default="AAPL, MSFT, NVDA, RELIANCE.NS, TCS.NS, HDFCBANK.NS", min_length=1, max_length=5000)
+    universe: Literal["nifty100", "nifty200", "sp100", "nasdaq100"] | None = None
 
 class MomentumRequest(BaseModel):
     market: str = "us" # 'us' or 'in'
@@ -579,107 +619,18 @@ def _composite_momentum(stock):
 
 @app.post("/api/screener")
 def run_screener(req: ScreenerRequest):
+    started = time.monotonic()
     if req.universe and req.universe in SCREENER_UNIVERSES:
-        tickers = list(SCREENER_UNIVERSES[req.universe])
+        tickers, membership = resolve_screener_universe(req.universe, SCREENER_UNIVERSES[req.universe], fetch_index_constituents)
     else:
         tickers = [t.strip() for t in req.tickers.split(",") if t.strip()]
+        membership = {"universe_source": "Custom ticker list", "universe_fallback": False, "universe_checked_at": None}
 
-    # De-duplicate while preserving order
-    seen = set()
-    tickers = [t for t in tickers if not (t in seen or seen.add(t))]
-    requested = len(tickers)
-    results = []
-    # Momentum needs a 14-month history per ticker (an extra request each), so
-    # only compute it when the momentum filter is actually in play
-    want_momentum = req.min_momentum is not None
-
-    def process_ticker(ticker):
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-            pe = info.get("trailingPE")
-            div = info.get("dividendYield")
-            roe = info.get("returnOnEquity")
-            eps = info.get("earningsGrowth")
-            rev = info.get("revenueGrowth")
-            margin = info.get("profitMargins")
-            dte = info.get("debtToEquity")  # yfinance ships this as a % already
-
-            # yfinance >= 0.2.50 returns dividendYield already as a percentage;
-            # roe/eps/revenue growth and margins are still fractions (0.15 = 15%)
-            div_pct = div if div is not None else 0
-            roe_pct = (roe or 0) * 100
-            eps_pct = (eps or 0) * 100
-            
-            if req.max_pe is not None and pe is not None and pe > req.max_pe:
-                return None
-            if req.min_div_yield is not None and div_pct < req.min_div_yield:
-                return None
-            if req.min_roe is not None and roe_pct < req.min_roe:
-                return None
-            if req.min_eps_growth is not None and eps_pct < req.min_eps_growth:
-                return None
-                
-            price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
-            market_cap = (info.get("marketCap") or 0) / 1e9
-            # Guard against NaN/inf so the JSON response stays valid
-            if not (np.isfinite(price) and np.isfinite(market_cap)):
-                return None
-
-            trailing_eps = info.get("trailingEps")
-            alpha_score = _alpha_nova_score(
-                price, trailing_eps, pe, eps_pct if eps is not None else None,
-                rev_growth_pct=rev * 100 if rev is not None else None,
-                roe_pct=roe * 100 if roe is not None else None,
-                margin_pct=margin * 100 if margin is not None else None,
-                dte_pct=dte if dte is not None else None,
-                div_pct=div)
-            if req.min_alpha_score is not None and (alpha_score is None or alpha_score < req.min_alpha_score):
-                return None
-
-            momentum = _composite_momentum(stock) if want_momentum else None
-            if req.min_momentum is not None and (momentum is None or momentum < req.min_momentum):
-                return None
-
-            return {
-                "ticker": ticker,
-                "price": price,
-                "marketCap": market_cap,
-                # Yahoo reports trailingPE as 0/negative for loss-makers — that is
-                # "no meaningful P/E", not a cheap stock, so surface it as null
-                "peRatio": pe if (pe is not None and np.isfinite(pe) and pe > 0) else None,
-                "divYield": div_pct,
-                "roe": roe_pct if roe is not None else None,
-                "epsGrowth": eps_pct if eps is not None else None,
-                "momentum": momentum,
-                "alphaScore": alpha_score
-            }
-        except Exception:
-            return None
-
-    # Scale workers with the universe size (yfinance is I/O-bound), but cap to
-    # avoid tripping Yahoo rate limits on the largest scans.
-    workers = min(32, max(8, len(tickers)))
-    scanned = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(process_ticker, t) for t in tickers]
-        try:
-            for future in concurrent.futures.as_completed(futures, timeout=SCREENER_TIME_BUDGET):
-                scanned += 1
-                res = future.result()
-                if res:
-                    results.append(res)
-        except concurrent.futures.TimeoutError:
-            # Time budget hit — return whatever finished rather than hang.
-            for future in futures:
-                future.cancel()
-
-    return {
-        "data": results,
-        "requested": requested,
-        "scanned": scanned,
-        "truncated": scanned < requested,
-    }
+    if not tickers or len(tickers) > 250:
+        raise HTTPException(status_code=422, detail="Choose between 1 and 250 tickers.")
+    return {**run_screener_scan(req, tickers, _alpha_nova_score,
+                               time_budget=max(0, SCREENER_TIME_BUDGET - (time.monotonic() - started))),
+            **membership}
 
 
 import asyncio
@@ -1987,6 +1938,9 @@ def ai_screener_summary(req: AIScreenerRequest):
 
 @app.get("/api/momentum")
 async def get_momentum(market: str = "us"):
+    market = market.lower()
+    if market not in ("in", "us"):
+        raise HTTPException(status_code=400, detail="Market must be in or us")
     cache_key = f"momentum_{market}"
     if cache_key in API_CACHE and time.time() - API_CACHE[cache_key]['time'] < CACHE_TTL:
         return API_CACHE[cache_key]['data']
@@ -2015,119 +1969,23 @@ async def get_momentum(market: str = "us"):
                    "QCOM", "INTU", "TXN", "AMGN", "PM",
                    "DIS", "UBER", "PFE", "NOW", "SPGI"]
 
+    try:
+        from api.momentum_scan import scan_momentum
+    except ImportError:
+        from momentum_scan import scan_momentum
+
     def scan_universe():
-        # One batch download for the whole universe (~50 names, 14 months of
-        # daily OHLCV) — far faster than 50 per-ticker requests, and the OHLCV
-        # gives us breakout levels + volume ratios, not just closes.
-        try:
-            df = yf.download(" ".join(tickers), period="14mo", group_by="ticker",
-                             threads=True, progress=False, auto_adjust=True)
-        except Exception:
-            return [], []
+        df = yf.download(" ".join(tickers), period="14mo", group_by="ticker",
+                         threads=True, progress=False, auto_adjust=True)
+        return scan_momentum(df, tickers, market)
 
-        leaders, breakouts = [], []
-        for ticker in tickers:
-            try:
-                h = df[ticker].dropna(how="all")
-                closes = h["Close"].dropna()
-                if len(closes) < 60:
-                    continue
-                last = float(closes.iloc[-1])
-                prev = float(closes.iloc[-2])
-                chg_today = (last / prev - 1) * 100 if prev else 0.0
+    try:
+        response_data = await asyncio.to_thread(scan_universe)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Momentum provider unavailable; retry shortly") from exc
+    if not response_data["scanned"]:
+        raise HTTPException(status_code=502, detail="No valid momentum price histories available")
 
-                # RSI(14)
-                delta = closes.diff()
-                gain = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
-                loss = (-delta.clip(upper=0)).ewm(com=13, adjust=False).mean()
-                rs = gain.iloc[-1] / loss.iloc[-1] if loss.iloc[-1] else float("inf")
-                rsi = 100 - (100 / (1 + rs)) if np.isfinite(rs) else 100.0
-
-                sma50 = float(closes.tail(50).mean())
-                dist_50dma = (last / sma50 - 1) * 100 if sma50 else 0.0
-                high_52w = float(h["High"].iloc[-252:].max()) if len(h) >= 252 else float(h["High"].max())
-                off_52w_high = (last / high_52w - 1) * 100 if high_52w else 0.0
-                vol = float(h["Volume"].iloc[-1] or 0)
-                avg_vol = float(h["Volume"].iloc[-21:-1].mean() or 0)
-                vol_ratio = vol / avg_vol if avg_vol else 0.0
-                spark = [round(float(c), 2) for c in closes.tail(60)]
-
-                # Last ~60 sessions of OHLCV for the frontend candlestick
-                # charts (spark stays for back-compat with Focus List)
-                ohlc = h.dropna(subset=["Open", "High", "Low", "Close"]).tail(60)
-                candles = {
-                    "o": [round(float(x), 2) for x in ohlc["Open"]],
-                    "h": [round(float(x), 2) for x in ohlc["High"]],
-                    "l": [round(float(x), 2) for x in ohlc["Low"]],
-                    "c": [round(float(x), 2) for x in ohlc["Close"]],
-                    "v": [int(x) if np.isfinite(x) else 0 for x in ohlc["Volume"].fillna(0)],
-                }
-
-                # --- Breakout scan: last trade above the PRIOR high (today excluded) ---
-                prior_highs = h["High"].iloc[:-1]
-                hi20 = float(prior_highs.tail(20).max())
-                hi63 = float(prior_highs.tail(63).max())
-                hi252 = float(prior_highs.tail(252).max()) if len(prior_highs) >= 100 else None
-                if last > hi20 and chg_today > 0:
-                    if hi252 and last > hi252:
-                        btype, level = "52W HIGH", hi252
-                    elif last > hi63:
-                        btype, level = "3M HIGH", hi63
-                    else:
-                        btype, level = "20D HIGH", hi20
-                    breakouts.append({
-                        "ticker": ticker, "price": round(last, 2),
-                        "chg_today": round(chg_today, 2),
-                        "type": btype, "level": round(level, 2),
-                        "margin": round((last / level - 1) * 100, 2),
-                        "vol_ratio": round(vol_ratio, 2),
-                        "rsi": round(rsi, 1),
-                        "spark": spark,
-                        "candles": candles,
-                        # strength: rarer high + volume conviction + move size
-                        "_rank": ({"52W HIGH": 3, "3M HIGH": 2, "20D HIGH": 1}[btype]
-                                  * (1 + min(vol_ratio, 4)) * (1 + abs(chg_today))),
-                    })
-
-                # --- Momentum leaders need a full year of history ---
-                if len(closes) < 252:
-                    continue
-                mom_1m = (last / float(closes.iloc[-21]) - 1) * 100
-                mom_6m = (last / float(closes.iloc[-126]) - 1) * 100
-                mom_12m = (last / float(closes.iloc[-252]) - 1) * 100
-                score = (mom_1m + mom_6m + mom_12m) / 3
-                if not all(np.isfinite(v) for v in (last, mom_1m, mom_6m, mom_12m, score, rsi)):
-                    continue
-                leaders.append({
-                    "ticker": ticker,
-                    "mom_1m": round(mom_1m, 2),
-                    "mom_6m": round(mom_6m, 2),
-                    "mom_12m": round(mom_12m, 2),
-                    "score": round(score, 2),
-                    "price": round(last, 2),
-                    "chg_today": round(chg_today, 2),
-                    "rsi": round(rsi, 1),
-                    "off_52w_high": round(off_52w_high, 2),
-                    "dist_50dma": round(dist_50dma, 2),
-                    "vol_ratio": round(vol_ratio, 2),
-                    "spark": spark,
-                    "candles": candles,
-                })
-            except Exception:
-                continue
-        return leaders, breakouts
-
-    leaders, breakouts = await asyncio.to_thread(scan_universe)
-    if not leaders:
-        raise HTTPException(status_code=400, detail="Failed to fetch momentum data for tickers")
-
-    leaders.sort(key=lambda x: x["score"], reverse=True)
-    breakouts.sort(key=lambda x: x["_rank"], reverse=True)
-    for b in breakouts:
-        b.pop("_rank", None)
-
-    response_data = {"data": leaders[:15], "breakouts": breakouts[:10],
-                     "universe": len(tickers), "market": market.lower()}
     API_CACHE[cache_key] = {'time': time.time(), 'data': response_data}
     return response_data
 
@@ -3978,17 +3836,39 @@ def _is_indian_market_open(now_ist=None):
     return 9 * 60 + 15 <= minutes < 15 * 60 + 30
 
 
+def _new_york_time(now=None):
+    """Return ``now`` in New York, including daylight-saving transitions."""
+    try:
+        from zoneinfo import ZoneInfo
+        ny_tz = ZoneInfo("America/New_York")
+    except Exception:  # no tzdata (e.g. bare Windows) — EST approximation
+        ny_tz = timezone(timedelta(hours=-5))
+    if now is None:
+        return datetime.now(ny_tz)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    return now.astimezone(ny_tz)
+
+
+def _is_us_market_open(now=None):
+    current = _new_york_time(now)
+    if current.weekday() >= 5:
+        return False
+    minutes = current.hour * 60 + current.minute
+    return 9 * 60 + 30 <= minutes < 16 * 60
+
+
 def _dashboard_pulse_names(market):
     return ["S&P 500", "NASDAQ 100"] if market == "US" else ["NIFTY 50", "BANKNIFTY"]
 
 
 def _dashboard_market_open(market=None, now_ist=None):
-    """Status for the market selected by the existing fixed Dashboard window."""
+    """Status for the selected exchange, evaluated in its local clock."""
     active_market = market or _dashboard_movers_market(now_ist)
-    return active_market == "US" or _is_indian_market_open(now_ist)
+    return _is_us_market_open(now_ist) if active_market == "US" else _is_indian_market_open(now_ist)
 
 
-def _dashboard_edge_cache_ttl(now_ist=None):
+def _dashboard_edge_cache_ttl(market=None, now_ist=None):
     """Keep dashboard CDN snapshots from crossing a market open/close bell.
 
     A long closed-market TTL created just before 09:15 used to keep returning
@@ -4004,7 +3884,7 @@ def _dashboard_edge_cache_ttl(now_ist=None):
     near_close = weekday and 15 * 60 + 25 <= minutes < 15 * 60 + 35
     if near_open or near_close:
         return (15, 0)
-    live = _dashboard_market_open(now_ist=now)
+    live = _dashboard_market_open(market, now_ist=now)
     return (120, 600) if live else (900, 1800)
 
 def _yf_quote_change(ticker):
@@ -4064,12 +3944,14 @@ def _spark_closes(tickers, points=30):
 _INDEX_SPARK_SYMBOLS = {
     "NIFTY 50": "^NSEI", "BANKNIFTY": "^NSEBANK", "INDIA VIX": "^INDIAVIX",
     "USD/INR": "INR=X", "Gold ($/oz)": "GC=F", "Silver ($/oz)": "SI=F", "S&P 500": "^GSPC",
-    "NASDAQ 100": "^NDX",
+    "NASDAQ 100": "^NDX", "CBOE VIX": "^VIX", "US 10Y": "^TNX", "WTI Crude": "CL=F",
 }
 
 @app.get("/api/dashboard")
-async def get_dashboard():
-    movers_market = _dashboard_movers_market()
+async def get_dashboard(market: str = None):
+    # ?market=IN|US pins the view (footer market toggle); the default keeps
+    # the clock rule (US megacaps 20:00-02:00 IST, NSE otherwise).
+    movers_market = market.upper() if market and market.upper() in ("IN", "US") else _dashboard_movers_market()
     cache_key = f"dashboard_{movers_market}"
     # Live TTL during the active session; 30 min when both markets are shut and
     # the movers/indices are frozen (the polled dashboard tab stops recomputing).
@@ -4083,13 +3965,12 @@ async def get_dashboard():
 
     def fetch_indices():
         if movers_market == "US":
-            # US pulse first, then the macro rows retained from the India view.
-            # Avoid NSE entirely in this branch: its two lead indices are not
-            # displayed and waiting on it only slows the US Dashboard.
+            # Keep the selected region coherent: US pulse, volatility, rates,
+            # and globally quoted commodities. No India-only macro rows.
             specs = [
                 ("^GSPC", "S&P 500"), ("^NDX", "NASDAQ 100"),
-                ("^INDIAVIX", "INDIA VIX"), ("INR=X", "USD/INR"),
-                ("GC=F", "Gold ($/oz)"), ("SI=F", "Silver ($/oz)"),
+                ("^VIX", "CBOE VIX"), ("^TNX", "US 10Y"),
+                ("GC=F", "Gold ($/oz)"), ("CL=F", "WTI Crude"),
             ]
             got = {}
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(specs)) as ex:
@@ -4194,9 +4075,9 @@ async def get_dashboard():
 # regime context (trend / vol / IV / breadth), actionable setups (scored
 # futures-radar trade plans with entry/stop/target).
 
-SIGNALS_CACHE_TTL = 120  # seconds — near-live without hammering NSE
+SIGNALS_CACHE_TTL = 30  # seconds; shared by page requests and scheduled scans
 SIGNAL_MODEL_VERSION = "signals-v2.1-quality"
-SIGNAL_IN_MODEL_VERSION = "signals-v2.2-tight-stop-2r"
+SIGNAL_IN_MODEL_VERSION = "signals-v2.3-timing"
 SIGNAL_BACKFILL_MODEL_VERSION = "signals-backfill-eod-v1"
 # Changing this value is an explicit, one-way boundary for public performance.
 # The 2026-08-22 epoch starts the revised signals model with no inherited trades.
@@ -4289,8 +4170,12 @@ def _apply_signal_quality_gate(plans, min_score=SIGNAL_PUBLISH_MIN_SCORE,
         if data_status is not None:
             if not data_status.get("required_inputs_complete"):
                 reasons.append("inputs_incomplete")
-            elif data_status.get("status") in {"stale", "unavailable"}:
+            elif data_status.get("status") in {"stale", "unavailable", "provider_limited"}:
                 reasons.append("stale_inputs")
+        if plan.get("lifecycle") and plan.get("lifecycle") != "triggered":
+            reasons.append(plan.get("timing_reason") or "trigger_pending")
+        elif plan.get("lifecycle") == "triggered" and not plan.get("actionable"):
+            reasons.append(plan.get("timing_reason") or "trigger_pending")
         if float(plan.get("score") or 0) < min_score:
             reasons.append("low_score")
         if float(plan.get("coverage_pct") or 0) < min_coverage:
@@ -4322,10 +4207,8 @@ def _apply_signal_quality_gate(plans, min_score=SIGNAL_PUBLISH_MIN_SCORE,
     return published, rejected, quality
 
 def _signals_live(sig_market):
-    """Is the market that /api/signals is currently reporting on actually live?
-    We only route to the US engine inside the US session window, so US == live;
-    IN follows NSE hours."""
-    return True if sig_market == "US" else _signals_market_open()[0]
+    """Whether the explicitly selected signal market is in cash-session hours."""
+    return _is_us_market_open() if sig_market == "US" else _signals_market_open()[0]
 
 def _signals_market_open():
     ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
@@ -4908,7 +4791,9 @@ def score_signal_plans(radar, active, oc_nifty, buildups, regime, capital, risk_
                       "qty": qty, "why": why, "score_components": components,
                       "coverage_pct": coverage_pct, "reward_risk": SIGNAL_IN_REWARD_RISK,
                       "execution_policy": "tight-stop-2r-gross",
-                      "model_version": SIGNAL_IN_MODEL_VERSION})
+                      "model_version": SIGNAL_IN_MODEL_VERSION,
+                      "day_high": f.get("highPrice"), "day_low": f.get("lowPrice"),
+                      "oi_pct": r.get("oi_pct"), "px": r.get("px")})
     plans.sort(key=lambda p: p["score"], reverse=True)
     return [p for p in plans if p["score"] >= min_score], index_bias
 
@@ -4987,11 +4872,7 @@ US_SIGNALS_UNIVERSE = [
 ]
 
 def _ny_now():
-    try:
-        from zoneinfo import ZoneInfo
-        return datetime.now(ZoneInfo("America/New_York"))
-    except Exception:  # no tzdata (e.g. bare Windows) — EST approximation
-        return datetime.now(timezone(timedelta(hours=-5)))
+    return _new_york_time()
 
 def _us_signals_market_open():
     now = _ny_now()
@@ -5412,15 +5293,21 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         _bounded(asyncio.to_thread(fetch_signal_chain_summary, "NIFTY"), 15),
         _bounded(asyncio.to_thread(fetch_signal_chain_summary, "BANKNIFTY"), 15),
         _bounded(asyncio.to_thread(fetch_signal_buildups), 12),
-        _bounded(asyncio.to_thread(lambda: (nse_get("/api/liveEquity-derivatives?index=stock_fut") or {}).get("data", [])), 12),
-        _bounded(asyncio.to_thread(lambda: (nse_get("/api/live-analysis-oi-spurts-underlyings") or {}).get("data", [])), 12),
+        _bounded(asyncio.to_thread(nse_get, "/api/liveEquity-derivatives?index=stock_fut"), 12),
+        _bounded(asyncio.to_thread(nse_get, "/api/live-analysis-oi-spurts-underlyings"), 12),
         _bounded(asyncio.to_thread(_yf_daily_closes, "^NSEI"), 15),
         _bounded(asyncio.to_thread(_yf_daily_closes, "^NSEBANK"), 15),
         _bounded(asyncio.to_thread(_yf_daily_closes, "^INDIAVIX"), 15),
         _bounded(asyncio.to_thread(_ensure_delivery_fresh, 2), 8),  # best-effort EOD delivery top-up
     )
     buildup_available = buildup_pair is not None
+    active_payload = active if isinstance(active, dict) else {}
+    price_observed_at = _signal_observed_at(active_payload.get("timestamp") or active_payload.get("timeStamp"))
+    active = active_payload.get("data", []) if isinstance(active, dict) else active
     active_available = active is not None
+    spurt_payload = spurts if isinstance(spurts, dict) else {}
+    oi_observed_at = _signal_observed_at(spurt_payload.get("timestamp"))
+    spurts = spurt_payload.get("data", []) if isinstance(spurts, dict) else spurts
     spurts_available = spurts is not None
     buildups, buildup_ts = buildup_pair if buildup_pair else ({}, "")
     active = active or []
@@ -5478,7 +5365,9 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         delivery = {}
     candidates, index_bias = score_signal_plans(
         radar, active, oc_nifty, buildups or {}, regime, capital, risk_pct, delivery=delivery)
-    observed_at = _signal_observed_at(buildup_ts)
+    buildup_observed_at = _signal_observed_at(buildup_ts)
+    source_times = [buildup_observed_at, price_observed_at, oi_observed_at]
+    observed_at = min(source_times) if all(source_times) else None
     latest_session = observed_at[:10] if observed_at else None
     expected_session = _expected_signal_session(is_open, why_closed)
     data_status = build_signal_data_status(
@@ -5493,12 +5382,28 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         latest_completed_session=latest_session,
         expected_latest_session=expected_session,
     )
-    plans, rejected, quality = _apply_signal_quality_gate(
-        candidates,
-        limit=None,
-        model_version=SIGNAL_IN_MODEL_VERSION,
-        data_status=data_status,
-    )
+    detected_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # OI and price are independent feeds. Do not label a same-day but old
+    # observation as fresh, or substitute the response generation timestamp.
+    data_status["price_observed_at"] = price_observed_at
+    data_status["oi_observed_at"] = oi_observed_at
+    data_status["buildup_observed_at"] = buildup_observed_at
+    if is_open and not all(source_is_fresh(stamp, detected_at)
+                           for stamp in source_times):
+        data_status["status"] = "stale"
+        data_status["warnings"].append("intraday_source_delayed")
+    timed = await _bounded(asyncio.to_thread(
+        _process_india_timing, candidates, data_status, observed_at,
+        detected_at, is_open, capital, risk_pct, regime.get("vol_scale", 1.0)), 30)
+    if timed is None:
+        # No durable timing evidence means no new published entries.
+        timed = {"plans": [], "watchlist": [], "quality": {
+            "published": 0, "rejected": len(candidates),
+            "model_version": SIGNAL_IN_MODEL_VERSION,
+            "rejection_counts": {"timing_storage_unavailable": len(candidates)}}}
+        data_status["status"] = "provider_limited"
+        data_status["warnings"].append("timing_storage_unavailable")
+    plans, quality = timed["plans"], timed["quality"]
     _cache_stock_pro_context(buildups or {}, buildup_ts, radar, delivery, regime, index_bias)
     # Reuse the entry/stop/target captured when a signal first entered the
     # model book. The radar LTP is intentionally live; the trade plan is not.
@@ -5509,6 +5414,10 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
         "market_open": is_open,
         "market_note": why_closed,
         "data_status": data_status,
+        "timing": {"source_age_seconds": source_age_seconds(observed_at, detected_at),
+                   "price_age_seconds": source_age_seconds(price_observed_at, detected_at),
+                   "detected_at": detected_at, "scan_interval_seconds": 60,
+                   "policy_version": SIGNAL_IN_MODEL_VERSION},
         "regime": regime,
         "options": {
             "indices": [oc for oc in (oc_nifty, oc_bank) if oc],
@@ -5521,6 +5430,7 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
             "capital": capital,
             "risk_pct": risk_pct,
             "plans": plans,
+            "watchlist": timed["watchlist"],
             "radar_size": len(radar),
             "quality": quality,
         },
@@ -5529,12 +5439,6 @@ async def get_market_signals(capital: float = 1_000_000, risk_pct: float = 1.0, 
     }
     data = _json_safe(data)
     API_CACHE[cache_key] = {'time': time.time(), 'data': data}
-    if is_open:  # no new setups form after close — skip the broadcast's blob ops
-        try:  # fan new scored setups out to phone push subscribers (best-effort)
-            await _bounded(asyncio.to_thread(
-                _broadcast_new_plans, plans, "IN", "₹", plans + rejected, data.get("as_of")), 12)
-        except Exception:
-            pass
     return data
 
 
@@ -5652,6 +5556,8 @@ import sqlite3
 import hashlib
 import hmac
 import secrets
+import threading
+import tempfile
 from fastapi import Header
 
 _MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -5669,16 +5575,16 @@ SESSION_TTL_DAYS = 30
 # uploaded after every auth write. The BLOB_READ_WRITE_TOKEN env var is injected
 # automatically because the store is linked to the project.
 BLOB_API = "https://vercel.com/api/blob"
-BLOB_API_VERSION = "11"
-# Each snapshot is written to a UNIQUE timestamp-named pathname instead of
-# overwriting one file: Vercel Blob download URLs are CDN-cached, so re-reading
-# an overwritten URL can return stale bytes for up to a minute. That window let
-# a second signup miss a just-created account and clobber it (account takeover).
-# A brand-new pathname gets a brand-new URL that can never be cache-stale; pull
-# takes the newest snapshot by name (lexical order == chronological order).
+BLOB_API_VERSION = "12"
+# New writes use one stable private object with ETag conditional replacement.
+# Bytes and revision come from the same authenticated download; stale downloads
+# therefore fail their next write rather than overwriting a newer database.
+# Timestamped snapshots remain only as the one-way migration source.
 BLOB_DB_PREFIX = "auth/alphanova-db-v/"
+BLOB_CURRENT_PATH = "auth/alphanova-current.db"
 BLOB_KEEP_SNAPSHOTS = 5
 _blob_synced = False
+_blob_context = threading.local()
 
 def _blob_token():
     return os.environ.get("BLOB_READ_WRITE_TOKEN")
@@ -5720,39 +5626,100 @@ def _sqlite_user_count(data):
         if conn is not None:
             conn.close()
 
-def _blob_download(url, token):
-    r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
-    return r.content if r.status_code == 200 else None
+def _blob_download(url, token, with_revision=False):
+    r = requests.get(url, headers={"Authorization": f"Bearer {token}",
+                                   "Cache-Control": "no-cache"}, timeout=10)
+    if r.status_code != 200:
+        return (None, None) if with_revision else None
+    revision = r.headers.get("etag") or r.headers.get("ETag")
+    return (r.content, revision) if with_revision else r.content
+
+
+def _blob_current_metadata(token):
+    """Resolve the stable private blob. None means definitely absent."""
+    r = requests.get(f"{BLOB_API}?url={BLOB_CURRENT_PATH}",
+                     headers=_blob_api_headers(token), timeout=10)
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    return r.json()
+
+
+def _blob_put_current(data, token, revision=None, create_only=False):
+    headers = {
+        "x-vercel-blob-access": "private", "x-add-random-suffix": "0",
+        "x-content-type": "application/octet-stream",
+        "x-allow-overwrite": "0" if create_only else "1",
+    }
+    if revision:
+        headers["x-if-match"] = revision
+    r = requests.put(f"{BLOB_API}/?pathname={BLOB_CURRENT_PATH}", data=data,
+                     headers=_blob_api_headers(token, **headers), timeout=15)
+    if r.status_code in (409, 412):
+        return None
+    r.raise_for_status()
+    return (r.json() or {}).get("etag") or r.headers.get("etag")
+
+
+def _operation_db_path():
+    """One file per worker thread prevents in-process requests sharing bytes."""
+    if not _blob_token():
+        return AUTH_DB_PATH
+    path = getattr(_blob_context, "path", None)
+    if path:
+        return path
+    path = os.path.join(AUTH_DB_DIR, f"alphanova-{threading.get_ident()}.db")
+    _blob_context.path = path
+    return path
 
 def _blob_pull_db(force=False):
-    """Fetch the latest auth DB snapshot from the blob store into the local path."""
+    """Fetch bytes and their ETag together for a later conditional write."""
     global _blob_synced
     token = _blob_token()
-    if not token or (_blob_synced and not force):
+    if not token:
+        return True
+    if not force and getattr(_blob_context, "revision", None):
         return True
     try:
-        snapshots = sorted(_blob_list(BLOB_DB_PREFIX), key=lambda b: b.get("pathname", ""), reverse=True)
-        if not snapshots:
-            # An empty store is valid only for a brand-new database. On a warm
-            # instance, continuing with a local file could overwrite remote users
-            # after a transient or inconsistent list response.
-            if force and os.path.exists(AUTH_DB_PATH):
-                with open(AUTH_DB_PATH, "rb") as f:
-                    local_users = _sqlite_user_count(f.read())
-                if local_users != 0:
-                    raise RuntimeError("blob store returned no auth snapshots")
+        metadata = _blob_current_metadata(token)
+        if metadata:
+            data, revision = _blob_download(metadata.get("downloadUrl") or metadata["url"], token, True)
+            if not revision:
+                raise RuntimeError("current database revision unavailable")
         else:
-            data = _blob_download(snapshots[0]["url"], token)
-            # Only accept a real SQLite file so a corrupt blob can't brick auth.
-            if not data or not data.startswith(b"SQLite format 3"):
-                raise RuntimeError("latest auth snapshot is unavailable or invalid")
-            temp_path = f"{AUTH_DB_PATH}.pull"
-            with open(temp_path, "wb") as f:
-                f.write(data)
-            os.replace(temp_path, AUTH_DB_PATH)
+            snapshots = sorted(_blob_list(BLOB_DB_PREFIX), key=lambda b: b.get("pathname", ""), reverse=True)
+            if snapshots:
+                data = _blob_download(snapshots[0]["url"], token)
+                if not data or not data.startswith(b"SQLite format 3"):
+                    raise RuntimeError("legacy auth snapshot is unavailable or invalid")
+            else:
+                data = open(AUTH_DB_PATH, "rb").read() if os.path.exists(AUTH_DB_PATH) else None
+                if data and not data.startswith(b"SQLite format 3"):
+                    raise RuntimeError("local bootstrap database is invalid")
+            if data is None:
+                # A new empty database is initialized by _auth_db, then its first
+                # mutation bootstraps the stable object create-only.
+                _blob_context.revision = "bootstrap"
+                _blob_synced = True
+                return True
+            revision = _blob_put_current(data, token, create_only=True)
+            if not revision:  # another instance won bootstrap; reload its bytes
+                metadata = _blob_current_metadata(token)
+                if not metadata:
+                    raise RuntimeError("database bootstrap conflict did not produce a winner")
+                data, revision = _blob_download(metadata.get("downloadUrl") or metadata["url"], token, True)
+        if not data or not data.startswith(b"SQLite format 3"):
+            raise RuntimeError("latest auth snapshot is unavailable or invalid")
+        target = _operation_db_path()
+        temp_path = f"{target}.pull-{secrets.token_hex(4)}"
+        with open(temp_path, "wb") as f:
+            f.write(data)
+        os.replace(temp_path, target)
+        _blob_context.revision = revision
     except Exception as e:
         print(f"Blob DB pull failed: {e}")
         _blob_synced = False
+        _blob_context.revision = None
         if force:
             raise HTTPException(
                 status_code=503,
@@ -5763,31 +5730,29 @@ def _blob_pull_db(force=False):
     return True
 
 def _blob_push_db():
-    """Mirror the auth DB to the blob store as a new timestamped snapshot."""
+    """Conditionally replace the exact revision this operation downloaded."""
     token = _blob_token()
     if not token:
         return True
     try:
-        with open(AUTH_DB_PATH, "rb") as f:
+        path = _operation_db_path()
+        revision = getattr(_blob_context, "revision", None)
+        if not revision:
+            raise RuntimeError("database write has no matching pulled revision")
+        with open(path, "rb") as f:
             data = f.read()
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
-        pathname = f"{BLOB_DB_PREFIX}{stamp}-{secrets.token_hex(4)}.db"
-        r = requests.put(
-            f"{BLOB_API}/?pathname={pathname}",
-            data=data,
-            headers=_blob_api_headers(token, **{
-                "x-vercel-blob-access": "private",
-                "x-add-random-suffix": "0",
-                "x-content-type": "application/octet-stream",
-            }),
-            timeout=15
-        )
-        r.raise_for_status()
-        _blob_prune_snapshots()
+        next_revision = _blob_put_current(
+            data, token, create_only=revision == "bootstrap",
+            revision=None if revision == "bootstrap" else revision)
+        if not next_revision:
+            _blob_context.revision = None
+            raise RuntimeError("database changed concurrently; operation was not persisted")
+        _blob_context.revision = next_revision
         return True
     except Exception as e:
         print(f"Blob DB push failed: {e}")
-        return False
+        _blob_context.revision = None
+        raise HTTPException(status_code=503, detail="Shared storage changed concurrently. Please retry.")
 
 def _blob_prune_snapshots():
     """Best-effort delete of all but the newest snapshots (failure is harmless)."""
@@ -5886,8 +5851,9 @@ def _shp_prune_snapshots():
 
 
 def _auth_db():
-    _blob_pull_db()
-    conn = sqlite3.connect(AUTH_DB_PATH)
+    if not _blob_pull_db():
+        raise HTTPException(status_code=503, detail="Shared storage is temporarily unavailable.")
+    conn = sqlite3.connect(_operation_db_path())
     conn.row_factory = sqlite3.Row
     conn.execute("""CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -6233,6 +6199,16 @@ async def run_signal_generation(market: str = None, authorization: str = Header(
 async def run_signal_generation_for_market(market_code: str,
                                            authorization: str = Header(None)):
     return await run_signal_generation(market=market_code, authorization=authorization)
+
+
+@app.get("/api/signals/timing")
+def get_signal_timing_comparison():
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        return timing_comparison(conn)
+    finally:
+        conn.close()
 
 def _rate_limit(request: Request, bucket: str, limit: int, window_s: int):
     """Raise 429 when `limit` calls from this IP land inside `window_s`."""
@@ -6795,12 +6771,19 @@ def _record_signal_events(conn, candidates, mkt, observed_at=None, source="live_
         actionable = 1 if plan.get("actionable", True) else 0
         model_version = plan.get("model_version") or SIGNAL_MODEL_VERSION
         event_key = f"{market_date}|{mkt}|{symbol}|{side}|{model_version}|{actionable}"
+        if plan.get("lifecycle"):
+            event_key += "|" + plan["lifecycle"]
         reasons = list(plan.get("rejection_reasons") or [])
         features = {
             "score_components": plan.get("score_components") or {},
             "why": plan.get("why") or "",
             "risk": plan.get("risk"),
             "qty": plan.get("qty"),
+            **{key: plan.get(key) for key in (
+                "lifecycle", "timing_reason", "trigger", "initial_stop", "initial_target",
+                "first_seen_at", "detected_at", "published_at", "push_attempted_at",
+                "chase_r", "remaining_rr", "shadow_features", "baseline_first_at",
+                "baseline_first_entry")},
         }
         added += conn.execute(
             """INSERT OR IGNORE INTO signal_events
@@ -6819,7 +6802,49 @@ def _record_signal_events(conn, candidates, mkt, observed_at=None, source="live_
     return added
 
 
-def _broadcast_new_plans(plans, mkt, currency, candidates=None, observed_at=None):
+def _process_india_timing(candidates, data_status, observed_at, detected_at,
+                         market_open, capital, risk_pct, vol_scale):
+    """Classify against durable anchors inside the publication transaction."""
+    def prepare(conn):
+        qualified_data = (market_open and data_status.get("status") == "fresh"
+                          and data_status.get("required_inputs_complete"))
+        timed = classify_timed_batch(
+            conn, candidates, observed_at=observed_at, detected_at=detected_at,
+            market_date=(observed_at or detected_at)[:10], data_fresh=bool(qualified_data),
+            capital=capital, risk_pct=risk_pct, vol_scale=vol_scale)
+        plans, rejected, quality = _apply_signal_quality_gate(
+            timed, limit=None, model_version=SIGNAL_IN_MODEL_VERSION, data_status=data_status)
+        # An already open trade belongs in the portfolio. It must not be
+        # reannounced as a new triggered entry or an extended watch candidate.
+        open_rows = conn.execute(
+            "SELECT symbol, side, kind, score, entry, stop, target, entry_date, signal_at "
+            "FROM signal_positions WHERE market='IN' AND status='open'").fetchall()
+        open_symbols = {row["symbol"] for row in open_rows}
+        new_plans = [p for p in plans if p["symbol"] not in open_symbols]
+        locked = [{**dict(row), "levels_locked": True, "signal_date": row["entry_date"],
+                   "why": f"Open position · levels locked since {row['entry_date']}",
+                   "actionable": False, "lifecycle": "open", "observed_at": observed_at,
+                   # Legacy positions predate durable timing anchors. Keep the
+                   # original publication time and do not invent a detection time.
+                   "detected_at": None, "published_at": row["signal_at"]} for row in open_rows]
+        result = {"plans": new_plans + locked, "quality": quality,
+                  "watchlist": [p for p in rejected if p.get("trigger") is not None
+                                and p["symbol"] not in open_symbols]}
+        return new_plans, plans + rejected, result
+
+    # Closed snapshots may show prior anchors/positions, but never mutate the
+    # paper book or seed a new session from frozen data.
+    if not market_open:
+        conn = _auth_db()
+        try:
+            _, _, result = prepare(conn)
+            return result
+        finally:
+            conn.close()
+    return _broadcast_new_plans([], "IN", "₹", candidates, observed_at, prepare_batch=prepare)
+
+
+def _broadcast_new_plans(plans, mkt, currency, candidates=None, observed_at=None, prepare_batch=None):
     """Process a fresh batch of scored plans in ONE blob transaction:
       1. Enter qualifying new plans into the model portfolio (FCFS, 10% each,
          max 10 concurrent) — _enter_signal_positions.
@@ -6831,7 +6856,7 @@ def _broadcast_new_plans(plans, mkt, currency, candidates=None, observed_at=None
     Sharing the transaction keeps this off the per-compute blob-op budget.
     """
     candidates = candidates if candidates is not None else plans
-    if not plans and not candidates:
+    if not plans and not candidates and prepare_batch is None:
         return
     try:
         # Fresh pull is load-bearing: this runs on warm instances whose snapshot
@@ -6841,11 +6866,20 @@ def _broadcast_new_plans(plans, mkt, currency, candidates=None, observed_at=None
         _blob_pull_db(force=True)
         conn = _auth_db()
     except Exception:
+        if prepare_batch is not None:
+            raise
         return
     changed = False
+    prepared_result = None
     fresh = []
     subs = []
     try:
+        if prepare_batch is not None:
+            changes_before = conn.total_changes
+            plans, candidates, prepared_result = prepare_batch(conn)
+            changed = conn.total_changes > changes_before
+        plans = [p for p in plans if p.get("actionable", True)
+                 and p.get("lifecycle", "triggered") == "triggered"]
         # Record the full decision set before entering/pushing only the calls
         # that cleared the quality gate.
         try:
@@ -6881,7 +6915,16 @@ def _broadcast_new_plans(plans, mkt, currency, candidates=None, observed_at=None
             conn.execute("DELETE FROM push_sent WHERE created_at < ?",
                          ((datetime.now(timezone.utc) - timedelta(days=3)).isoformat(),))
             if prior == 0:
-                fresh = []  # first sight of this day/market: seed quietly
+                # Newly observed transitions must not lose the first alert of
+                # the day. Keep legacy batch seeding for untimed engines.
+                fresh = [p for p in fresh if p.get("lifecycle") == "triggered"]
+            attempted_at = _utc_now()
+            for p in fresh:
+                p["push_attempted_at"] = attempted_at
+                conn.execute(
+                    "UPDATE signal_events SET features_json=json_set(features_json, '$.push_attempted_at', ?) "
+                    "WHERE market=? AND market_date=? AND symbol=? AND actionable=1 AND model_version=?",
+                    (attempted_at, mkt, _market_today(mkt), p["symbol"], p.get("model_version") or SIGNAL_MODEL_VERSION))
         conn.commit()
         subs = conn.execute("SELECT endpoint, p256dh, auth FROM push_subs").fetchall() if fresh else []
     finally:
@@ -6891,11 +6934,14 @@ def _broadcast_new_plans(plans, mkt, currency, candidates=None, observed_at=None
         # start pulls a DB missing today's rows and re-seeds silently (the bug
         # that made push look dead in prod, found 2026-07-07).
         try:
-            _blob_push_db()
+            persisted = _blob_push_db()
+            if prepare_batch is not None and not persisted:
+                raise RuntimeError("Timing publication could not be persisted")
         except Exception:
-            pass
+            if prepare_batch is not None:
+                raise
     if not fresh or not subs:
-        return
+        return prepared_result
     fresh = sorted(fresh, key=lambda p: -(p.get("score") or 0))[:PUSH_MAX_PER_BATCH]
     dead = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
@@ -6921,6 +6967,7 @@ def _broadcast_new_plans(plans, mkt, currency, candidates=None, observed_at=None
             _blob_push_db()
         except Exception:
             pass
+    return prepared_result
 
 
 # --- Signal model portfolio: paper-trade every scored signal -----------------
@@ -6982,6 +7029,8 @@ def _enter_signal_positions(conn, plans, mkt):
         (mkt,)).fetchone()[0]
     added = 0
     for p in sorted(plans, key=lambda p: -(p.get("score") or 0)):
+        if not p.get("actionable", True) or p.get("lifecycle", "triggered") != "triggered":
+            continue
         if open_count >= SIGNAL_PF_SLOTS:
             break
         sym = p.get("symbol")
@@ -7495,28 +7544,31 @@ async def get_signal_portfolio(market: str = None):
         global _last_pf_resolve, _pf_healed
         _blob_pull_db(force=True)
         conn = _auth_db()
+        prior_resolve, prior_healed = _last_pf_resolve, _pf_healed
         try:
             changed = False
-            if not _pf_healed:
-                _pf_healed = True
+            did_heal = not prior_healed
+            did_resolve = time.time() - prior_resolve > 900
+            if did_heal:
                 try:
                     changed = (_heal_intraday_closures(conn) > 0) or changed
                 except Exception:
                     pass
-            if time.time() - _last_pf_resolve > 900:
-                _last_pf_resolve = time.time()
+            if did_resolve:
                 try:
                     changed = (_resolve_signal_positions(conn) > 0) or changed
                 except Exception:
                     pass
             if changed:
                 conn.commit()
-                try:
-                    _blob_push_db()
-                except Exception:
-                    pass
+                _blob_push_db()
+            _pf_healed = prior_healed or did_heal
+            _last_pf_resolve = time.time() if did_resolve else prior_resolve
             rows = [dict(r) for r in conn.execute(
                 "SELECT * FROM signal_positions WHERE COALESCE(market,'IN') = ? ORDER BY id", (active,))]
+        except Exception:
+            _pf_healed, _last_pf_resolve = prior_healed, prior_resolve
+            raise
         finally:
             conn.close()
         snap = _signal_portfolio_snapshot(rows)
@@ -8044,10 +8096,8 @@ def admin_metrics(request: Request, key: str = None):
 # signals conviction score (HIGH CLV + delivery spurt = accumulation) and the
 # Focus List. Spec: docs/superpowers/specs/2026-07-04-delivery-percent-integration-design.md
 import threading
-import csv as _csv
-
 DELIVERY_CSV_URL = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_{d}.csv"
-DELIVERY_HISTORY_DAYS = 45          # calendar days kept in the table
+DELIVERY_HISTORY_DAYS = 120         # calendar days kept for public comparisons
 DELIVERY_BACKFILL_TRADING_DAYS = 30
 DELIVERY_PUBLISH_HOUR, DELIVERY_PUBLISH_MINUTE = 19, 15  # IST; file is up ~7pm
 _DELIVERY_LOCK = threading.Lock()
@@ -8063,6 +8113,7 @@ def _delivery_db():
         clv        REAL,
         PRIMARY KEY (symbol, trade_date)
     )""")
+    ensure_delivery_columns(conn)
     return conn
 
 def _clv(high: float, low: float, close: float) -> float:
@@ -8103,31 +8154,9 @@ def _fetch_delivery_csv(day):
     return r.text
 
 def _ingest_delivery_day(conn, day, text, universe):
-    reader = _csv.reader(io.StringIO(text))
-    try:
-        header = [h.strip() for h in next(reader)]
-        col = {name: header.index(name) for name in
-               ("SYMBOL", "SERIES", "HIGH_PRICE", "LOW_PRICE", "CLOSE_PRICE", "DELIV_PER")}
-    except (StopIteration, ValueError):
-        return 0
-    rows = []
-    for raw in reader:
-        try:
-            if raw[col["SERIES"]].strip() != "EQ":
-                continue
-            sym = raw[col["SYMBOL"]].strip()
-            if sym not in universe:
-                continue
-            hi, lo = float(raw[col["HIGH_PRICE"]]), float(raw[col["LOW_PRICE"]])
-            close, dp = float(raw[col["CLOSE_PRICE"]]), float(raw[col["DELIV_PER"]])
-            rows.append((sym, day.isoformat(), close, dp, _clv(hi, lo, close)))
-        except (ValueError, IndexError):
-            continue  # '-' fields, short rows etc.
-    if rows:
-        conn.executemany(
-            "INSERT OR REPLACE INTO delivery_daily (symbol, trade_date, close, deliv_per, clv) VALUES (?, ?, ?, ?, ?)",
-            rows)
-    return len(rows)
+    source_url = DELIVERY_CSV_URL.format(d=day.strftime("%d%m%Y"))
+    rows = parse_delivery_rows(text, universe, day, source_url=source_url)
+    return upsert_delivery_rows(conn, rows)
 
 def _ensure_delivery_fresh(max_fetch=3, force=False):
     """Bring delivery_daily up to the last expected trading day. Cheap when
@@ -8146,7 +8175,10 @@ def _ensure_delivery_fresh(max_fetch=3, force=False):
         conn = _delivery_db()
         try:
             latest = conn.execute("SELECT MAX(trade_date) FROM delivery_daily").fetchone()[0]
-            if latest and latest >= expected.isoformat():
+            quantity_missing = delivery_quantity_backfill_dates(
+                conn, expected, target_weekdays=DELIVERY_BACKFILL_TRADING_DAYS
+            )
+            if latest and latest >= expected.isoformat() and not quantity_missing:
                 _DELIVERY_CHECKED_AT = time.time()
                 return {"added": 0, "latest": latest}
 
@@ -8156,13 +8188,18 @@ def _ensure_delivery_fresh(max_fetch=3, force=False):
                     if day.weekday() < 5:
                         missing.append(day)
                     day += timedelta(days=1)
-            else:  # first run: backfill recent trading days, oldest first
+            else:  # first run: backfill recent weekdays, oldest first
                 missing, day = [], expected
                 while len(missing) < DELIVERY_BACKFILL_TRADING_DAYS:
                     if day.weekday() < 5:
                         missing.append(day)
                     day -= timedelta(days=1)
                 missing.reverse()
+
+            # Legacy rows predate the quantity-aware schema. Re-fetch recent
+            # official files so public comparisons are based on auditable
+            # delivered quantity rather than relabelling delivery percentage.
+            missing = sorted(set(missing) | set(quantity_missing))
 
             added = 0
             universe = _delivery_universe()
@@ -8225,6 +8262,183 @@ def _delivery_score(dlv, side):
     c01 = dlv["clv01"] if side == "LONG" else 1 - dlv["clv01"]
     c01 = max(0.0, min(1.0, c01))
     return max(0.0, min(10.0, min(dlv["spurt"] / 1.3, 1.0) * c01 * 10))
+
+
+def _delivery_public_status(trade_date):
+    if not trade_date:
+        return "unavailable", "No validated NSE delivery session is available yet."
+    expected = _delivery_expected_day()
+    status = "fresh" if trade_date >= expected.isoformat() else "stale"
+    if status == "fresh":
+        message = f"Latest validated NSE delivery session: {trade_date}."
+    else:
+        message = f"Latest validated NSE delivery session is {trade_date}; the expected session is {expected.isoformat()}."
+    return status, message
+
+
+def _delivery_methodology():
+    return {
+        "source": "NSE security-wise price volume and deliverable position file",
+        "baseline_sessions": 20,
+        "ranking": "Delivered quantity versus the stock's prior 20-session average",
+        "interpretation": "Unusual delivery activity is research context, not proof of institutional buying or a trade recommendation.",
+    }
+
+
+@app.get("/api/delivery/radar")
+def get_delivery_radar(response: Response, limit: int = 100):
+    conn = _delivery_db()
+    try:
+        result = delivery_radar_rows(conn, limit=limit)
+    finally:
+        conn.close()
+    status, message = _delivery_public_status(result["trade_date"])
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=1800"
+    return {
+        **result,
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "source_status": status,
+        "availability_message": message,
+        "methodology": _delivery_methodology(),
+    }
+
+
+@app.get("/api/delivery/stock/{symbol}")
+def get_stock_delivery(symbol: str, response: Response, limit: int = 90):
+    conn = _delivery_db()
+    try:
+        try:
+            result = stock_delivery_history(conn, symbol, limit=limit)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+    if not result["data"]:
+        raise HTTPException(status_code=404, detail="No validated delivery history is available for this NSE symbol.")
+    status, message = _delivery_public_status(result["trade_date"])
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=1800"
+    return {
+        **result,
+        "canonical_url": f"https://alphanova48.in/stocks/{result['symbol']}/delivery-percentage",
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "source_status": status,
+        "availability_message": message,
+        "methodology": _delivery_methodology(),
+    }
+
+
+@app.get("/high-delivery-volume-stocks-today", include_in_schema=False)
+def public_delivery_radar_page():
+    conn = _delivery_db()
+    try:
+        payload = delivery_radar_rows(conn, limit=100)
+    finally:
+        conn.close()
+    status, message = _delivery_public_status(payload["trade_date"])
+    payload.update(source_status=status, availability_message=message)
+    response = HTMLResponse(render_radar_page(payload), status_code=200 if payload["data"] else 503)
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=1800"
+    return response
+
+
+@app.get("/stocks/{symbol}/delivery-percentage", include_in_schema=False)
+def public_stock_delivery_page(symbol: str):
+    conn = _delivery_db()
+    try:
+        try:
+            payload = stock_delivery_history(conn, symbol, limit=90)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+    if not payload["data"]:
+        raise HTTPException(status_code=404, detail="No validated delivery history is available for this NSE symbol.")
+    status, message = _delivery_public_status(payload["trade_date"])
+    payload.update(source_status=status, availability_message=message)
+    response = HTMLResponse(render_stock_page(payload))
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=1800"
+    return response
+
+
+@app.get("/api/public-preview/{slug}.png", include_in_schema=False)
+def public_research_preview(slug: str):
+    if slug not in {"alpha-nova", "delivery-radar"}:
+        raise HTTPException(status_code=404, detail="Preview not found")
+    subtitle, metric = "Indian market research", "Dated evidence · Shareable analysis"
+    title = "Alpha Nova"
+    if slug == "delivery-radar":
+        title = "Delivery Radar"
+        conn = _delivery_db()
+        try:
+            payload = delivery_radar_rows(conn, limit=1)
+        finally:
+            conn.close()
+        subtitle = f"NSE session {payload['trade_date']}" if payload["trade_date"] else "Latest available NSE delivery data"
+        metric = f"{payload['coverage']['eligible']} complete 20-session baselines"
+    content = render_delivery_preview(title, subtitle, metric)
+    response = Response(content=content, media_type="image/png")
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=1800"
+    return response
+
+
+class PublicShareCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(min_length=1, max_length=160)
+    query: str = Field(default="", max_length=2000)
+    title: str = Field(default="Alpha Nova research", max_length=200)
+
+
+@app.post("/api/public-shares")
+def create_public_share(payload: PublicShareCreate, request: Request):
+    _rate_limit(request, "public-share", limit=20, window_s=3600)
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        try:
+            created = create_public_share_record(
+                conn,
+                path=payload.path,
+                query=payload.query,
+                title=payload.title,
+                share_id=secrets.token_urlsafe(12),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+    _blob_push_db()
+    return created
+
+
+def _load_public_share(share_id):
+    _blob_pull_db(force=True)
+    conn = _auth_db()
+    try:
+        return get_share(conn, share_id)
+    finally:
+        conn.close()
+
+
+@app.get("/s/{share_id}", include_in_schema=False)
+def public_share_page(share_id: str):
+    share = _load_public_share(share_id)
+    if not share:
+        raise HTTPException(status_code=404, detail="Shared research link not found")
+    response = HTMLResponse(render_share_page(share))
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
+
+
+@app.get("/api/public-preview/share/{share_id}.png", include_in_schema=False)
+def public_share_preview(share_id: str):
+    share = _load_public_share(share_id)
+    if not share:
+        raise HTTPException(status_code=404, detail="Shared research link not found")
+    content = render_delivery_preview(share["title"], f"Shared {share['created_at'][:10]}", share["path"])
+    response = Response(content=content, media_type="image/png")
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
+
 
 @app.get("/api/delivery/refresh")
 def delivery_refresh(authorization: str = Header(None)):

@@ -1,480 +1,191 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ArrowUpRight, Check, Download, Search, SlidersHorizontal, BookmarkPlus, X } from 'lucide-react';
 import LazyMarkdown from '../components/LazyMarkdown';
 import { PageHeader } from '../components/ui';
 import WatchlistStar from '../components/WatchlistStar';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
+import { useMarket } from '../MarketContext';
+import { EMPTY_RULES, PRESETS, UNIVERSES, BENCHMARKS, TREND_OPTIONS, RS_OPTIONS, NUMBER_FILTERS,
+  applyPreset, buildPayload, filterChips, sortRows, sanitizeSaved, csvForRows, screenDefaultsForMarket,
+  configFromSearchParams, configToSearchParams } from '../lib/screenerView';
+import './Screener.css';
 
-const COLUMNS = [
-  { key: 'ticker', label: 'Ticker', numeric: false },
-  { key: 'price', label: 'Price', numeric: true },
-  { key: 'marketCap', label: 'Mkt Cap (B)', numeric: true },
-  { key: 'peRatio', label: 'P/E (TTM)', numeric: true },
-  { key: 'roe', label: 'ROE (%)', numeric: true },
-  { key: 'epsGrowth', label: 'EPS Grw (%)', numeric: true },
-  { key: 'divYield', label: 'Div Yield (%)', numeric: true },
-  { key: 'momentum', label: 'Momentum (%)', numeric: true, optional: true },
-  { key: 'alphaScore', label: 'Alpha Score', numeric: true },
-];
+const SAVED_KEY = 'alphanova_saved_screens_v1';
+const fmt = (v, suffix = '') => v == null || !Number.isFinite(v) ? '—' : `${v.toLocaleString('en-IN', { maximumFractionDigits: 2 })}${suffix}`;
+const money = r => `${/\.(NS|BO)$/i.test(r.ticker) ? '₹' : '$'}${fmt(r.price)}`;
+const getSaved = () => { try { return sanitizeSaved(JSON.parse(localStorage.getItem(SAVED_KEY) || '[]')); } catch { return []; } };
 
-const currencyFor = (ticker) => {
-  const t = (ticker || '').toUpperCase();
-  return t.endsWith('.NS') || t.endsWith('.BO') ? '₹' : '$';
-};
+function StockName({ row }) {
+  const india = /\.(NS|BO)$/i.test(row.ticker);
+  return <span className="screen-stock">
+    {(row.ticker.endsWith('.NS') || !row.ticker.includes('.')) && <WatchlistStar symbol={row.ticker} market={india ? 'IN' : 'US'} size={17} />}
+    <Link to={`/chart?symbol=${encodeURIComponent(row.ticker)}`} title={`Open ${row.ticker} chart`}>{row.ticker.replace(/\.(NS|BO)$/, '')}<ArrowUpRight size={13} aria-hidden="true" /></Link>
+    <small>{india ? 'IN' : 'US'}</small>
+  </span>;
+}
 
-// Guru presets fill the filter boxes transparently — users can see and tweak
-// exactly what each screen applies before running it.
-const GURU_SCREENS = {
-  buffett: {
-    name: 'Buffett', accent: 'var(--primary-gold)',
-    desc: 'Quality at a fair price: durable profitability (ROE ≥ 15%), sensible valuation (P/E ≤ 25), still growing (EPS ≥ 5%), strong Alpha Score.',
-    filters: { maxPe: '25', minDiv: '', minRoe: '15', minEpsGrowth: '5', minMomentum: '', minAlphaScore: '60' },
-    sort: 'alphaScore',
-  },
-  minervini: {
-    name: 'Minervini', accent: 'var(--primary-accent)',
-    desc: 'SEPA-style leaders: strong multi-timeframe momentum (≥ 15%) with accelerating earnings (EPS growth ≥ 20%). Trend first, valuation second.',
-    filters: { maxPe: '', minDiv: '', minRoe: '', minEpsGrowth: '20', minMomentum: '15', minAlphaScore: '' },
-    sort: 'momentum',
-  },
-  greenblatt: {
-    name: 'Greenblatt', accent: 'var(--green-gain)',
-    desc: 'Magic Formula proxy: good businesses (ROE ≥ 20% for return on capital) at cheap prices (P/E ≤ 20 for earnings yield ≥ 5%).',
-    filters: { maxPe: '20', minDiv: '', minRoe: '20', minEpsGrowth: '', minMomentum: '', minAlphaScore: '' },
-    sort: 'roe',
-  },
-};
-
-// Named universes resolved server-side (backend holds the ticker lists)
-const UNIVERSES = {
-  'Nifty 100': { key: 'nifty100', count: 100, desc: 'Large-cap NSE (India)' },
-  'Nifty 200': { key: 'nifty200', count: 200, desc: 'Large & mid-cap NSE (India)' },
-  'S&P 100': { key: 'sp100', count: 100, desc: 'US mega-cap' },
-  'Nasdaq 100': { key: 'nasdaq100', count: 100, desc: 'US tech & growth' },
-};
-
-const Screener = () => {
-  const [data, setData] = useState([]);
-  const [hasRun, setHasRun] = useState(false);
+export default function Screener() {
+  const { market } = useMarket();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [config, setConfig] = useState(() => configFromSearchParams(searchParams, screenDefaultsForMarket(market)));
+  const [category, setCategory] = useState('Technical');
+  const [saved, setSaved] = useState(getSaved);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [notice, setNotice] = useState('');
+  const [result, setResult] = useState(null);
+  const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState({ key: 'ticker', direction: 'asc' });
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiReport, setAiReport] = useState("");
-
-  const [tickers, setTickers] = useState("AAPL, MSFT, NVDA, RELIANCE.NS, TCS.NS, HDFCBANK.NS");
-  const [maxPe, setMaxPe] = useState("");
-  const [minDiv, setMinDiv] = useState("");
-  const [minRoe, setMinRoe] = useState("");
-  const [minEpsGrowth, setMinEpsGrowth] = useState("");
-  const [minMomentum, setMinMomentum] = useState("");
-  const [minAlphaScore, setMinAlphaScore] = useState("");
-  const [preset, setPreset] = useState("Custom");
-  const [scanMeta, setScanMeta] = useState(null);
-  const [activeGuru, setActiveGuru] = useState(null);
-
-  const [sortKey, setSortKey] = useState('marketCap');
-  const [sortDir, setSortDir] = useState('desc');
-
-  const applyGuru = (key) => {
-    const g = GURU_SCREENS[key];
-    if (activeGuru === key) {
-      // Toggle off — clear the filters it set
-      setActiveGuru(null);
-      setMaxPe(''); setMinDiv(''); setMinRoe(''); setMinEpsGrowth(''); setMinMomentum(''); setMinAlphaScore('');
-      return;
-    }
-    setActiveGuru(key);
-    setMaxPe(g.filters.maxPe);
-    setMinDiv(g.filters.minDiv);
-    setMinRoe(g.filters.minRoe);
-    setMinEpsGrowth(g.filters.minEpsGrowth);
-    setMinMomentum(g.filters.minMomentum);
-    setMinAlphaScore(g.filters.minAlphaScore);
-    setSortKey(g.sort);
-    setSortDir('desc');
-    if (preset === 'Custom') setPreset('Nifty 100');
-  };
-
-  const isUniverse = preset !== 'Custom';
-  const universeMeta = UNIVERSES[preset];
-  const requestedCount = isUniverse
-    ? (universeMeta?.count || 0)
-    : tickers.split(',').filter(t => t.trim()).length;
-
-  const handlePresetChange = (e) => {
-    // Universe ticker lists live on the backend; switching a preset only
-    // changes which universe key we send (custom tickers stay intact).
-    setPreset(e.target.value);
-  };
-
-  const fetchScreener = async (e) => {
-    if (e) e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setAiReport("");
-    try {
-      const payload = {};
-      if (isUniverse && universeMeta) {
-        payload.universe = universeMeta.key;
-      } else {
-        payload.tickers = tickers;
-      }
-      if (maxPe) payload.max_pe = parseFloat(maxPe);
-      if (minDiv) payload.min_div_yield = parseFloat(minDiv);
-      if (minRoe) payload.min_roe = parseFloat(minRoe);
-      if (minEpsGrowth) payload.min_eps_growth = parseFloat(minEpsGrowth);
-      if (minMomentum) payload.min_momentum = parseFloat(minMomentum);
-      if (minAlphaScore) payload.min_alpha_score = parseFloat(minAlphaScore);
-      const res = await axios.post('/api/screener', payload);
-      setData(res.data.data);
-      setScanMeta({
-        requested: res.data.requested ?? requestedCount,
-        scanned: res.data.scanned ?? res.data.data.length,
-        truncated: res.data.truncated ?? false,
-      });
-      setHasRun(true);
-    } catch (err) {
-      setError(err.response?.data?.detail || err.message || "Failed to fetch screener data");
-    }
+  const [aiReport, setAiReport] = useState('');
+  const drawer = useRef(null);
+  const request = useRef(null);
+  const aiRequest = useRef(null);
+  const resultsHeading = useRef(null);
+  const previousMarket = useRef(market);
+  useEffect(() => () => { request.current?.abort(); aiRequest.current?.abort(); }, []);
+  useEffect(() => {
+    if (previousMarket.current === market) return;
+    previousMarket.current = market;
+    request.current?.abort();
+    aiRequest.current?.abort();
+    setConfig(old => screenDefaultsForMarket(market, old));
+    setResult(null);
+    setSnapshot(null);
     setLoading(false);
-  };
-
-  const handleSort = (key) => {
-    if (sortKey === key) {
-      setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir(key === 'ticker' ? 'asc' : 'desc');
-    }
-  };
-
-  const sortedData = useMemo(() => {
-    const rows = [...data];
-    // Anything that renders as "N/A" (null, undefined, NaN/Infinity) must also
-    // sort as N/A — to the bottom regardless of direction
-    const isNA = (v) => v == null || (typeof v === 'number' && !Number.isFinite(v));
-    rows.sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
-      if (isNA(av) && isNA(bv)) return 0;
-      if (isNA(av)) return 1;
-      if (isNA(bv)) return -1;
-      const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return rows;
-  }, [data, sortKey, sortDir]);
-
-  const sortIndicator = (key) => {
-    if (sortKey !== key) return <span style={{ opacity: 0.3 }}> ↕</span>;
-    return <span style={{ color: 'var(--primary-gold)' }}>{sortDir === 'asc' ? ' ▲' : ' ▼'}</span>;
-  };
-
-  // Momentum is only computed when its filter is used — hide the column otherwise
-  const hasMomentum = data.some(r => r.momentum !== null && r.momentum !== undefined);
-  const visibleColumns = COLUMNS.filter(c => !c.optional || hasMomentum);
-
-  const runAiAnalysis = async () => {
-    if (data.length === 0) return;
-    const apiKey = localStorage.getItem('gemini_api_key');
-    if (!apiKey) {
-      setAiReport('**Add your Gemini API key in Settings to generate the screener brief.**');
-      return;
-    }
-    setAiLoading(true);
-    setAiReport("");
-    try {
-      const res = await axios.post('/api/ai/screener', {
-        screener_data: data,
-        apiKey: apiKey
-      });
-      setAiReport(res.data.report);
-    } catch (err) {
-      // Inline, not alert() — this can run unattended via auto-insight
-      setAiReport(`**Error generating analysis:** ${err.response?.data?.detail || err.message}`);
-    }
+    setError('');
     setAiLoading(false);
+    setAiReport('');
+  }, [market]);
+  const chips = filterChips(config);
+  const activePreset = PRESETS.find(p => JSON.stringify(filterChips(applyPreset(config, p))) === JSON.stringify(chips));
+  const changed = snapshot && JSON.stringify(config) !== JSON.stringify(snapshot);
+  const visibleRows = useMemo(() => sortRows((result?.data || []).filter(r => r.ticker.toLowerCase().includes(search.trim().toLowerCase())), sort.key, sort.direction), [result, search, sort]);
+  const set = (key, value) => setConfig(old => ({ ...old, [key]: value }));
+  const changeUniverse = universe => setConfig(old => ({ ...old, universe,
+    benchmark: universe === 'custom' ? 'auto' : ['sp100', 'nasdaq100'].includes(universe) ? (universe === 'nasdaq100' ? '^NDX' : '^GSPC') : '^NSEI' }));
+
+  const run = async event => {
+    event?.preventDefault();
+    let payload;
+    try { payload = buildPayload(config); } catch (err) { setError(err.message); return; }
+    request.current?.abort(); aiRequest.current?.abort();
+    const controller = new AbortController(); request.current = controller;
+    const submitted = { ...config };
+    setLoading(true); setError(''); setAiReport(''); setAiLoading(false);
+    try {
+      const response = await axios.post('/api/screener', payload, { signal: controller.signal, timeout: 65000 });
+      if (controller.signal.aborted) return;
+      if (!Array.isArray(response.data.data) || response.data.incomplete_count == null) throw new Error('The screener service needs updating. Please retry shortly.');
+      setResult(response.data); setSnapshot(submitted); setSearch(''); setSort({ key: 'ticker', direction: 'asc' });
+      setSearchParams(configToSearchParams(submitted), { replace: true });
+      requestAnimationFrame(() => resultsHeading.current?.focus({ preventScroll: true }));
+    } catch (err) {
+      if (!controller.signal.aborted) setError(typeof err.response?.data?.detail === 'string' ? err.response.data.detail : err.message || 'Could not complete the screen. Please retry.');
+    } finally { if (!controller.signal.aborted) setLoading(false); }
   };
+  const persistSaved = next => {
+    try { localStorage.setItem(SAVED_KEY, JSON.stringify(next)); setSaved(next); return true; }
+    catch { setNotice('This browser could not save your screens. Check its storage settings.'); return false; }
+  };
+  const saveScreen = event => {
+    event.preventDefault();
+    try { buildPayload(config); } catch (err) { setNotice(err.message); return; }
+    const name = saveName.trim(); if (!name) return;
+    const existing = saved.find(s => s.name.toLowerCase() === name.toLowerCase());
+    if (!existing && saved.length >= 30) { setNotice('You can keep 30 saved screens. Remove one to add another.'); return; }
+    const entry = { id: existing?.id || crypto.randomUUID(), name, config: { ...config } };
+    if (persistSaved([...saved.filter(s => s.id !== entry.id), entry])) { setSaveOpen(false); setSaveName(''); setNotice(`“${name}” saved on this browser.`); }
+  };
+  const exportRows = () => {
+    const url = URL.createObjectURL(new Blob([csvForRows(visibleRows)], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a'); a.href = url; a.download = `alpha-nova-screen-${result.generated_at.slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const runAiAnalysis = async () => {
+    if (!result?.data.length) return;
+    let apiKey;
+    try { apiKey = localStorage.getItem('gemini_api_key'); } catch { /* Restricted browser storage. */ }
+    if (!apiKey) { setAiReport('Add your Gemini API key in Settings to generate the screener brief.'); return; }
+    aiRequest.current?.abort();
+    const controller = new AbortController(); aiRequest.current = controller;
+    setAiLoading(true);
+    try {
+      const response = await axios.post('/api/ai/screener', { screener_data: result.data, apiKey }, { signal: controller.signal });
+      if (!controller.signal.aborted) setAiReport(response.data.report);
+    } catch (err) { if (!controller.signal.aborted) setAiReport(`Could not generate the brief: ${err.message}`); }
+    finally { if (!controller.signal.aborted) setAiLoading(false); }
+  };
+  useAutoAiInsight(!loading && result?.data.length ? result.data : null, runAiAnalysis);
 
-  // With a saved Gemini key, the screener insight generates itself after each
-  // screen run (keyed on the results array, so new runs refresh it).
-  useAutoAiInsight(hasRun && data.length > 0 ? data : null, runAiAnalysis);
+  const columns = [{ key: 'ticker', label: 'Stock', render: r => <StockName row={r} /> },
+    { key: 'price', label: 'Scan close', render: r => <><strong>{money(r)}</strong><small className="screen-cell-date">{r.priceDate}</small></> }];
+  if (snapshot?.price_trend) columns.push({ key: 'dist200', label: 'From 200 DMA', render: r => fmt(r.dist200, '%') });
+  if (snapshot?.rs_screen) columns.push({ key: 'rsNewHigh', label: 'RS new high', render: r => r.rsNewHigh == null ? '—' : r.rsNewHigh ? <span className="screen-positive">Yes</span> : 'No' });
+  if (snapshot?.volume_breakout) columns.push({ key: 'volumeRatio', label: 'Volume / avg', render: r => fmt(r.volumeRatio, '×') });
+  const fundamentalColumns = [
+    { key: 'peRatio', label: 'P/E', filter: ['min_pe', 'max_pe'] }, { key: 'roe', label: 'ROE', suffix: '%', filter: ['min_roe'] },
+    { key: 'epsGrowth', label: 'EPS growth', suffix: '%', filter: ['min_eps_growth'] }, { key: 'divYield', label: 'Div. yield', suffix: '%', filter: ['min_div_yield'] },
+    { key: 'momentum', label: 'Momentum', suffix: '%', filter: ['min_momentum'] }, { key: 'alphaScore', label: 'Alpha Score', filter: ['min_alpha_score'] }];
+  for (const col of fundamentalColumns) if ((snapshot && col.filter.some(k => snapshot[k] !== '' && snapshot[k] != null)) || (!result?.technical && col.key !== 'momentum')) columns.push({ ...col, render: r => fmt(r[col.key], col.suffix) });
+  const dateLabel = !result?.price_dates?.length ? 'No usable candle dates' : result.price_dates.length === 1 ? `Close · ${result.price_dates[0]}` : `Mixed candle dates · ${result.price_dates[0]} – ${result.price_dates.at(-1)}`;
 
-  return (
-    <div>
-      <PageHeader code="EQS" title="Quantitative Screener" subtitle="Live trailing institutional metrics across a custom ticker universe." />
-
-      <div style={{ display: 'flex', gap: '10px', margin: '16px 0 12px 0', flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Guru screens:</span>
-        {Object.entries(GURU_SCREENS).map(([key, g]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => applyGuru(key)}
-            className="secondary"
-            style={{
-              width: 'auto', padding: '8px 16px', borderRadius: '18px', fontSize: '13px',
-              border: `1px solid ${activeGuru === key ? g.accent : 'var(--border-color)'}`,
-              color: activeGuru === key ? g.accent : 'var(--text-primary)',
-              boxShadow: activeGuru === key ? `0 0 12px ${g.accent}33` : 'none'
-            }}
-          >
-            {g.name}
-          </button>
-        ))}
-      </div>
-
-      {activeGuru && (
-        <div className="card" style={{ padding: '12px 16px', marginBottom: '14px', fontSize: '13px', color: 'var(--text-secondary)', borderLeft: `3px solid ${GURU_SCREENS[activeGuru].accent}` }}>
-          <strong style={{ color: GURU_SCREENS[activeGuru].accent }}>{GURU_SCREENS[activeGuru].name} screen:</strong>{' '}
-          {GURU_SCREENS[activeGuru].desc} The filter boxes below now hold these criteria — tweak them freely, then RUN SCREEN.
-        </div>
-      )}
-
-      <div className="card" style={{ marginBottom: '20px', padding: '20px' }}>
-        <form onSubmit={fetchScreener} className="screener-form">
-          <div className="form-group screener-universe-row">
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Screener Universe</label>
-              <select
-                value={preset}
-                onChange={handlePresetChange}
-                style={{ width: '100%', marginBottom: 0 }}
-              >
-                <option value="Custom">Custom tickers</option>
-                {Object.entries(UNIVERSES).map(([name, meta]) => (
-                  <option key={name} value={name}>{name} ({meta.count} stocks)</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ flex: 3, minWidth: 0 }}>
-              {isUniverse ? (
-                <>
-                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Universe</label>
-                  <div
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '12px',
-                      padding: '11px 16px', borderRadius: '10px',
-                      background: 'var(--primary-accent-soft)',
-                      border: '1px solid var(--primary-accent-border)',
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, color: 'var(--primary-accent)' }}>
-                        {preset} — scanning {universeMeta?.count} stocks
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        {universeMeta?.desc}. Live metrics fetched on demand.
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Tickers (Comma-separated)</label>
-                  <input
-                    type="text"
-                    value={tickers}
-                    onChange={(e) => { setTickers(e.target.value); setPreset("Custom"); }}
-                    onFocus={(e) => e.target.select()}
-                    required
-                    style={{ width: '100%', marginBottom: 0 }}
-                  />
-                </>
-              )}
-            </div>
-          </div>
-          <div className="form-group">
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Max P/E Ratio (Optional)</label>
-            <input
-              type="number"
-              step="0.1"
-              value={maxPe}
-              onChange={(e) => setMaxPe(e.target.value)}
-              placeholder="e.g. 50"
-              style={{ width: '100%', marginBottom: 0 }}
-            />
-          </div>
-          <div className="form-group">
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Min Div Yield %</label>
-            <input
-              type="number"
-              step="0.1"
-              value={minDiv}
-              onChange={(e) => setMinDiv(e.target.value)}
-              placeholder="e.g. 1.5"
-              style={{ width: '100%', marginBottom: 0 }}
-            />
-          </div>
-          <div className="form-group">
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Min ROE %</label>
-            <input
-              type="number"
-              step="0.1"
-              value={minRoe}
-              onChange={(e) => setMinRoe(e.target.value)}
-              placeholder="e.g. 15"
-              style={{ width: '100%', marginBottom: 0 }}
-            />
-          </div>
-          <div className="form-group">
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Min EPS Grw. %</label>
-            <input
-              type="number"
-              step="0.1"
-              value={minEpsGrowth}
-              onChange={(e) => setMinEpsGrowth(e.target.value)}
-              placeholder="e.g. 10"
-              style={{ width: '100%', marginBottom: 0 }}
-            />
-          </div>
-          <div className="form-group">
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }} title="Composite of 1M, 6M and 12M returns — same as the Momentum Leaders tab. Adds price history per stock, so large scans take a bit longer.">
-              Min Momentum %
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              value={minMomentum}
-              onChange={(e) => setMinMomentum(e.target.value)}
-              placeholder="e.g. 15"
-              style={{ width: '100%', marginBottom: 0 }}
-            />
-          </div>
-          <div className="form-group">
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }} title="Alpha Nova Score 0-100 (est.) — same formula as the DCF tab: valuation margin of safety, business predictability and P/E bonus.">
-              Min Alpha Score
-            </label>
-            <input
-              type="number"
-              step="1"
-              min="0"
-              max="99"
-              value={minAlphaScore}
-              onChange={(e) => setMinAlphaScore(e.target.value)}
-              placeholder="e.g. 60"
-              style={{ width: '100%', marginBottom: 0 }}
-            />
-          </div>
-          <div className="form-group screener-submit" style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button type="submit" disabled={loading} style={{ width: '100%', padding: '14px', height: 'fit-content' }}>
-              {loading ? <><span className="spinner"></span> SCANNING...</> : 'RUN SCREEN'}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {loading ? (
-        <div className="table-container" style={{ padding: '24px' }}>
-          <div className="skeleton skeleton-header"></div>
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="skeleton skeleton-row" style={{ height: '40px', marginTop: '16px' }}></div>
-          ))}
-        </div>
-      ) : error ? (
-        <div className="error" style={{ color: 'var(--red-loss)', padding: '20px', backgroundColor: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.2)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <h3 style={{ marginBottom: '8px', fontSize: '16px', color: 'var(--red-loss)' }}>Screening Failed</h3>
-            <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{error}</p>
-          </div>
-          <button onClick={fetchScreener} style={{ width: 'auto', padding: '8px 16px', background: 'rgba(255, 69, 58, 0.15)', border: '1px solid var(--red-loss)', color: 'var(--red-loss)' }}>Retry</button>
-        </div>
-      ) : (
-        data.length > 0 ? (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>{data.length}</strong> of {scanMeta?.scanned ?? requestedCount} stocks passed the screen
-                {scanMeta?.truncated && (
-                  <span style={{ color: 'var(--primary-gold)', marginLeft: '8px' }}>
-                    (scanned {scanMeta.scanned}/{scanMeta.requested} within time budget)
-                  </span>
-                )}
-              </span>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Tap a column header to sort</span>
-            </div>
-            <div className="table-container">
-              <table>
-                <thead>
-                  <tr>
-                    {visibleColumns.map(col => (
-                      <th
-                        key={col.key}
-                        onClick={() => handleSort(col.key)}
-                        style={{ textAlign: col.numeric ? 'right' : 'left', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
-                        title={`Sort by ${col.label}`}
-                      >
-                        {col.label}{sortIndicator(col.key)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedData.map((row) => (
-                    <tr key={row.ticker}>
-                      <td style={{fontWeight: '600'}}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                          {/* .NS = NSE; no exchange dot = US. Other exchanges (.DE, .L…) aren't watchlistable yet. */}
-                          {(row.ticker.toUpperCase().endsWith('.NS') || !row.ticker.includes('.')) &&
-                            <WatchlistStar symbol={row.ticker} market={row.ticker.includes('.') ? 'IN' : 'US'} size={15} />}
-                          {row.ticker}
-                        </span>
-                      </td>
-                      <td style={{textAlign: 'right'}}>{currencyFor(row.ticker)}{row.price.toFixed(2)}</td>
-                      <td style={{textAlign: 'right'}}>{currencyFor(row.ticker)}{row.marketCap.toFixed(2)}</td>
-                      <td style={{textAlign: 'right'}}>{row.peRatio != null ? row.peRatio.toFixed(2) : 'N/A'}</td>
-                      <td style={{textAlign: 'right'}}>{row.roe != null ? row.roe.toFixed(2) + '%' : 'N/A'}</td>
-                      <td style={{textAlign: 'right', color: row.epsGrowth > 0 ? 'var(--green-gain)' : (row.epsGrowth < 0 ? 'var(--red-loss)' : 'inherit')}}>{row.epsGrowth != null ? row.epsGrowth.toFixed(2) + '%' : 'N/A'}</td>
-                      <td style={{textAlign: 'right', color: row.divYield > 0 ? 'var(--green-gain)' : 'inherit'}}>{row.divYield.toFixed(2)}%</td>
-                      {hasMomentum && (
-                        <td style={{textAlign: 'right', color: row.momentum > 0 ? 'var(--green-gain)' : (row.momentum < 0 ? 'var(--red-loss)' : 'inherit')}}>
-                          {row.momentum !== null && row.momentum !== undefined ? `${row.momentum > 0 ? '+' : ''}${row.momentum.toFixed(2)}%` : 'N/A'}
-                        </td>
-                      )}
-                      <td style={{textAlign: 'right', fontWeight: 700, color: row.alphaScore >= 60 ? 'var(--primary-gold)' : row.alphaScore ? 'var(--text-secondary)' : 'inherit'}}>
-                        {row.alphaScore ?? 'N/A'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        ) : hasRun ? (
-          <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
-            <h3 style={{ marginBottom: '8px' }}>No stocks passed your filters</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
-              All {scanMeta?.scanned ?? requestedCount} stocks were screened out. Try relaxing the P/E, dividend, ROE, or EPS growth limits.
-            </p>
-          </div>
-        ) : (
-          <p style={{marginTop: '20px', color: 'var(--text-secondary)'}}>Click RUN SCREEN to analyze the market, or adjust your filters.</p>
-        )
-      )}
-
-      {data.length > 0 && !loading && (
-        <div style={{ marginTop: '40px' }}>
-          {!aiReport ? (
-            <button onClick={runAiAnalysis} disabled={aiLoading} className="secondary">
-              {aiLoading ? <><span className="spinner"></span> ENGINE ANALYZING...</> : "GENERATE GEMINI AI SCREENER INSIGHT"}
-            </button>
-          ) : (
-            <div className="ai-insight">
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center' }}>
-                <h3>Gemini Quant Screener Analysis</h3>
-                <button onClick={runAiAnalysis} disabled={aiLoading} style={{ width: 'auto', padding: '6px 14px', fontSize: '12px' }} className="secondary">
-                  {aiLoading ? <><span className="spinner"></span> RE-ANALYZING...</> : "REFRESH"}
-                </button>
-              </div>
-              <div className="ai-insight-content">
-                <LazyMarkdown>{aiReport}</LazyMarkdown>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+  return <div className="screener-page">
+    <PageHeader code="EQS" title="Quant Screener" subtitle="Find a shortlist. Understand every match." />
+    <form className="screen-toolbar card" onSubmit={run}>
+      <label>Universe<select aria-label="Universe" value={config.universe} onChange={e => changeUniverse(e.target.value)}>{Object.entries(UNIVERSES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+      <label>RS benchmark<select aria-label="RS benchmark" value={config.benchmark} onChange={e => set('benchmark', e.target.value)}>{Object.entries(BENCHMARKS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+      <div className="screen-daily"><span className="screen-eyebrow">DAILY SCREEN</span><span>Completed sessions</span><small>Adjusted closing prices</small></div>
+      <button className="screen-run" type="submit" disabled={loading}>{loading ? <><span className="spinner" /> Scanning…</> : <><Search size={17} /> Run screen</>}</button>
+      {config.universe === 'custom' && <label className="screen-custom">Custom tickers<input value={config.tickers} onChange={e => set('tickers', e.target.value)} placeholder="TCS.NS, RELIANCE.NS, INFY.NS" aria-describedby="screen-ticker-help" /><small id="screen-ticker-help">Comma-separated. Add .NS for NSE stocks. Up to 250 symbols.</small></label>}
+    </form>
+    <div className="screen-section-title"><div><h2>Start with a screen</h2><p>Choose a setup, then make the rules your own.</p></div></div>
+    <div className="screen-categories" role="group" aria-label="Preset categories">{['Technical', 'Fundamental', 'Combined', 'Saved'].map(c => <button type="button" key={c} aria-pressed={category === c} onClick={() => setCategory(c)}>{c}{c === 'Saved' && saved.length > 0 ? ` (${saved.length})` : ''}</button>)}</div>
+    <div className="screen-preset-grid">
+      {category !== 'Saved' ? PRESETS.filter(p => p.category === category).map(p => <button type="button" className={`screen-preset ${activePreset?.id === p.id ? 'selected' : ''}`} key={p.id} aria-pressed={activePreset?.id === p.id} onClick={() => { setConfig(old => applyPreset(old, p)); setError(''); }}>
+        <span className="screen-preset-name">{p.name}{activePreset?.id === p.id ? <Check size={16} aria-hidden="true" /> : <ArrowUpRight size={15} aria-hidden="true" />}</span><span>{p.desc}</span>
+      </button>) : saved.length ? saved.map(s => <div className="screen-saved-item" key={s.id}><button type="button" className="screen-preset" onClick={() => { setConfig({ ...s.config }); setNotice(`Loaded “${s.name}”. Run screen to refresh results.`); }}><span className="screen-preset-name">{s.name}<BookmarkPlus size={15} aria-hidden="true" /></span><span>{UNIVERSES[s.config.universe]} · {filterChips(s.config).length} rules</span></button><button type="button" className="screen-remove-saved" onClick={() => persistSaved(saved.filter(item => item.id !== s.id))} aria-label={`Delete saved screen ${s.name}`}><X size={14} /></button></div>) : <div className="screen-saved-empty"><BookmarkPlus size={20} /><div><strong>Keep your best screens here</strong><p>Choose your filters, then save the screen. Saved on this browser.</p></div></div>}
     </div>
-  );
-};
-
-export default Screener;
+    <section className="screen-rules" aria-label="Active rules">
+      <div className="screen-rule-heading"><div><span className="screen-eyebrow">YOUR RULES</span><strong>{activePreset?.name || (chips.length ? 'Custom screen' : 'All stocks in your universe')}</strong></div><div className="screen-actions"><button type="button" className="secondary" onClick={() => drawer.current.showModal()}><SlidersHorizontal size={15} /> Edit filters</button><button type="button" className="secondary" onClick={() => { setSaveOpen(!saveOpen); setNotice(''); }} aria-expanded={saveOpen}><BookmarkPlus size={15} /> Save screen</button></div></div>
+      <div className="screen-chips">{chips.map(chip => <button type="button" key={chip.key} onClick={() => set(chip.key, chip.key === 'volume_breakout' ? false : '')} aria-label={`Remove ${chip.label}`}>{chip.label}<X size={13} aria-hidden="true" /></button>)}{chips.length ? <button type="button" className="screen-clear" onClick={() => setConfig(old => ({ ...old, ...EMPTY_RULES }))}>Clear all</button> : <span className="screen-muted">No filters yet. Pick a preset above or add your own.</span>}</div>
+      {chips.length > 0 && <div className="screen-rule-footer"><small className="screen-muted">Stocks must meet all active rules.</small><button type="button" onClick={run} disabled={loading}>{loading ? 'Scanning…' : 'Run these rules'}</button></div>}
+      {saveOpen && <form className="screen-save-form" onSubmit={saveScreen}><label>Screen name<input autoFocus maxLength={60} required placeholder="e.g. My RS leaders" value={saveName} onChange={e => setSaveName(e.target.value)} /></label><button type="submit">Save on this browser</button><button type="button" className="secondary" onClick={() => setSaveOpen(false)}>Cancel</button></form>}
+      {notice && <p className="screen-notice" role="status">{notice}</p>}
+    </section>
+    <dialog ref={drawer} className="screen-filter-dialog" aria-labelledby="screen-filter-title">
+      <div className="screen-dialog-head"><div><h2 id="screen-filter-title">Edit your filters</h2><p>Combine technical and fundamental rules.</p></div><button type="button" className="secondary" aria-label="Close filters" onClick={() => drawer.current.close()}><X size={20} /></button></div>
+      <div className="screen-dialog-body"><h3>Technical</h3><label>Price & trend<select aria-label="Price & trend" value={config.price_trend} onChange={e => set('price_trend', e.target.value)}><option value="">Any trend</option>{Object.entries(TREND_OPTIONS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <label>Relative strength<select aria-label="Relative strength" value={config.rs_screen} onChange={e => set('rs_screen', e.target.value)}><option value="">Any relative strength</option>{Object.entries(RS_OPTIONS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <label>RS lookback<select aria-label="RS lookback" value={config.rs_lookback} onChange={e => set('rs_lookback', Number(e.target.value))}><option value={63}>3 months · 63 sessions</option><option value={126}>6 months · 126 sessions</option><option value={252}>12 months · 252 sessions</option></select></label>
+        <label className="screen-checkbox"><input type="checkbox" checked={config.volume_breakout} onChange={e => set('volume_breakout', e.target.checked)} /><span>20-session breakout with volume &gt; 1.5× average</span></label>
+        <p className="screen-help">DMA = simple daily moving average. RS compares the stock with your selected benchmark; it is different from RSI.</p>
+        <h3>Fundamentals & momentum</h3><div className="screen-number-grid">{NUMBER_FILTERS.map(f => <label key={f.key}>{f.label}<input type="number" step="any" min={f.min} max={f.max} value={config[f.key]} placeholder="Any" onChange={e => set(f.key, e.target.value)} /></label>)}</div>
+        <p className="screen-help">Momentum is the average 1 / 6 / 12-month return. Alpha Score is Alpha Nova’s estimated value, quality, growth and yield score. Guru screens are simplified research proxies.</p>
+      </div><div className="screen-dialog-footer"><button type="button" className="secondary" onClick={() => setConfig(old => ({ ...old, ...EMPTY_RULES }))}>Reset filters</button><button type="button" onClick={() => drawer.current.close()}>Done · {chips.length} rules</button></div>
+    </dialog>
+    {error && <div className="screen-error" role="alert"><strong>Screen could not complete</strong><p>{error}</p><button type="button" className="secondary" onClick={run} disabled={loading}>Retry screen</button></div>}
+    {loading && <div className="screen-loading" role="status"><span className="spinner" /><div><strong>Scanning {UNIVERSES[config.universe]}…</strong><p>Checking daily history{config.rs_screen ? ' and benchmark alignment' : ''}. Large universes can take up to a minute.</p></div></div>}
+    {result ? <section className="screen-results" aria-busy={loading}>
+      <div className="screen-section-title"><div><h2 ref={resultsHeading} tabIndex={-1}>{result.matched} {result.matched === 1 ? 'match' : 'matches'}<span className="screen-result-universe"> / {result.requested} stocks</span></h2><p>{UNIVERSES[snapshot.universe]} · {dateLabel}{snapshot.rs_screen ? ` · RS vs ${BENCHMARKS[snapshot.benchmark]}` : ''}</p></div><button type="button" className="secondary" onClick={exportRows} disabled={!visibleRows.length || loading}><Download size={15} /> Export CSV</button></div>
+      {(changed || loading) && <div className="screen-pending" role="status">{loading ? 'Previous results remain below while the new screen runs.' : 'Filters changed. Run screen to update these results.'}</div>}
+      <div className="screen-coverage"><span><strong>{result.scanned}</strong> evaluated</span><span><strong>{result.non_matches}</strong> did not match</span><span className={result.incomplete_count ? 'screen-warning' : ''}><strong>{result.incomplete_count}</strong> incomplete</span><span>{result.source}</span></div>
+      {result.universe_source && <p className={`screen-membership ${result.universe_fallback ? 'screen-warning' : ''}`}>{result.universe_source}{result.universe_checked_at ? ` · checked ${result.universe_checked_at.slice(0, 10)}` : ''}</p>}
+      {result.incomplete_count > 0 && <details className="screen-incomplete"><summary>{result.incomplete_count} stocks could not be evaluated{result.truncated ? ' · scan time limit reached' : ''}</summary><p>These stocks are excluded from both matches and non-matches. Retry to refresh missing data.</p><ul>{result.incomplete.map(item => <li key={item.ticker}><strong>{item.ticker}</strong><span>{item.reason}</span></li>)}</ul></details>}
+      {result.data.length > 0 ? <>
+        <div className="screen-result-controls"><label className="screen-search"><Search size={16} aria-hidden="true" /><input aria-label="Search results" placeholder="Find a stock in results" value={search} onChange={e => setSearch(e.target.value)} /></label><label className="screen-sort">Sort by<select value={sort.key} onChange={e => setSort({ key: e.target.value, direction: e.target.value === 'ticker' ? 'asc' : 'desc' })}>{columns.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</select></label><button type="button" className="secondary" onClick={() => setSort(old => ({ ...old, direction: old.direction === 'asc' ? 'desc' : 'asc' }))} aria-label={`Sort ${sort.direction === 'asc' ? 'descending' : 'ascending'}`}>{sort.direction === 'asc' ? '↑ Asc' : '↓ Desc'}</button></div>
+        {!visibleRows.length ? <div className="screen-empty">No matching ticker in these results. <button type="button" className="secondary" onClick={() => setSearch('')}>Clear search</button></div> : <>
+          <div className="table-container screen-desktop"><table><thead><tr>{columns.map(c => <th key={c.key} aria-sort={sort.key === c.key ? sort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" onClick={() => setSort(old => ({ key: c.key, direction: old.key === c.key && old.direction === 'desc' ? 'asc' : 'desc' }))}>{c.label}{sort.key === c.key ? sort.direction === 'asc' ? ' ↑' : ' ↓' : ''}</button></th>)}<th>Why it matched</th></tr></thead><tbody>{visibleRows.map(r => <tr key={r.ticker}>{columns.map(c => <td key={c.key}>{c.render(r)}</td>)}<td className="screen-reasons">{r.reasons.join(' · ')}</td></tr>)}</tbody></table></div>
+          <div className="screen-mobile">{visibleRows.map(r => <article className="card screen-stock-card" key={r.ticker}><div className="screen-stock-card-head"><StockName row={r} /><strong>{money(r)}</strong></div><p className="screen-card-date">Scan close · {r.priceDate}</p><dl>{columns.filter(c => !['ticker', 'price'].includes(c.key)).slice(0, 4).map(c => <div key={c.key}><dt>{c.label}</dt><dd>{c.render(r)}</dd></div>)}</dl><details><summary>Why it matched & details</summary><ul>{r.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>{r.sma200 != null && <p>200 DMA: {fmt(r.sma200)}</p>}{columns.filter(c => !['ticker', 'price'].includes(c.key)).slice(4).map(c => <p key={c.key}>{c.label}: {c.render(r)}</p>)}<Link to={`/chart?symbol=${encodeURIComponent(r.ticker)}`}>Open chart →</Link></details></article>)}</div>
+        </>}
+      </> : <div className="screen-empty"><Search size={24} /><h3>{result.scanned ? 'No stocks matched these rules' : 'No stocks could be evaluated'}</h3><p>{result.scanned ? 'Try removing a rule or widening the universe.' : 'Data was unavailable or incomplete. Retry the screen to check again.'}</p><button type="button" className="secondary" onClick={() => result.scanned ? drawer.current.showModal() : run()} disabled={loading}>{result.scanned ? 'Adjust filters' : 'Retry screen'}</button></div>}
+      {result.data.length > 0 && !loading && <details className="screen-ai"><summary>Screener research brief</summary><button type="button" className="secondary" onClick={runAiAnalysis} disabled={aiLoading}>{aiLoading ? 'Preparing brief…' : aiReport ? 'Refresh brief' : 'Generate brief'}</button>{aiReport && <LazyMarkdown>{aiReport}</LazyMarkdown>}</details>}
+    </section> : !loading && !error && <div className="screen-first-run"><Search size={24} /><div><strong>Your shortlist starts here</strong><p>Choose a preset and run your first screen. Every match includes its rules and candle date.</p></div></div>}
+    <details className="screen-method"><summary>How these screens work</summary><p>Daily prices are adjusted consistently by the data provider. Today’s candle is excluded until 4:00 pm in India or 4:15 pm in New York. Source data can lag; actual candle dates are shown. Histories over seven calendar days old are incomplete. Indian index membership refreshes from Nifty Indices with a six-hour cache. If unavailable, the configured fallback list is labelled in results. US universes use configured lists and may differ from current membership.</p><p>RS = stock close ÷ benchmark close on matching sessions. A new high must exceed all values in the preceding 63, 126 or 252 sessions. RS leading price also requires the stock to remain below its preceding 252-session closing high. These are ratios, not RS percentile ratings or RSI.</p><p>A 200 DMA uses 200 completed closes. A cross-under compares each close to its own day’s average. Strong trend means close &gt; 50 DMA &gt; 150 DMA &gt; 200 DMA, with the 200 DMA rising over 20 sessions. A volume breakout requires close above the preceding 20-session intraday high and volume above 1.5× the preceding 20-session average.</p><p>All active rules must pass. Required missing values remain incomplete. Fundamentals use the provider’s latest available figures and are not historical point-in-time observations.</p></details>
+  </div>;
+}

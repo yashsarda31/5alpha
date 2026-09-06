@@ -248,12 +248,26 @@ const SignalAlertProvider = ({ children }) => {
 
   // Pages that display Signals own their requests. The alert layer observes
   // the shared cache instead of creating a second app-wide polling loop.
+  // The Dashboard/Signals page writes a per-market SWR key (signals:IN /
+  // signals:US) so we subscribe to both and dedupe by the shared keyOf().
   useEffect(() => {
-    const cached = getCached('signals');
-    if (cached?.data) detect(cached.data);
-    return subscribe('signals', (entry) => {
+    const seen = loadSeen();
+    const seenDate = seen?.date;
+    const seenMkt = seen?.mkt || 'IN';
+    const onPayload = (entry) => {
       if (entry?.data) detect(entry.data);
-    });
+    };
+    const cachedIn = getCached('signals:IN');
+    if (cachedIn?.data && (seenDate !== cachedIn.data.as_of?.slice(0, 10) || seenMkt !== 'IN')) {
+      onPayload(cachedIn);
+    }
+    const cachedUs = getCached('signals:US');
+    if (cachedUs?.data && (seenDate !== cachedUs.data.as_of?.slice(0, 10) || seenMkt !== 'US')) {
+      onPayload(cachedUs);
+    }
+    const unsubIn = subscribe('signals:IN', onPayload);
+    const unsubUs = subscribe('signals:US', onPayload);
+    return () => { unsubIn(); unsubUs(); };
   }, [detect]);
 
   // Dev/demo hook: fire a synthetic signal without making a network request.

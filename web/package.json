@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/generate-seo-pages.mjs",
     "lint": "eslint .",
+    "test:seo": "node scripts/generate-seo-pages.test.mjs",
     "preview": "vite preview",
     "ad:pressure-test:build": "node scripts/build-pressure-test-ad.mjs",
     "ad:pressure-test:test": "node --test scripts/build-pressure-test-ad.test.mjs",

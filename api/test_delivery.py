@@ -81,6 +81,12 @@ def test_ingest_filters_and_parses():
     assert n == 1
     row = conn.execute("SELECT * FROM delivery_daily").fetchone()
     assert row["symbol"] == "RELIANCE" and row["deliv_per"] == 66.10
+    assert row["traded_qty"] == 7_839_550
+    assert row["delivered_qty"] == 5_182_007
+    assert row["turnover_lacs"] == 102_317.33
+    assert row["prev_close"] == 1303.50
+    assert row["validation_status"] == "valid"
+    assert row["source_url"].endswith("sec_bhavdata_full_03072026.csv")
     # CLV: H 1312, L 1302, C 1304 -> ((2)-(8))/10 = -0.6
     assert abs(row["clv"] - (-0.6)) < 1e-9
 

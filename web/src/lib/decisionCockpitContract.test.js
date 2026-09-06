@@ -31,7 +31,7 @@ test('Today explicitly renders no-trade and unavailable setup guidance', () => {
 
 test('Analyse loads the URL symbol or its visible default immediately', () => {
   const chart = source('../pages/Chart.jsx');
-  assert.match(chart, /const sym = searchParams\.get\('symbol'\) \|\| 'NVDA'/);
+  assert.match(chart, /const sym = searchParams\.get\('symbol'\) \|\| defaultTickerForMarket\(market\)/);
   assert.match(chart, /fetchChart\(sym\)/);
   assert.doesNotMatch(chart, /No auto-fetch by default/);
 });
@@ -39,7 +39,7 @@ test('Analyse loads the URL symbol or its visible default immediately', () => {
 test('Signals stops automatic polling after close and offers manual refresh', () => {
   const signals = source('../pages/MarketSignals.jsx');
   assert.match(signals, /setMarketOpen\(response\.data\?\.market_open !== false\)/);
-  assert.match(signals, /autoRefresh && marketOpen \? 60000 : 0/);
+  assert.match(signals, /autoRefresh && marketOpen \? 30000 : 0/);
   assert.match(signals, /data\.market_open \?/);
   assert.match(signals, /Refresh snapshot/);
 });

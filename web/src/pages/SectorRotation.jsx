@@ -6,6 +6,7 @@ import Plot from '../components/Plot';
 import ShareButton from '../components/ShareButton';
 import { PageHeader } from '../components/ui';
 import { useSWR } from '../lib/swrCache';
+import { useMarketParam, marketQS } from '../MarketContext';
 import './SectorRotation.css';
 
 // Concrete hex (react-plotly can't resolve CSS vars — silent black fallback).
@@ -164,9 +165,11 @@ const RrgChart = ({ sectors, height = 460 }) => {
 };
 
 const SectorRotation = () => {
+  // The footer toggle selects the sector map; ?market= (share links) still wins.
+  const market = useMarketParam(new URLSearchParams(window.location.search).get('market') || '');
   const { data, refreshing, error: swrError, revalidate } = useSWR(
-    'sectors',
-    () => axios.get('/api/sectors').then((r) => r.data),
+    `sectors:${market}`,
+    () => axios.get(`/api/sectors${marketQS(market)}`).then((r) => r.data),
     0,
   );
   const [aiReport, setAiReport] = useState('');

@@ -4,11 +4,12 @@ import axios from 'axios';
 import { PageHeader, StatusPill } from '../components/ui';
 import ShareButton from '../components/ShareButton';
 import SignalsPortfolio from '../components/SignalsPortfolio';
-import DataStatus from '../components/DataStatus';
 import CollapsibleSection from '../components/CollapsibleSection';
 import SignalSetupCards from '../components/SignalSetupCards';
 import { getCached, useSWR } from '../lib/swrCache';
+import { useMarketParam, marketQS } from '../MarketContext';
 import { signalEmptyState } from '../lib/signalView.js';
+import { durationValue, indiaWatchlist, safeArray, watchCounts } from '../lib/signalTimingView.js';
 import './MarketSignals.css';
 
 const BUCKET_META = {
@@ -58,23 +59,24 @@ const RVBand = ({ rv }) => {
 
 const MarketSignals = () => {
   const [searchParams] = useSearchParams();
-  // ?market=US / ?market=IN peeks at the other session; default follows the
-  // server clock (US engine 8pm–2am IST, NSE otherwise).
+  // ?market=US / ?market=IN peeks at the other session; otherwise the footer
+  // toggle decides which engine feeds this page.
   const marketOverride = (searchParams.get('market') || '').toUpperCase();
-  const marketQS = ['IN', 'US'].includes(marketOverride) ? `?market=${marketOverride}` : '';
+  const market = useMarketParam(marketOverride);
+  const qs = marketQS(market);
   const [autoRefresh, setAutoRefresh] = useState(true);
   // Stale-while-revalidate: the last payload renders instantly and a fresh
   // fetch runs only while this page is active.
-  const swrKey = marketQS ? `signals:${marketOverride}` : 'signals';
+  const swrKey = `signals:${market}`;
   const [marketOpen, setMarketOpen] = useState(() => getCached(swrKey)?.data?.market_open !== false);
-  const fetchSignals = () => axios.get(`/api/signals${marketQS}`).then((response) => {
+  const fetchSignals = () => axios.get(`/api/signals${qs}`).then((response) => {
     setMarketOpen(response.data?.market_open !== false);
     return response.data;
   });
   const { data, refreshing, error: swrError, revalidate } = useSWR(
     swrKey,
     fetchSignals,
-    autoRefresh && marketOpen ? 60000 : 0,
+    autoRefresh && marketOpen ? 30000 : 0,
   );
   // Nifty 10d realized-vol forecast — server refits at most hourly, so a slow
   // client poll is plenty; card hides itself if the model endpoint is down.
@@ -113,12 +115,15 @@ const MarketSignals = () => {
     );
   }
 
-  const { regime, options, setups } = data;
+  const { regime, options, setups = {} } = data;
   const isUS = data.signals_market === 'US';
   const cur = data.currency || '₹';
   const idxPrimary = data.index_names?.primary || 'NIFTY';
   const idxSecondary = data.index_names?.secondary || 'BANKNIFTY';
   const bucketMeta = isUS ? US_BUCKET_META : BUCKET_META;
+  const publishedPlans = safeArray(setups.plans);
+  const earlyPlans = indiaWatchlist(setups, isUS ? 'US' : 'IN');
+  const earlyCounts = watchCounts(earlyPlans);
   const adv = regime.breadth?.adv || 0;
   const dec = regime.breadth?.dec || 0;
   const advPct = adv + dec > 0 ? (adv / (adv + dec)) * 100 : 50;
@@ -136,9 +141,9 @@ const MarketSignals = () => {
             <StatusPill open={data.market_open} note={data.market_open ? undefined : `${data.market_note} (last session)`} />
             {data.market_open ? (
               <div className="refresh-toggle-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                <span>Auto 60s</span>
+                <span>Auto 30s</span>
                 <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px' }}>
-                  <input type="checkbox" checked={autoRefresh} onChange={() => setAutoRefresh(!autoRefresh)} style={{ opacity: 0, width: 0, height: 0 }} />
+                  <input aria-label="Automatically refresh signals every 30 seconds" type="checkbox" checked={autoRefresh} onChange={() => setAutoRefresh(!autoRefresh)} style={{ opacity: 0, width: 0, height: 0 }} />
                   <span style={{ position: 'absolute', cursor: 'pointer', inset: 0, background: autoRefresh ? 'var(--primary-accent)' : 'rgba(255,255,255,0.1)', borderRadius: '22px', transition: '0.3s' }} />
                 </label>
               </div>
@@ -151,9 +156,16 @@ const MarketSignals = () => {
         }
       />
 
-      <DataStatus status={data.data_status} refreshing={refreshing} />
+      {swrError && <div className="signals-refresh-error" role="status">
+        <span>Could not refresh signals. Showing the previous snapshot.</span>
+        <button type="button" className="secondary" onClick={revalidate} disabled={refreshing}>Retry</button>
+      </div>}
 
-      <nav className="signals-section-jumps" aria-label="Signal page sections">
+      <nav className="signals-section-jumps" aria-label="Signal page sections" onClick={(event) => {
+        const link = event.target.closest('a');
+        const section = link && document.querySelector(link.getAttribute('href'));
+        if (section?.tagName === 'DETAILS') section.open = true;
+      }}>
         <a href="#setups-analysis">Setups</a>
         <a href="#signal-regime">Regime</a>
         {!isUS && rvFc && <a href="#signal-volatility">Volatility</a>}
@@ -170,7 +182,7 @@ const MarketSignals = () => {
             {' '}· index bias: <strong className={setups.index_bias === 'bull' ? 'side-LONG' : setups.index_bias === 'bear' ? 'side-SHORT' : ''}>{setups.index_bias.toUpperCase()}</strong> · {setups.radar_size} names on radar
           </span>
         </span>
-        {setups.plans.length > 0 && (
+        {publishedPlans.length > 0 && (
           <ShareButton
             compact
             filename="alpha-nova-setups.png"
@@ -180,7 +192,7 @@ const MarketSignals = () => {
           />
         )}
       </div>
-      {setups.plans.length === 0 ? (
+      {publishedPlans.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '32px' }}>
           <h3 style={{ marginBottom: '6px' }}>{signalEmptyState(data).title}</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
@@ -189,19 +201,40 @@ const MarketSignals = () => {
         </div>
       ) : (
         <SignalSetupCards
-          plans={setups.plans.map((p) => ({
+          plans={publishedPlans.map((p) => ({
             ...p,
             observed_at: p.observed_at || data.data_status?.observed_at,
-            target_label: !isUS ? (p.levels_locked ? 'locked' : '2R') : '1.5R',
+            target_label: isUS
+              ? (p.target_label || '1.5R')
+              : (p.levels_locked ? 'original' : (p.target_label || (!p.lifecycle ? '2R' : ''))),
           }))}
           currency={cur}
           market={isUS ? 'US' : 'IN'}
         />
       )}
+      {!isUS && (
+        <section className="early-setups" aria-labelledby="early-setups-title">
+          <div className="signals-section-title early-setups__heading">
+            <span id="early-setups-title">Early setup watchlist</span>
+            <span className="early-setups__counts">
+              Forming {earlyCounts.forming} · Extended {earlyCounts.extended} · Invalidated {earlyCounts.invalidated}
+            </span>
+          </div>
+          <p className="early-setups__notice">Watch states are early observations, not qualifying entries or trade status.</p>
+          {earlyPlans.length ? (
+            <SignalSetupCards plans={earlyPlans} currency={cur} market="IN" watch />
+          ) : (
+            <div className="card early-setups__empty">No early setups are being watched in this scan.</div>
+          )}
+          <p className="early-setups__timing">
+            Source age: {durationValue(data.timing?.source_age_seconds)} · Scan interval: {durationValue(data.timing?.scan_interval_seconds)}
+          </p>
+        </section>
+      )}
       <CollapsibleSection title="How scoring works" className="signals-methodology">
         <p className="signals-footnote">
           Quality Score = {isUS ? 'volume intensity' : 'OI intensity'} + price momentum + liquidity + options-flow agreement + index bias + intraday & regime alignment (0–100, publication threshold 65).
-          {!isUS && ' New India setups use a tighter stop with a 2:1 gross target; existing open plans retain their locked original levels. This revised execution policy is not backtest-validated.'}
+          {!isUS && ' The original 65 publication threshold is retained. A setup freezes its original trigger when first detected; publication allows at most a 0.5R chase and requires at least 1.5R remaining gross room. The early watchlist has no trade status, and this timing policy remains under forward evaluation. Shadow acceleration is diagnostic only, not validated predictive confidence. Existing open plans retain their locked original levels.'}
           {' '}*Qty sized so a stop-out loses {setups.risk_pct}% of {cur}{fmt(setups.capital, 0)} capital, scaled by the volatility regime (×{regime.vol_scale}) — not rounded to lot size.
           Signals are analytics, not investment advice.
         </p>
@@ -254,7 +287,7 @@ const MarketSignals = () => {
 
       {/* ---- Volatility forecast (Nifty-only model) ---- */}
       {!isUS && rvFc && (
-        <CollapsibleSection id="signal-volatility" title="Volatility forecast" className="desktop-detail-open">
+        <CollapsibleSection id="signal-volatility" title="Volatility forecast" defaultOpen>
           <div className="signals-section-title">Volatility Forecast
             <span style={{ color: 'var(--text-secondary)', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
               · SARIMAX + GARCH-t ensemble · next {rvFc.horizon_days} sessions · as of {rvFc.as_of}
@@ -288,12 +321,12 @@ const MarketSignals = () => {
       )}
 
       {/* ---- Options intelligence ---- */}
-      <CollapsibleSection id="signal-options" title="Options intelligence" className="desktop-detail-open">
+      <CollapsibleSection id="signal-options" title="Options intelligence" defaultOpen>
       <div className="signals-section-title">Options Intelligence</div>
       <div className="oc-summary-grid">
         {options.indices.map(oc => {
-          const mpDrift = oc.spot ? ((oc.max_pain - oc.spot) / oc.spot) * 100 : 0;
-          const bias = oc.pcr_band > 1.15 ? 'BULLISH' : oc.pcr_band < 0.85 ? 'BEARISH' : 'NEUTRAL';
+          const mpDrift = oc.spot > 0 && oc.max_pain != null ? ((oc.max_pain - oc.spot) / oc.spot) * 100 : null;
+          const bias = oc.pcr_band == null ? '' : oc.pcr_band > 1.15 ? 'BULLISH' : oc.pcr_band < 0.85 ? 'BEARISH' : 'NEUTRAL';
           return (
             <div className="oc-summary-card" key={oc.symbol}>
               <h3>
@@ -303,11 +336,11 @@ const MarketSignals = () => {
               <div className="oc-stats">
                 <div className="oc-stat"><div className="k">PCR (±5%)</div><div className={`v bias-${bias}`}>{fmt(oc.pcr_band, 3)}</div></div>
                 <div className="oc-stat"><div className="k">PCR full</div><div className="v">{fmt(oc.pcr, 3)}</div></div>
-                <div className="oc-stat"><div className="k">Max Pain</div><div className="v" style={{ color: 'var(--primary-gold)' }}>{fmt(oc.max_pain, 0)} <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>({mpDrift >= 0 ? '+' : ''}{mpDrift.toFixed(1)}%)</span></div></div>
+                <div className="oc-stat"><div className="k">Max Pain</div><div className="v" style={{ color: 'var(--primary-gold)' }}>{fmt(oc.max_pain, 0)} {mpDrift != null && <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>({mpDrift >= 0 ? '+' : ''}{mpDrift.toFixed(1)}%)</span>}</div></div>
                 <div className="oc-stat"><div className="k">Support</div><div className="v" style={{ color: 'var(--green-gain)' }}>{fmt(oc.support, 0)}</div></div>
                 <div className="oc-stat"><div className="k">Resistance</div><div className="v" style={{ color: 'var(--red-loss)' }}>{fmt(oc.resistance, 0)}</div></div>
                 <div className="oc-stat"><div className="k">ATM Straddle</div><div className="v">{cur}{fmt(oc.straddle, isUS ? 2 : 0)}</div></div>
-                <div className="oc-stat" title={`NSE raw leg IVs — CE ${fmt(oc.atm_iv_ce, 1)} / PE ${fmt(oc.atm_iv_pe, 1)}. Headline IV is solved from the straddle price (skew-free).`}><div className="k">ATM IV</div><div className="v">{fmt(oc.atm_iv ?? (oc.atm_iv_ce + oc.atm_iv_pe) / 2, 1)}% <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>({fmt(oc.atm_iv_ce, 1)}/{fmt(oc.atm_iv_pe, 1)})</span></div></div>
+                <div className="oc-stat" title={`Raw leg IVs — CE ${fmt(oc.atm_iv_ce, 1)} / PE ${fmt(oc.atm_iv_pe, 1)}.`}><div className="k">ATM IV</div><div className="v">{fmt(oc.atm_iv ?? (oc.atm_iv_ce != null && oc.atm_iv_pe != null ? (oc.atm_iv_ce + oc.atm_iv_pe) / 2 : null), 1)}% <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>({fmt(oc.atm_iv_ce, 1)}/{fmt(oc.atm_iv_pe, 1)})</span></div></div>
                 {/* US: yfinance has no OI-change; ce/pe_doi carry day VOLUME there */}
                 <div className="oc-stat"><div className="k">{isUS ? 'Call Vol' : 'ΔOI Calls'}</div><div className="v" style={{ color: isUS ? 'var(--text-primary)' : oc.ce_doi >= 0 ? 'var(--red-loss)' : 'var(--green-gain)' }}>{fmt(oc.ce_doi, 0)}</div></div>
                 <div className="oc-stat"><div className="k">{isUS ? 'Put Vol' : 'ΔOI Puts'}</div><div className="v" style={{ color: isUS ? 'var(--text-primary)' : oc.pe_doi >= 0 ? 'var(--green-gain)' : 'var(--red-loss)' }}>{fmt(oc.pe_doi, 0)}</div></div>
@@ -319,7 +352,7 @@ const MarketSignals = () => {
 
       </CollapsibleSection>
 
-      <CollapsibleSection id="signal-buildups" title="Futures buildups" className="desktop-detail-open">
+      <CollapsibleSection id="signal-buildups" title={isUS ? 'Volume activity' : 'Futures buildups'} defaultOpen>
       <div className="buildup-grid">
         {Object.entries(bucketMeta).map(([key, meta]) => {
           const rows = options.buildups?.[key] || [];
@@ -351,7 +384,7 @@ const MarketSignals = () => {
       </CollapsibleSection>
 
       {options.ideas?.length > 0 && (
-        <CollapsibleSection id="signal-structures" title="Index option structures" className="desktop-detail-open">
+        <CollapsibleSection id="signal-structures" title="Index option structures" defaultOpen>
           <div className="signals-section-title">Index Option Structures</div>
           {options.ideas.map((idea, i) => (
             <div className="idea-row" key={i}>
@@ -362,7 +395,7 @@ const MarketSignals = () => {
         </CollapsibleSection>
       )}
 
-      <CollapsibleSection id="signal-portfolio" title="Current model portfolio" className="desktop-detail-open">
+      <CollapsibleSection id="signal-portfolio" title="Current model portfolio" defaultOpen>
         <SignalsPortfolio market={isUS ? 'US' : 'IN'} />
       </CollapsibleSection>
     </div>

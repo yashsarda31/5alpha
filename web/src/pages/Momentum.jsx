@@ -3,25 +3,15 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { PageHeader, DataTable } from '../components/ui';
 import WatchlistStar from '../components/WatchlistStar';
+import { MOMENTUM_VIEWS, momentumRows, sessionLabel } from '../lib/momentumView';
+import { useMarketParam } from '../MarketContext';
+import './Momentum.css';
 
 // Concrete hex (theme values) — keeps SVG rendering deterministic
 const C = { gain: '#32D74B', loss: '#FF453A', gold: '#F5DC8C', dim: '#A1A1AA' };
 
-const ToggleBtn = ({ active, onClick, children }) => (
-  <button
-    onClick={onClick}
-    style={{
-      width: 'auto', padding: '7px 16px', borderRadius: 'var(--r-pill)', fontSize: '13px',
-      background: active ? 'var(--primary-accent-soft)' : 'transparent',
-      color: active ? 'var(--primary-accent)' : 'var(--text-secondary)',
-      border: `1px solid ${active ? 'var(--primary-accent-border)' : 'var(--border-subtle)'}`,
-    }}
-  >
-    {children}
-  </button>
-);
 
-const pct = (v) => (
+const pct = (v) => v == null ? '—' : (
   <span className={v >= 0 ? 'tone-gain' : 'tone-loss'}>{v >= 0 ? '+' : ''}{Number(v).toFixed(2)}%</span>
 );
 
@@ -105,13 +95,17 @@ const Spark = ({ values, level, width = 260, height = 72, stroke, id }) => {
 };
 
 const BADGE_STYLE = {
+  '52W LOW': { color: '#fff', background: '#B42318' },
+  '3M LOW': { color: '#fff', background: '#B42318' },
+  '20D LOW': { color: C.loss, background: 'rgba(255,69,58,0.12)' },
   '52W HIGH': { color: '#000', background: C.gold },
   '3M HIGH': { color: '#000', background: C.gain },
   '20D HIGH': { color: 'var(--text-primary)', background: 'rgba(255,255,255,0.14)' },
 };
 
 const BreakoutCard = ({ b, market, cur }) => {
-  const chartSym = market === 'in' ? b.ticker : b.ticker; // tickers already carry .NS for IN
+  const chartSym = encodeURIComponent(b.ticker);
+  const down = b.type.endsWith('LOW');
   const name = b.ticker.replace('.NS', '');
   return (
     <div className="card" style={{ padding: '14px 14px 10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -122,156 +116,123 @@ const BreakoutCard = ({ b, market, cur }) => {
         </Link>
         <span style={{ marginLeft: 'auto' }}>{pct(b.chg_today)}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
         <span style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '0.06em', padding: '2px 7px', borderRadius: '4px', ...BADGE_STYLE[b.type] }}>
           {b.type}
         </span>
         <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-          broke {cur}{Number(b.level).toLocaleString('en-IN')} · now +{b.margin}% above
+          {cur}{Number(b.level).toLocaleString('en-IN')} · {b.margin}% {down ? 'below' : 'above'}
         </span>
       </div>
       {b.candles
         ? <CandleChart candles={b.candles} level={b.level} width={280} height={110} />
         : <Spark values={b.spark} level={b.level} id={`bo-${name}`} width={280} height={74} />}
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, fontSize: '12px', color: 'var(--text-secondary)' }}>
         <span>LTP <strong style={{ color: 'var(--text-primary)' }}>{cur}{Number(b.price).toLocaleString('en-IN')}</strong></span>
         <span title="Today's volume vs 20-day average">
-          Vol <strong style={{ color: b.vol_ratio >= 1.5 ? C.gain : 'var(--text-primary)' }}>×{b.vol_ratio}</strong>
+          Vol <strong style={{ color: b.vol_ratio >= 1.5 ? (down ? C.loss : C.gain) : 'var(--text-primary)' }}>{b.vol_ratio == null ? '—' : `×${b.vol_ratio}`}</strong>
         </span>
         <span title="RSI(14) — above 70 is hot">RSI <strong style={{ color: b.rsi >= 70 ? C.gold : 'var(--text-primary)' }}>{b.rsi}</strong></span>
       </div>
+      <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>RS / 100: <strong>{b.rs_percentile ?? '—'}</strong></span>
     </div>
   );
 };
 
-const Momentum = () => {
-  const [market, setMarket] = useState('in'); // NSE-first audience — Indian tab default
-  const [data, setData] = useState([]);
-  const [breakouts, setBreakouts] = useState([]);
-  const [universe, setUniverse] = useState(0);
-  const [loading, setLoading] = useState(false);
+const Momentum = ({
+  initialView = 'leaders',
+  eventType = null,
+  marketOverride = null,
+  title = 'Momentum Leaders',
+  subtitle = 'Find strength. Track breaks. Spot weakness.',
+}) => {
+  // One market selector app-wide: the footer toggle. The old per-page
+  // India/US buttons are retired to avoid two competing controls.
+  const selectedMarket = useMarketParam('').toLowerCase();
+  const market = marketOverride || selectedMarket;
+  const [view, setView] = useState(initialView);
+  const [snapshot, setSnapshot] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await axios.get(`/api/momentum?market=${market}`);
-      setData(response.data.data || []);
-      setBreakouts(response.data.breakouts || []);
-      setUniverse(response.data.universe || 0);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState({});
+  const [refresh, setRefresh] = useState(0);
+  const resetSnapshot = () => { setLoading(true); setSnapshot(null); setError(null); };
+  const reload = () => { resetSnapshot(); setRefresh(n => n + 1); };
 
   useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [market]);
+    const controller = new AbortController();
+    let active = true;
+    axios.get(`/api/momentum?market=${market}`, { signal: controller.signal })
+      .then(({ data }) => { if (active) setSnapshot(data); })
+      .catch(err => { if (active) setError(err.response?.data?.detail || 'Could not load momentum data. Please retry.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; controller.abort(); };
+  }, [market, refresh]);
 
   const cur = market === 'in' ? '₹' : '$';
+  const config = MOMENTUM_VIEWS[view];
+  const rows = momentumRows(snapshot, view, query, sort.key, sort.dir, eventType);
+  const isEvent = view === 'breakouts' || view === 'breakdowns';
+  const chooseView = (next) => { setView(next); setSort({}); };
+  const onSort = (key) => setSort({ key, dir: (sort.key || config.sort) === key && (sort.dir || config.dir) === 'desc' ? 'asc' : 'desc' });
+  const number = (v, suffix = '') => v == null ? '—' : `${Number(v).toFixed(1)}${suffix}`;
+  const rs = (r) => <span className={r.rs_percentile == null ? '' : r.rs_percentile <= 20 ? 'tone-loss' : r.rs_percentile >= 80 ? 'tone-gain' : ''}>{number(r.rs_percentile)}</span>;
   const columns = [
-    { key: 'ticker', label: 'Ticker', render: (r) => (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-        <WatchlistStar symbol={r.ticker} market={market === 'in' ? 'IN' : 'US'} size={15} />
-        <Link to={`/chart?symbol=${r.ticker}`} style={{ fontWeight: 700, color: 'var(--text-primary)' }} title="Open in Chart Analyser">
-          {r.ticker.replace('.NS', '')}
-        </Link>
-      </span>
-    ) },
-    // Fixed-width wrapper: the table scrolls horizontally on small screens,
-    // so the mini chart keeps its natural size instead of shrinking
-    { key: 'spark', label: 'Trend (6W)', render: (r) => (
-      <div style={{ width: 150 }}>
-        {r.candles
-          ? <CandleChart candles={r.candles} bars={30} width={150} height={46} />
-          : <Spark values={r.spark} width={110} height={30} id={`ld-${r.ticker}`} />}
-      </div>
-    ) },
-    { key: 'price', label: 'Price', align: 'right', render: (r) => `${cur}${r.price}` },
-    { key: 'chg_today', label: 'Today', align: 'right', render: (r) => pct(r.chg_today ?? 0) },
-    { key: 'mom_1m', label: '1M', align: 'right', render: (r) => pct(r.mom_1m) },
-    { key: 'mom_6m', label: '6M', align: 'right', render: (r) => pct(r.mom_6m) },
-    { key: 'mom_12m', label: '12M', align: 'right', render: (r) => pct(r.mom_12m) },
-    { key: 'off_52w_high', label: 'vs 52W High', align: 'right', render: (r) => (
-      r.off_52w_high === undefined ? '—'
-        : <span style={{ color: r.off_52w_high > -3 ? C.gain : 'var(--text-secondary)' }} title="Distance below the 52-week high — near zero means at highs">
-            {Number(r.off_52w_high).toFixed(1)}%
-          </span>
-    ) },
-    { key: 'rsi', label: 'RSI', align: 'right', render: (r) => (
-      r.rsi === undefined ? '—'
-        : <span style={{ color: r.rsi >= 70 ? C.gold : r.rsi <= 40 ? C.loss : 'var(--text-primary)' }}>{r.rsi}</span>
-    ) },
-    { key: 'vol_ratio', label: 'Vol×', align: 'right', render: (r) => (
-      r.vol_ratio === undefined ? '—'
-        : <span style={{ color: r.vol_ratio >= 1.5 ? C.gain : 'var(--text-secondary)' }}>×{r.vol_ratio}</span>
-    ) },
-    { key: 'score', label: 'Score', align: 'right', render: (r) => <span className="tone-gold">{r.score >= 0 ? '+' : ''}{Number(r.score).toFixed(2)}%</span> },
+    { key: 'ticker', label: 'Stock', render: r => <span className="momentum-stock"><WatchlistStar symbol={r.ticker} market={market.toUpperCase()} size={15} /><Link to={`/chart?symbol=${encodeURIComponent(r.ticker)}`}>{r.ticker.replace('.NS', '')}</Link></span> },
+    { key: 'rs_percentile', label: 'RS / 100', align: 'right', sortable: true, render: rs },
+    { key: 'chg_today', label: 'Session %', align: 'right', sortable: true, render: r => pct(r.chg_today) },
+    { key: 'price', label: 'Price', align: 'right', sortable: true, render: r => `${cur}${Number(r.price).toLocaleString('en-IN')}` },
+    { key: 'vol_ratio', label: 'Volume ×', align: 'right', sortable: true, render: r => number(r.vol_ratio, '×') },
+    { key: 'dist_50dma', label: 'vs 50DMA', align: 'right', sortable: true, render: r => pct(r.dist_50dma) },
+    { key: 'mom_1m', label: '1M', align: 'right', sortable: true, render: r => pct(r.mom_1m) },
+    { key: 'mom_6m', label: '6M', align: 'right', sortable: true, render: r => pct(r.mom_6m) },
+    { key: 'mom_12m', label: '12M', align: 'right', sortable: true, render: r => pct(r.mom_12m) },
+    { key: 'spark', label: 'Trend · 6W', render: r => <div style={{ width: 130 }}><CandleChart candles={r.candles} bars={30} width={130} height={46} /></div> },
   ];
+  const description = eventType ? 'Session close above the prior 252-session high with a positive price move. Coverage and source date are shown above.' : {
+    leaders: 'Strongest relative momentum first. RS compares stocks within this scanned universe.',
+    breakouts: 'Session price above a prior 20-session, 3-month or 52-week high, with a positive session move.',
+    breakdowns: 'Session price below a prior 20-session, 3-month or 52-week low, with a negative session move.',
+    low_rs: 'Bottom 20% by relative momentum. Low RS measures relative weakness; it is different from RSI.',
+  }[view];
 
   return (
-    <div className="fade-in">
-      <PageHeader
-        code="MOM"
-        title="Momentum Leaders"
-        subtitle={`${market === 'us' ? 'US' : 'Indian'} large caps · ${universe || '~50'}-stock universe · momentum ranks + today's breakouts`}
-        right={
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <ToggleBtn active={market === 'us'} onClick={() => setMarket('us')}>US Market</ToggleBtn>
-            <ToggleBtn active={market === 'in'} onClick={() => setMarket('in')}>Indian Market</ToggleBtn>
-          </div>
-        }
-      />
-
-      {error ? (
-        <div className="error" style={{ color: 'var(--red-loss)', padding: '20px', backgroundColor: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.2)', borderRadius: 'var(--r-card)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <h3 style={{ marginBottom: '8px', fontSize: '16px', color: 'var(--red-loss)' }}>Failed to Load Data</h3>
-            <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{error}</p>
-          </div>
-          <button onClick={fetchData} style={{ width: 'auto', padding: '8px 16px', background: 'rgba(255, 69, 58, 0.15)', border: '1px solid var(--red-loss)', color: 'var(--red-loss)' }}>Retry</button>
-        </div>
-      ) : (
-        <>
-          {/* ---- Breaking out today ---- */}
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', margin: '4px 0 12px' }}>
-            <h3 style={{ margin: 0, fontSize: '15px', letterSpacing: '0.04em' }}>BREAKING OUT TODAY</h3>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              price above its prior 20-day / 3-month / 52-week high · dashed line = level broken
-            </span>
-          </div>
-          {loading ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(250px, 100%), 1fr))', gap: '12px', marginBottom: '26px' }}>
-              {[1, 2, 3].map((i) => <div key={i} className="card" style={{ height: 160, opacity: 0.4 }} />)}
-            </div>
-          ) : breakouts.length === 0 ? (
-            <div className="card" style={{ padding: '18px', marginBottom: '26px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-              No fresh breakouts in the {market === 'in' ? 'Nifty' : 'US'} large-cap universe this session — the leaders below show where the sustained trends are.
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(250px, 100%), 1fr))', gap: '12px', marginBottom: '26px' }}>
-              {breakouts.map((b) => <BreakoutCard key={b.ticker} b={b} market={market} cur={cur} />)}
-            </div>
-          )}
-
-          {/* ---- Momentum leaders ---- */}
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', margin: '4px 0 12px' }}>
-            <h3 style={{ margin: 0, fontSize: '15px', letterSpacing: '0.04em' }}>MOMENTUM LEADERS</h3>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              ranked by average of 1M / 6M / 12M returns · click a ticker for the full chart
-            </span>
-          </div>
-          <DataTable columns={columns} rows={data} loading={loading} rowKey={(r) => r.ticker} />
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '10px' }}>
-            vs 52W High near 0% = trading at highs (strength, or little headroom — read with RSI).
-            Vol× is today against the 20-day average; ×1.5+ marks conviction moves. Analytics, not investment advice.
-          </p>
-        </>
-      )}
+    <div className="fade-in momentum-page">
+      <PageHeader code={eventType ? '52W' : 'MOM'} title={title} subtitle={subtitle}
+        right={<span className="momentum-market-pill">{market === 'in' ? 'India' : 'US'}</span>} />
+      <div className="momentum-meta" role="status">
+        <span>{loading ? 'Loading market snapshot…' : sessionLabel(snapshot, market)}</span>
+        <button type="button" disabled={loading} onClick={reload}>Reload snapshot</button>
+      </div>
+      {snapshot && <p className="momentum-coverage">{snapshot.scanned ?? '—'} / {snapshot.universe} stocks scanned · {snapshot.ranked_count ?? '—'} with full-year RS · selected large caps
+        {snapshot.excluded_count > 0 && <span> · {snapshot.excluded_count} unavailable or older histories excluded</span>}
+      </p>}
+      {!eventType && <div className="momentum-views" role="group" aria-label="Momentum views">
+        {Object.entries(MOMENTUM_VIEWS).map(([key, item]) => <button type="button" key={key} aria-pressed={view === key} className={view === key ? 'selected' : ''} onClick={() => chooseView(key)}>
+          <span>{item.label}</span><strong>{loading || !snapshot ? '—' : momentumRows(snapshot, key).length}</strong>
+        </button>)}
+      </div>}
+      <div className="momentum-section-head"><div><h2>{config.label}{isEvent ? ' · session moves' : ''}</h2><p>{description}</p></div>
+        <label className="momentum-search"><span className="sr-only">Search stocks</span><input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search symbol" /></label>
+      </div>
+      <label className="momentum-sort">Sort by <select value={`${sort.key || config.sort}:${sort.dir || config.dir}`} onChange={e => { const [key, dir] = e.target.value.split(':'); setSort({ key, dir }); }}>
+        <option value="rs_percentile:desc">Strongest RS</option><option value="rs_percentile:asc">Weakest RS</option><option value="chg_today:desc">Biggest rise</option><option value="chg_today:asc">Biggest fall</option><option value="vol_ratio:desc">Highest volume ratio</option>
+        {sort.key && !['rs_percentile:desc', 'rs_percentile:asc', 'chg_today:desc', 'chg_today:asc', 'vol_ratio:desc'].includes(`${sort.key}:${sort.dir}`) && <option value={`${sort.key}:${sort.dir}`}>{columns.find(c => c.key === sort.key)?.label} · {sort.dir}</option>}
+      </select><span>{!loading && snapshot ? `${rows.length} shown` : ''}</span></label>
+      {error ? <div className="card momentum-empty" role="alert"><h3>Data unavailable</h3><p>{error}</p><button type="button" onClick={reload}>Retry</button></div>
+        : loading ? <div role="status" aria-label="Loading stocks"><DataTable columns={columns} rows={[]} loading /></div>
+        : !snapshot?.session_date && view !== 'leaders' ? <div className="card momentum-empty">This snapshot does not include the new scan fields. Reload after the backend update.</div>
+        : rows.length === 0 ? <div className="card momentum-empty"><h3>{query ? 'No matching symbols' : `No ${config.label.toLowerCase()} found`}</h3><p>{query ? 'Try another symbol or clear your search.' : 'No stocks meet this view’s criteria in the available snapshot. Coverage is shown above.'}</p>{query && <button onClick={() => setQuery('')}>Clear search</button>}</div>
+        : isEvent ? <div className="momentum-card-grid">{rows.map(b => <BreakoutCard key={b.ticker} b={b} market={market} cur={cur} />)}</div>
+        : <>
+          <div className="momentum-mobile-list">{rows.map(r => <div className="card momentum-mobile-stock" key={r.ticker}>
+            <div className="momentum-mobile-title"><span className="momentum-stock"><WatchlistStar symbol={r.ticker} market={market.toUpperCase()} size={16} /><Link to={`/chart?symbol=${encodeURIComponent(r.ticker)}`}>{r.ticker.replace('.NS', '')}</Link></span><strong>{pct(r.chg_today)}</strong></div>
+            <dl><div><dt>RS / 100</dt><dd>{rs(r)}</dd></div><div><dt>Price</dt><dd>{cur}{Number(r.price).toLocaleString('en-IN')}</dd></div><div><dt>Volume</dt><dd>{number(r.vol_ratio, '×')}</dd></div><div><dt>vs 50DMA</dt><dd>{pct(r.dist_50dma)}</dd></div></dl>
+          </div>)}</div>
+          <div className="momentum-desktop-table"><DataTable columns={columns} rows={rows} rowKey={r => r.ticker} sortKey={sort.key || config.sort} sortDir={sort.dir || config.dir} onSort={onSort} /></div>
+        </>}
+      <details className="momentum-method"><summary>How to read this scan</summary><p>RS is a 0–100 percentile of the average 21, 126 and 252-session returns, ranked only among stocks with full history on the same source date. Ties receive the same rank. It is not a market-wide rating or benchmark-relative return. Low RS is ≤20; RS requires at least two eligible stocks.</p><p>Break levels exclude the current bar and require the full lookback. The widest broken level is shown. A daily bar can change during trading; session moves are provisional until close. Older snapshots are labelled by date.</p><p>Volume compares the current daily bar with the prior 20-session average; partial-session volume is not time-adjusted. Source: {snapshot?.source || 'Yahoo Finance daily adjusted OHLCV'}. Snapshots may be cached for up to an hour. Research only.</p></details>
     </div>
   );
 };

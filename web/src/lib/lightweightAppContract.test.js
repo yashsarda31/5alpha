@@ -39,7 +39,9 @@ test('AI markdown libraries load only when an insight is rendered', () => {
 test('the alert provider observes shared Signals data without owning a poller', () => {
   const provider = source('../alerts/SignalAlertProvider.jsx');
 
-  assert.match(provider, /subscribe\('signals'/);
+  // Provider subscribes to the per-market SWR keys the pages write.
+  assert.match(provider, /subscribe\('signals:IN'/);
+  assert.match(provider, /subscribe\('signals:US'/);
   assert.doesNotMatch(provider, /fetch\('\/api\/signals'/);
   assert.doesNotMatch(provider, /setInterval\(runPoll/);
 });
@@ -47,8 +49,9 @@ test('the alert provider observes shared Signals data without owning a poller', 
 test('Dashboard fetches the shared Signals snapshot it displays', () => {
   const dashboard = source('../pages/Dashboard.jsx');
 
-  assert.match(dashboard, /useSWR\(\s*'signals'/);
-  assert.match(dashboard, /axios\.get\('\/api\/signals'\)/);
+  // SWR key and URL carry the footer market toggle so switching refetches.
+  assert.match(dashboard, /useSWR\(\s*`signals:\$\{market\}`/);
+  assert.match(dashboard, /axios\.get\(`\/api\/signals\$\{marketQS\(market\)\}`\)/);
 });
 
 test('prediction data loads only on routes that render it', () => {

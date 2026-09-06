@@ -294,6 +294,14 @@ h2 {
   border-top: 1px solid var(--border-hairline);
 }
 
+.sidebar-market-toggle {
+  margin-bottom: 10px;
+}
+
+.mobile-market-toggle {
+  display: none;
+}
+
 .settings-btn {
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-primary);
@@ -868,7 +876,7 @@ tr:hover td {
   .mobile-topbar {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
     position: sticky;
     top: 0;
     z-index: 900;
@@ -893,6 +901,14 @@ tr:hover td {
 
   .mobile-title .brand-alpha {
     color: var(--primary-gold);
+  }
+
+  .mobile-market-toggle {
+    display: block;
+  }
+
+  .sidebar-market-toggle {
+    display: none;
   }
 
   .sidebar {
@@ -1393,4 +1409,68 @@ tr:hover td {
   color: var(--primary-gold);
   font-weight: 700;
   flex: 0 0 auto;
+}
+
+/* Compact market selector: in the sidebar on desktop and top bar on mobile. */
+.market-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.market-toggle-label {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.market-toggle-options {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-tile);
+}
+
+.market-toggle-options button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: none;
+}
+
+.market-toggle-options button:hover {
+  background: transparent;
+  color: var(--text-primary);
+  filter: none;
+  transform: none;
+}
+
+.market-toggle-options button.active {
+  background: var(--primary-gold);
+  color: #0a1628;
+}
+
+.market-toggle-options button:focus-visible {
+  outline: 2px solid var(--primary-gold);
+  outline-offset: 2px;
+}
+
+@media (max-width: 850px) {
+  .mobile-market-toggle .market-toggle-label {
+    display: none;
+  }
+
+  .mobile-market-toggle .market-toggle-options button {
+    min-height: 27px;
+    padding: 3px 9px;
+  }
 }

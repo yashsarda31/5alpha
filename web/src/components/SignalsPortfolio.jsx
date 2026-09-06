@@ -101,7 +101,7 @@ const SignalsPortfolio = ({ market }) => {
       ) : (
         <>
           {data && <p className="signals-portfolio__sample">{sampleLabel} · Gross of verified costs</p>}
-          <div className="signals-portfolio__table">
+          <div className={`signals-portfolio__table${openRows.length === 0 ? ' is-empty' : ''}`}>
             <DataTable
               columns={fullColumns}
               rows={openRows}

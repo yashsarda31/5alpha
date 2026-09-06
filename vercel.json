@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/signals/run/IN",
+      "schedule": "* 3-10 * * 1-5"
+    },
+    {
       "path": "/api/delivery/refresh",
       "schedule": "0 14 * * 1-5"
     },
@@ -14,11 +18,11 @@
       "src": "api/main.py",
       "use": "@vercel/python",
       "config": {
-        "excludeFiles": "{web/**,alphanova4/**,research/**,data/**,docs/**,install-tests/**,.agents/**,.codex/**,.superpowers/**,.worktrees/**,tmp/**,OpenBB/**,nourishfit/**,sales-momentum/**,api/.pytest_cache/**,api/fundamentals_function/**,api/scripts/**,api/requirements-train.txt,api/test_*.py,api/signal_model/costs.py,api/signal_model/execution.py,api/signal_model/features.py,api/signal_model/providers.py,api/signal_model/replay.py,api/signal_model/training.py,api/signal_model/validation.py,*.pptx,*.jpeg,*.json,test_*.py,verify_*.py,alpha-nova-*.html,alphanova48-growth-dashboard.html,run_server.py,requirements.txt}"
+        "excludeFiles": "{web/**,alphanova4/**,research/**,data/**,docs/**,install-tests/**,.agents/**,.codex/**,.superpowers/**,.worktrees/**,tmp/**,.tmp/**,.ui-audit/**,OpenBB/**,nourishfit/**,sales-momentum/**,api/.pytest_cache/**,api/fundamentals_function/**,api/scripts/**,api/requirements-train.txt,api/test_*.py,api/signal_model/costs.py,api/signal_model/execution.py,api/signal_model/features.py,api/signal_model/providers.py,api/signal_model/replay.py,api/signal_model/training.py,api/signal_model/validation.py,*.pptx,*.jpeg,*.json,test_*.py,verify_*.py,alpha-nova-*.html,alphanova48-growth-dashboard.html,run_server.py,requirements.txt}"
       }
     },
     {
-      "src": "alphanova4/package.json",
+      "src": "web/package.json",
       "use": "@vercel/static-build",
       "config": {
         "distDir": "dist"
@@ -36,17 +40,17 @@
         "cache-control": "public, max-age=31536000, immutable",
         "x-content-type-options": "nosniff"
       },
-      "dest": "/alphanova4/assets/$1"
+      "dest": "/web/assets/$1"
     },
     {
       "src": "/favicon.svg",
       "headers": { "cache-control": "public, max-age=86400" },
-      "dest": "/alphanova4/favicon.svg"
+      "dest": "/web/favicon.svg"
     },
     {
       "src": "/robots.txt",
       "headers": { "cache-control": "public, max-age=86400" },
-      "dest": "/alphanova4/robots.txt"
+      "dest": "/web/robots.txt"
     },
     {
       "src": "/manifest.webmanifest",
@@ -54,42 +58,58 @@
         "content-type": "application/manifest+json",
         "cache-control": "public, max-age=3600"
       },
-      "dest": "/alphanova4/manifest.webmanifest"
+      "dest": "/web/manifest.webmanifest"
     },
     {
       "src": "/sw.js",
       "headers": { "cache-control": "no-cache" },
-      "dest": "/alphanova4/sw.js"
+      "dest": "/web/sw.js"
     },
     {
       "src": "/apple-touch-icon-v2\\.png",
       "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "dest": "/alphanova4/apple-touch-icon-v2.png"
+      "dest": "/web/apple-touch-icon-v2.png"
     },
     {
       "src": "/apple-touch-icon-v3\\.png",
       "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "dest": "/alphanova4/apple-touch-icon-v3.png"
+      "dest": "/web/apple-touch-icon-v3.png"
     },
     {
       "src": "/apple-touch-icon-v4\\.png",
       "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "dest": "/alphanova4/apple-touch-icon-v4.png"
+      "dest": "/web/apple-touch-icon-v4.png"
     },
     {
       "src": "/brand/(.*)",
       "headers": { "cache-control": "public, max-age=86400" },
-      "dest": "/alphanova4/brand/$1"
+      "dest": "/web/brand/$1"
     },
     {
       "src": "/icons/(.*)",
       "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "dest": "/alphanova4/icons/$1"
+      "dest": "/web/icons/$1"
     },
     {
       "src": "/fonts/(.*)",
       "headers": { "cache-control": "public, max-age=31536000, immutable" },
-      "dest": "/alphanova4/fonts/$1"
+      "dest": "/web/fonts/$1"
+    },
+    {
+      "src": "/high-delivery-volume-stocks-today",
+      "dest": "/api/main.py"
+    },
+    {
+      "src": "/stocks/([^/]+)/delivery-percentage",
+      "dest": "/api/main.py"
+    },
+    {
+      "src": "/s/([^/]+)",
+      "dest": "/api/main.py"
+    },
+    {
+      "src": "/(dashboard|delivery-radar|high-delivery-volume-stocks-today|stocks-at-52-week-high-today|signals|chart|screener|momentum|sectors|track-record|fiidii|fii-dii-data-today|option-chain|nifty-pcr-today|bank-nifty-oi-analysis|deals|bulk-block-deals-today|fundamentals|dcf|arima|flcl|position-sizing|news|learn|druck-minervini|login|watchlist|leaderboard|trading-game)",
+      "dest": "/web/$1/index.html"
     },
     {
       "handle": "filesystem"
@@ -103,7 +123,7 @@
         "permissions-policy": "camera=(), microphone=(), geolocation=()",
         "strict-transport-security": "max-age=63072000; includeSubDomains"
       },
-      "dest": "/alphanova4/index.html"
+      "dest": "/web/index.html"
     }
   ]
 }

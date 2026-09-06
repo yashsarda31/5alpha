@@ -9,6 +9,11 @@ docs/superpowers/
 .superpowers/
 .worktrees/
 tmp/
+.tmp/
+.ui-audit/
+alphanova4/
+docs/webinars/
+web/dist/
 
 # Local caches and test artifacts are never needed in production bundles.
 .git/

@@ -4,13 +4,17 @@ import {
   LayoutGrid, Star, Zap, Rocket, Newspaper,
   LineChart, Bird, Search, Landmark, Calculator, BarChart3, Sparkles, Scale, Link2,
   Trophy, Gamepad2, GraduationCap, Settings, Menu, Compass, ArrowLeftRight, Gauge,
-  ChevronsUpDown,
+  ChevronsUpDown, Activity,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
 import AppLogo from './components/AppLogo';
 import { WatchlistProvider } from './WatchlistContext';
 import { PredictionProvider } from './PredictionContext';
+import { MarketProvider } from './MarketContext';
+import MarketToggle from './components/MarketToggle';
 import Disclaimer from './components/Disclaimer';
+import ShareButton from './components/ShareButton';
+import SeoMeta from './components/SeoMeta';
 import AuthIntentHandler from './components/AuthIntentHandler';
 import SignalAlertProvider from './alerts/SignalAlertProvider';
 import { trapFocus } from './lib/focusTrap';
@@ -45,6 +49,7 @@ const routeImporters = {
   '/druck-minervini': () => import('./pages/DruckMinervini'),
   '/trading-game': () => import('./pages/TradingGame'),
   '/fiidii': () => import('./pages/FiiDii'),
+  '/delivery-radar': () => import('./pages/DeliveryRadar'),
 };
 
 const prefetched = new Set();
@@ -77,6 +82,7 @@ const Learn = lazy(routeImporters['/learn']);
 const DruckMinervini = lazy(routeImporters['/druck-minervini']);
 const TradingGame = lazy(routeImporters['/trading-game']);
 const FiiDii = lazy(routeImporters['/fiidii']);
+const DeliveryRadar = lazy(routeImporters['/delivery-radar']);
 
 // The primary path mirrors the daily research workflow. Specialist tools stay
 // available one disclosure away instead of competing with the core actions.
@@ -103,6 +109,7 @@ const MORE_NAV_SECTIONS = [
       { to: '/flcl', label: 'FLCL Analysis', Icon: ChevronsUpDown },
       { to: '/druck-minervini', label: 'Druck & Minervini', Icon: Bird },
       { to: '/screener', label: 'Quant Screener', Icon: Search },
+      { to: '/delivery-radar', label: 'Delivery Radar', Icon: Activity },
       { to: '/fiidii', label: 'FII / DII Activity', Icon: Landmark },
       { to: '/deals', label: 'Block & Insider Deals', Icon: ArrowLeftRight },
       { to: '/dcf', label: 'DCF Calculator', Icon: Calculator },
@@ -209,7 +216,28 @@ const SiteVisitTracker = () => {
   React.useEffect(() => {
     void trackDailySiteVisit();
   }, [pathname]);
-  return null;
+  return <SeoMeta />;
+};
+
+const PAGE_SHARE_ROUTES = new Set([
+  '/chart', '/arima', '/dcf', '/flcl', '/signals', '/position-sizing',
+  '/sectors', '/delivery-radar', '/high-delivery-volume-stocks-today',
+]);
+const PRIVATE_SHARE_ROUTES = new Set(['/watchlist', '/trading-game', '/login']);
+
+const RouteShareAction = () => {
+  const location = useLocation();
+  if (PRIVATE_SHARE_ROUTES.has(location.pathname) || PAGE_SHARE_ROUTES.has(location.pathname) || location.pathname.startsWith('/stocks/')) return null;
+  return (
+    <div data-noshare="" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+      <ShareButton
+        compact
+        capture={() => document.querySelector('.content .fade-in') || document.querySelector('.content')}
+        shareText={`Alpha Nova research · ${location.pathname}`}
+        filename={`alpha-nova-${location.pathname.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'today'}.png`}
+      />
+    </div>
+  );
 };
 
 const useMobileNav = () => {
@@ -306,12 +334,14 @@ const AppLayout = () => {
     <WatchlistProvider>
     <PredictionProvider>
     <SignalAlertProvider>
+    <MarketProvider>
       <AuthIntentHandler />
       <div className="mobile-topbar">
         <span className="mobile-title">
           <AppLogo size={20} />
           <span><span className="brand-alpha">Alpha</span> Nova</span>
         </span>
+        <div className="mobile-market-toggle"><MarketToggle /></div>
       </div>
       {menuOpen && <div className="sidebar-backdrop" onClick={() => closeMenu(true)} />}
       <div
@@ -374,6 +404,7 @@ const AppLayout = () => {
         </nav>
 
         <div className="sidebar-footer">
+          <div className="sidebar-market-toggle"><MarketToggle /></div>
           {!currentUser && (
             <Link
               to="/login?mode=signup"
@@ -399,6 +430,7 @@ const AppLayout = () => {
       <div className="content">
         <ScrollToTop />
         <Disclaimer />
+        <RouteShareAction />
         <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/dashboard" element={<Dashboard />} />
@@ -406,21 +438,29 @@ const AppLayout = () => {
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/dcf" element={<Dcf />} />
           <Route path="/fundamentals" element={<Fundamentals />} />
-          <Route path="/momentum" element={<Momentum />} />
+              <Route path="/momentum" element={<Momentum />} />
+              <Route path="/stocks-at-52-week-high-today" element={<Momentum initialView="breakouts" eventType="52W HIGH" marketOverride="in" title="Stocks at 52-Week High Today" subtitle="Confirmed closes above the prior 252-session high in the covered NSE large-cap universe." />} />
           <Route path="/chart" element={<Chart />} />
           <Route path="/flcl" element={<Flcl />} />
           <Route path="/druck-minervini" element={<DruckMinervini />} />
           <Route path="/screener" element={<Screener />} />
+          <Route path="/delivery-radar" element={<DeliveryRadar />} />
+          <Route path="/high-delivery-volume-stocks-today" element={<DeliveryRadar />} />
+          <Route path="/stocks/:symbol/delivery-percentage" element={<DeliveryRadar />} />
 
           <Route path="/fiidii" element={<FiiDii />} />
+          <Route path="/fii-dii-data-today" element={<FiiDii />} />
           <Route path="/arima" element={<Arima />} />
           <Route path="/position-sizing" element={<PositionSizing />} />
           <Route path="/news" element={<News />} />
           <Route path="/option-chain" element={<OptionChain />} />
+          <Route path="/nifty-pcr-today" element={<OptionChain defaultSymbol="NIFTY" />} />
+          <Route path="/bank-nifty-oi-analysis" element={<OptionChain defaultSymbol="BANKNIFTY" />} />
           <Route path="/signals" element={<MarketSignals />} />
           <Route path="/track-record" element={<TrackRecord />} />
           <Route path="/sectors" element={<SectorRotation />} />
-          <Route path="/deals" element={<Deals />} />
+              <Route path="/deals" element={<Deals />} />
+              <Route path="/bulk-block-deals-today" element={<Deals />} />
           <Route path="/learn" element={<Learn />} />
           <Route path="/trading-game" element={<TradingGame />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
@@ -434,6 +474,7 @@ const AppLayout = () => {
           <SettingsSheet open onClose={closeSettings} />
         </Suspense>
       )}
+    </MarketProvider>
     </SignalAlertProvider>
     </PredictionProvider>
     </WatchlistProvider>

@@ -64,7 +64,8 @@ test('Signals announces refresh state and keeps methodology on demand', () => {
   const signals = source('../pages/MarketSignals.jsx');
   assert.match(status, /refreshing = false/);
   assert.match(status, /role="status"/);
-  assert.match(signals, /<DataStatus status=\{data\.data_status\} refreshing=\{refreshing\}/);
+  assert.match(signals, /signals-refresh-error" role="status"/);
+  assert.match(signals, /Showing the previous snapshot/);
   assert.match(signals, /title="How scoring works"/);
   assert.match(signals, /signals-methodology/);
 });

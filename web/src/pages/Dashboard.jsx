@@ -7,6 +7,7 @@ import { usePrediction } from '../PredictionContext';
 import WatchlistStar from '../components/WatchlistStar';
 import Sparkline from '../components/Sparkline';
 import { useSWR } from '../lib/swrCache';
+import { useMarket, marketQS } from '../MarketContext';
 import { buildNoTradeGuidance, selectPrioritySetups } from '../lib/decisionBrief';
 import { markFirstRunStep, trackProductEvent, trackReturnVisit } from '../lib/productAnalytics.js';
 import FirstRunWorkflow from '../components/FirstRunWorkflow';
@@ -119,7 +120,7 @@ const MyWatchlist = () => {
 };
 
 // Lead indices + breadth: the one-glance "what's the market doing" strip.
-const PULSE_NAMES = ['NIFTY 50', 'BANKNIFTY'];
+const PULSE_NAMES = ['NIFTY 50', 'BANKNIFTY', 'S&P 500', 'NASDAQ 100'];
 
 const PulseStrip = ({ indices, movers, loading, signals }) => {
   if (loading) {
@@ -131,23 +132,22 @@ const PulseStrip = ({ indices, movers, loading, signals }) => {
   }
   const lead = PULSE_NAMES
     .map((n) => indices.find((i) => i.name === n))
-    .filter(Boolean);
-  if (!lead.length) return null;
+    .filter(Boolean)
+    .slice(0, 2);
   const up = movers.filter((m) => m.change_pct > 0).length;
   const down = movers.filter((m) => m.change_pct < 0).length;
   const regime = signals?.regime;
   return (
     <div className="dash-pulse">
-      {regime?.overall && (
-        <div className={`dash-pulse-regime ${String(regime.overall).toLowerCase()}`}>
+        <div className="dash-pulse-regime">
           <span className="dash-pulse-name">Market regime</span>
-          <span className="dash-pulse-value">{regime.overall}</span>
+          <span className="dash-pulse-value">{regime?.overall || 'Awaiting snapshot'}</span>
           <span className="dash-pulse-detail">
-            {regime.dir ? `${String(regime.dir).toUpperCase()} bias` : 'Direction pending'}
-            {regime.vol?.label ? ` · ${regime.vol.label}` : ''}
+            {regime?.dir ? `${String(regime.dir).toUpperCase()} bias` : 'Direction pending'}
+            {regime?.vol?.label ? ` · ${regime.vol.label}` : ''}
           </span>
         </div>
-      )}
+      {!lead.length && <p className="dash-pulse-detail">Index snapshot unavailable</p>}
       {lead.map((ix) => {
         const dir = ix.change_pct >= 0 ? 'up' : 'down';
         return (
@@ -156,7 +156,7 @@ const PulseStrip = ({ indices, movers, loading, signals }) => {
             <span className="dash-pulse-row">
               <span className="dash-pulse-value tnum">{formatIndexValue(ix.last)}</span>
               <span className={`tnum ${dir === 'up' ? 'tone-gain' : 'tone-loss'}`}>
-                {ix.change_pct >= 0 ? '+' : ''}{Number(ix.change_pct).toFixed(2)}%
+                {ix.change_pct == null ? 'N/A' : `${ix.change_pct >= 0 ? '+' : ''}${Number(ix.change_pct).toFixed(2)}%`}
               </span>
             </span>
             {ix.spark && ix.spark.length > 1 && (
@@ -171,8 +171,8 @@ const PulseStrip = ({ indices, movers, loading, signals }) => {
         <div className="dash-pulse-breadth" title="Breadth of today's top movers">
           <span className="dash-pulse-name">Movers breadth</span>
           <span className="dash-pulse-row">
-            <span className="tone-gain tnum">{up}↑</span>
-            <span className="tone-loss tnum">{down}↓</span>
+            <span className="tone-gain tnum">{up} advancing</span>
+            <span className="tone-loss tnum">{down} declining</span>
           </span>
           <span className="dash-breadth-bar" aria-hidden="true">
             <span style={{ width: `${(up / (up + down)) * 100}%` }} />
@@ -237,23 +237,25 @@ const PrioritySetups = ({ signals, loading }) => {
           const currency = plan.currency || signals?.currency || '₹';
           const score = Number(plan.score);
           return (
-            <Link
+            <details
               key={`${plan.symbol}-${plan.side}`}
-              to={`/chart?symbol=${encodeURIComponent(plan.symbol)}`}
               className="dash-setup-card"
-              title={`Analyse ${plan.symbol}`}
             >
-              <span className="dash-setup-head">
-                <span className={`dash-teaser-side ${plan.side === 'LONG' ? 'long' : 'short'}`}>{plan.side}</span>
+              <summary className="dash-setup-head">
                 <span className="dash-setup-symbol">{plan.symbol}</span>
-                {Number.isFinite(score) && <span className="dash-setup-score tnum">{score}/100</span>}
-              </span>
+                <span className={`dash-teaser-side ${plan.side === 'LONG' ? 'long' : 'short'}`}>{plan.side}</span>
+                {plan.score != null && Number.isFinite(score) && <span className="dash-setup-score tnum" aria-label={`Quality score ${score} out of 100`}>Quality {score}/100</span>}
+                <span className="dash-setup-expand" aria-hidden="true">+</span>
+              </summary>
+              <div className="dash-setup-detail">
               <span className="dash-setup-levels">
                 <SetupLevel label="Entry" value={plan.entry} currency={currency} />
                 <SetupLevel label="Stop" value={plan.stop} currency={currency} />
                 <SetupLevel label="Target" value={plan.target} currency={currency} />
               </span>
-            </Link>
+              <Link to={`/chart?symbol=${encodeURIComponent(plan.symbol)}`} className="dash-setup-analyse">Analyse {plan.symbol} →</Link>
+              </div>
+            </details>
           );
         })}
       </div>
@@ -264,9 +266,10 @@ const PrioritySetups = ({ signals, loading }) => {
 
 const NextActions = () => (
   <section className="dash-next-actions" aria-label="Next actions">
-    <SectionTitle>Next Actions</SectionTitle>
-    <div className="dash-next-actions__grid">
+    <span className="dash-next-actions__label">Your research flow</span>
+    <div className="dash-next-actions__links">
       <Link to="/signals">Review Signals</Link>
+      <Link to="/delivery-radar">Scan delivery activity</Link>
       <Link to="/chart">Analyse a symbol</Link>
       <Link to="/position-sizing">Size a position</Link>
     </div>
@@ -376,20 +379,22 @@ const formatIndexValue = (value) => {
 };
 
 const Dashboard = () => {
+  const { market } = useMarket();
   useEffect(() => {
     void trackProductEvent('today_viewed', { route: '/dashboard', market: '' });
     void trackReturnVisit({ route: '/dashboard', market: '' });
   }, []);
 
-  // Stale-while-revalidate: last snapshot renders instantly, refresh runs behind it
+  // Stale-while-revalidate: last snapshot renders instantly, refresh runs behind it.
+  // Keys and URLs carry the footer-selected market so toggling refetches.
   const { data: dashData, error: swrError } = useSWR(
-    'dashboard',
-    () => axios.get('/api/dashboard').then((r) => r.data),
+    `dashboard:${market}`,
+    () => axios.get(`/api/dashboard${marketQS(market)}`).then((r) => r.data),
     120000,
   );
   const { data: signalsData, error: signalsError } = useSWR(
-    'signals',
-    () => axios.get('/api/signals').then((r) => r.data),
+    `signals:${market}`,
+    () => axios.get(`/api/signals${marketQS(market)}`).then((r) => r.data),
     0,
   );
   const loading = !dashData && !swrError;
@@ -410,12 +415,18 @@ const Dashboard = () => {
       <PageHeader
         code="DASH"
         title="Today"
-        subtitle="Your market, setups & next actions"
-        right={<StatusPill open={marketOpen} liveLabel="MKT OPEN" closedLabel="MKT CLOSED" />}
+        subtitle="A clear view of your trading day."
+          right={<StatusPill open={marketOpen} />}
       />
 
       {error && (
         <div className="dash-error">Live market feed unavailable: {error}</div>
+      )}
+      {dashData && swrError && (
+        <div className="dash-error" role="status">Market refresh unavailable. Showing the last available snapshot.</div>
+      )}
+      {signalsData && signalsError && (
+        <div className="dash-error" role="status">Setup refresh unavailable. Showing the last available Signals snapshot; check its timestamp before researching a setup.</div>
       )}
 
       <PulseStrip indices={indices} movers={movers} loading={loading} signals={signalsData} />
@@ -479,7 +490,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      <TodaysCall />
+      {market === 'IN' && <TodaysCall />}
     </div>
   );
 };

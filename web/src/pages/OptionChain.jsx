@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { useSearchParams } from 'react-router-dom';
 import { getBuildupColorClass, getBuildupLabel } from '../lib/optionChainPresentation';
 import './OptionChain.css';
 
-const OptionChain = () => {
+const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
   // Constants
   const PRESETS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY'];
   
   // State
-  const [activeSymbol, setActiveSymbol] = useState('NIFTY');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const querySymbol = String(searchParams.get('symbol') || defaultSymbol).trim().toUpperCase();
+  const [activeSymbol, setActiveSymbol] = useState(/^[A-Z0-9&.-]{1,25}$/.test(querySymbol) ? querySymbol : defaultSymbol);
   const [searchInput, setSearchInput] = useState('');
   
   const [expiries, setExpiries] = useState([]);
@@ -25,6 +28,7 @@ const OptionChain = () => {
   const refreshIntervalRef = useRef(null);
   const atmRowRef = useRef(null);
   const chainReqSeqRef = useRef(0);
+  const requestedExpiryRef = useRef(searchParams.get('expiryDate') || '');
 
   useEffect(() => {
     if (atmRowRef.current) {
@@ -60,7 +64,8 @@ const OptionChain = () => {
         if (cancelled) return;
         if (res.data && res.data.expiries && res.data.expiries.length > 0) {
           setExpiries(res.data.expiries);
-          setSelectedExpiry(res.data.expiries[0]);
+          setSelectedExpiry(res.data.expiries.includes(requestedExpiryRef.current) ? requestedExpiryRef.current : res.data.expiries[0]);
+          requestedExpiryRef.current = '';
         } else {
           setExpiries([]);
           setSelectedExpiry('');
@@ -102,6 +107,7 @@ const OptionChain = () => {
 
   useEffect(() => {
     fetchChainData(true);
+    if (selectedExpiry) setSearchParams({ expiryDate: selectedExpiry, symbol: activeSymbol }, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedExpiry, activeSymbol]);
 
@@ -167,7 +173,7 @@ const OptionChain = () => {
         <div>
           <div className="ui-ph-titlerow">
             <span className="ui-code-chip">OCHN</span>
-            <span className="ui-ph-title">Option Chain</span>
+            <h1 className="ui-ph-title">Option Chain</h1>
           </div>
           <p className="ui-ph-subtitle" style={{ margin: '4px 0 0' }}>
             Real-time derivative analytics and structural mapping.

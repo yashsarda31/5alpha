@@ -4,19 +4,18 @@
 .tsearch-list {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 80;
   margin: 0; padding: 6px; list-style: none;
-  background: rgba(18, 18, 22, 0.97);
+  background: var(--bg-panel);
   border: 1px solid var(--border-highlight, rgba(255, 255, 255, 0.2));
   border-radius: 12px;
-  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-raised);
   max-height: 290px; overflow-y: auto;
 }
 
 .tsearch-item {
   display: flex; align-items: baseline; gap: 10px;
-  padding: 9px 10px; border-radius: 8px; cursor: pointer;
+  padding: 12px 10px; border-radius: 8px; cursor: pointer; min-height: 44px;
 }
-.tsearch-item.hi { background: rgba(255, 255, 255, 0.08); }
+.tsearch-item.hi { background: var(--primary-accent-soft); }
 
 .tsearch-sym {
   font-weight: 700; font-size: 13px; white-space: nowrap;

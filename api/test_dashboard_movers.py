@@ -9,7 +9,7 @@ from pathlib import Path
 os.environ.setdefault("ALPHANOVA_DB_DIR", tempfile.mkdtemp(prefix="alphanova_test_"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from main import _dashboard_movers_market
+from main import _dashboard_market_open, _dashboard_movers_market
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -30,6 +30,33 @@ def test_indian_window():
     assert _dashboard_movers_market(_at(9, 30)) == "IN"
     assert _dashboard_movers_market(_at(15, 15)) == "IN"
     assert _dashboard_movers_market(_at(19, 59)) == "IN"
+
+
+def test_selected_market_open_status_uses_its_exchange_clock():
+    # Monday 19:00 IST is 09:30 in New York during daylight saving time.
+    assert _dashboard_market_open("US", _at(19, 0)) is True
+    # Monday 02:00 IST is Sunday afternoon in New York, so the US market is shut.
+    assert _dashboard_market_open("US", _at(2, 0)) is False
+    assert _dashboard_market_open("IN", _at(10, 0)) is True
+    assert _dashboard_market_open("IN", _at(16, 0)) is False
+
+
+def test_explicit_us_dashboard_uses_us_pulse_macro_and_movers(monkeypatch):
+    import main
+    from fastapi.testclient import TestClient
+
+    main.API_CACHE.pop("dashboard_US", None)
+    monkeypatch.setattr(main, "_yf_quote_change", lambda ticker: {"last": 100.0, "change_pct": 1.0})
+    monkeypatch.setattr(main, "_spark_closes", lambda *args, **kwargs: {})
+
+    body = TestClient(main.app).get("/api/dashboard?market=US").json()
+    main.API_CACHE.pop("dashboard_US", None)
+
+    names = [row["name"] for row in body["indices"]]
+    assert body["movers_market"] == "US"
+    assert body["pulse_names"] == ["S&P 500", "NASDAQ 100"]
+    assert set(names) == {"S&P 500", "NASDAQ 100", "CBOE VIX", "US 10Y", "Gold ($/oz)", "WTI Crude"}
+    assert {row["ticker"] for row in body["movers"]} <= set(main.US_DASHBOARD_MOVERS)
 
 
 def test_dashboard_sparklines_attached(monkeypatch):
