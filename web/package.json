@@ -17,8 +17,10 @@
     "ad:market-domino:check": "node scripts/validate-market-domino-ad.mjs"
   },
   "dependencies": {
+    "@vercel/analytics": "2.0.1",
     "axios": "^1.15.0",
     "html-to-image": "^1.11.13",
+    "lightweight-charts": "^5.2.1",
     "lucide-react": "^1.23.0",
     "plotly.js": "^3.5.0",
     "plotly.js-finance-dist-min": "^3.7.0",
