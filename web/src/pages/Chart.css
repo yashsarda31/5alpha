@@ -66,6 +66,45 @@
   padding: 10px;
 }
 
+.chart-pane-caption {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin: 2px 2px 8px;
+}
+
+.chart-tradingview-stack {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chart-tradingview {
+  height: 520px;
+  min-width: 0;
+  width: 100%;
+}
+
+.chart-tradingview-rsi {
+  height: 140px;
+  min-width: 0;
+  width: 100%;
+}
+
+.chart-tradingview-empty {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  font-size: 14px;
+  justify-content: center;
+  min-height: 240px;
+  text-align: center;
+}
+
+@media (max-width: 700px) {
+  .chart-tradingview { height: 420px; }
+  .chart-tradingview-rsi { height: 120px; }
+}
+
 .chart-stock-pro {
   flex: 1 1 30%;
   padding: 24px;

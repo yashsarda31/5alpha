@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import Plot from '../components/Plot';
+import TradingViewChart from '../components/TradingViewChart';
 import TickerSearch from '../components/TickerSearch';
 import ShareButton from '../components/ShareButton';
 import LazyMarkdown from '../components/LazyMarkdown';
@@ -11,6 +11,7 @@ import WatchlistStar from '../components/WatchlistStar';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
 import { createLatestRequestGuard } from '../lib/latestRequest';
 import { markFirstRunStep, trackProductEvent } from '../lib/productAnalytics.js';
+import { chartTechnicalSignal } from '../lib/chartTechnicalSignal';
 import './Chart.css';
 
 const currencyFor = (ticker) => {
@@ -20,58 +21,12 @@ const currencyFor = (ticker) => {
 
 const defaultTickerForMarket = (market) => market === 'US' ? 'NVDA' : 'RELIANCE.NS';
 
-const useIsNarrow = (px = 700) => {
-  const [narrow, setNarrow] = useState(() => (
-    typeof window !== 'undefined' && window.matchMedia
-      ? window.matchMedia(`(max-width: ${px}px)`).matches
-      : false
-  ));
-
-  useEffect(() => {
-    if (!window.matchMedia) return undefined;
-    const mq = window.matchMedia(`(max-width: ${px}px)`);
-    const onChange = (event) => setNarrow(event.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, [px]);
-
-  return narrow;
-};
-
 const Chart = () => {
   const { market } = useMarket();
-  const [plotTheme, setPlotTheme] = useState({ text: '#71717a', grid: '#d4d4d8' });
-  useEffect(() => {
-    const updateTheme = () => {
-      // Resolve light-dark() tokens to actual colors for Plotly's SVG renderer.
-      const probe = document.createElement('span');
-      probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;color:var(--text-secondary);border:1px solid var(--border-subtle)';
-      document.body.appendChild(probe);
-      const styles = getComputedStyle(probe);
-      const colors = { text: styles.color, grid: styles.borderTopColor };
-      probe.remove();
-      setPlotTheme(colors);
-    };
-    updateTheme();
-    const observer = new MutationObserver(updateTheme);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
-    return () => observer.disconnect();
-  }, []);
   const [searchParams] = useSearchParams();
   const [ticker, setTicker] = useState(searchParams.get('symbol') || defaultTickerForMarket(market));
   const [loading, setLoading] = useState(false);
   const [chartData, setChartData] = useState(null);
-  const plotPaneRef = useRef(null);
-  const [plotWidth, setPlotWidth] = useState(undefined);
-  useEffect(() => {
-    const pane = plotPaneRef.current;
-    if (!pane) return undefined;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry.contentRect.width > 0) setPlotWidth(Math.round(entry.contentRect.width));
-    });
-    observer.observe(pane);
-    return () => observer.disconnect();
-  }, [chartData]);
   const [fundamentals, setFundamentals] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReport, setAiReport] = useState("");
@@ -172,15 +127,7 @@ const Chart = () => {
   const change = lastPrice - prevPrice;
   const changePercent = (change / prevPrice) * 100;
 
-  const getTechnicalSignal = () => {
-    if (!chartData) return { signal: 'N/A', color: 'var(--text-secondary)', bg: 'var(--bg-panel)', border: 'var(--border-subtle)' };
-    const rsi = chartData.rsi[chartData.rsi.length - 1];
-    const sma20 = chartData.sma20[chartData.sma20.length - 1];
-    if (rsi > 70 || lastPrice < sma20 * 0.95) return { signal: 'SELL', color: 'var(--red-loss)', bg: 'rgba(255,59,48,0.1)', border: 'rgba(255,59,48,0.3)' };
-    if (rsi < 30 || lastPrice > sma20 * 1.05) return { signal: 'BUY', color: 'var(--green-gain)', bg: 'rgba(52,199,89,0.1)', border: 'rgba(52,199,89,0.3)' };
-    if (lastPrice > sma20) return { signal: 'BULLISH', color: 'var(--primary-gold)', bg: 'rgba(212,175,55,0.1)', border: 'rgba(212,175,55,0.3)' };
-    return { signal: 'HOLD', color: 'var(--text-secondary)', bg: 'var(--bg-panel)', border: 'var(--border-subtle)' };
-  };
+  const getTechnicalSignal = () => chartTechnicalSignal(chartData);
 
   // Values arrive as raw numbers; format here so float noise never renders
   const fmtPct = (val) => (
@@ -212,7 +159,6 @@ const Chart = () => {
 
   const techSignal = getTechnicalSignal();
   const cur = currencyFor(loadedTicker);
-  const isNarrow = useIsNarrow(700);
 
   return (
     <div className="fade-in chart-page">
@@ -266,122 +212,9 @@ const Chart = () => {
             </div>
           </header>
           <div className="chart-main-row">
-            <div className="chart-plot-pane" ref={plotPaneRef}>
-              <Plot
-                useResizeHandler
-                data={[
-                  {
-                    x: chartData.dates,
-                    close: chartData.close,
-                    decreasing: { line: { color: '#ff3b30', width: 1.5 } },
-                    high: chartData.high,
-                    increasing: { line: { color: '#34c759', width: 1.5 } },
-                    low: chartData.low,
-                    open: chartData.open,
-                    type: 'candlestick',
-                    name: loadedTicker,
-                    whiskerwidth: 0.5,
-                    yaxis: 'y'
-                  },
-                  {
-                    x: chartData.dates,
-                    y: chartData.sma20,
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { color: '#007aff', width: 2, shape: 'spline' },
-                    name: 'SMA 20',
-                    yaxis: 'y'
-                  },
-                  {
-                    x: chartData.dates,
-                    y: chartData.volume,
-                    type: 'bar',
-                    name: 'Volume',
-                    marker: {
-                      color: chartData.close.map((c, i) =>
-                        c >= chartData.open[i] ? 'rgba(52, 199, 89, 0.45)' : 'rgba(255, 59, 48, 0.45)'),
-                    },
-                    yaxis: 'y3'
-                  },
-                  {
-                    x: chartData.dates,
-                    y: chartData.rsi,
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { color: '#af52de', width: 1.5 },
-                    name: 'RSI 14',
-                    yaxis: 'y2'
-                  }
-                ]}
-                layout={{
-                  autosize: true,
-                  width: plotWidth,
-                  plot_bgcolor: "transparent",
-                  paper_bgcolor: "transparent",
-                  font: { color: plotTheme.text, family: 'system-ui, sans-serif', size: 11 },
-                  xaxis: {
-                    rangeslider: { visible: false },
-                    gridcolor: plotTheme.grid,
-                    linecolor: plotTheme.grid,
-                    tickfont: { color: plotTheme.text }
-                  },
-                  yaxis: {
-                    domain: [0.4, 1],
-                    gridcolor: plotTheme.grid,
-                    linecolor: plotTheme.grid,
-                    side: 'right',
-                    tickprefix: cur,
-                    tickfont: { color: plotTheme.text }
-                  },
-                  yaxis3: {
-                    domain: [0.21, 0.36],
-                    gridcolor: plotTheme.grid,
-                    linecolor: plotTheme.grid,
-                    side: 'right',
-                    nticks: 3,
-                    tickfont: { color: plotTheme.text, size: 10 },
-                    title: { text: 'VOL', font: { size: 10, color: plotTheme.text } }
-                  },
-                  yaxis2: {
-                    domain: [0, 0.15],
-                    gridcolor: plotTheme.grid,
-                    linecolor: plotTheme.grid,
-                    side: 'right',
-                    tickfont: { color: plotTheme.text },
-                    range: [0, 100],
-                    tickvals: [30, 70]
-                  },
-                  bargap: 0.35,
-                  margin: { l: 20, r: 60, b: 40, t: 20 },
-                  height: isNarrow ? 430 : 650,
-                  showlegend: true,
-                  legend: { x: 0, y: 1.1, orientation: 'h', font: { size: 12, color: plotTheme.text } },
-                  shapes: [
-                    {
-                      type: 'line',
-                      yref: 'y2',
-                      x0: 0,
-                      x1: 1,
-                      xref: 'paper',
-                      y0: 70,
-                      y1: 70,
-                      line: { color: 'rgba(255, 59, 48, 0.5)', width: 1, dash: 'dash' }
-                    },
-                    {
-                      type: 'line',
-                      yref: 'y2',
-                      x0: 0,
-                      x1: 1,
-                      xref: 'paper',
-                      y0: 30,
-                      y1: 30,
-                      line: { color: 'rgba(52, 199, 89, 0.5)', width: 1, dash: 'dash' }
-                    }
-                  ]
-                }}
-                config={{ responsive: true, displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
+            <div className="chart-plot-pane">
+              <p className="chart-pane-caption">TradingView chart · Alpha Nova price data</p>
+              <TradingViewChart data={chartData} />
             </div>
 
             <div className="chart-stock-pro">
