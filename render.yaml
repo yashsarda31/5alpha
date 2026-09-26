@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: alphanova-api
+    runtime: python
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r api/requirements.txt uvicorn
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /docs
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      # Ephemeral disk on free plan: sqlite lives in /tmp, durable auth state
+      # comes from Vercel Blob (BLOB_READ_WRITE_TOKEN below).
+      - key: ALPHANOVA_DB_DIR
+        value: /tmp
+      # Free web services sleep after ~15 min idle, so the in-process cron
+      # thread would die with the instance. Disable it; trigger jobs from an
+      # external cron (cron-job.org) with Authorization: Bearer $CRON_SECRET.
+      - key: ALPHANOVA_DISABLE_LOCAL_SCHEDULER
+        value: 1
+      - key: CRON_SECRET
+        generateValue: true
+      - key: ADMIN_METRICS_KEY
+        generateValue: true
+      - key: BLOB_READ_WRITE_TOKEN
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: NEWS_API_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUB
+        value: mailto:ssarda75@gmail.com
