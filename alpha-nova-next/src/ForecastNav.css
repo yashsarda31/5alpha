@@ -1,0 +1,3 @@
+.an-featured-label{margin-left:auto;color:#cfdfc3;border:1px solid #53634a;border-radius:4px;padding:2px 5px;font-size:8px;letter-spacing:.2px;line-height:1.4}
+@media(max-width:760px){.an-app .an-mobile-dock{gap:2px}.an-app .an-mobile-dock a{flex:1;min-width:0;padding:5px 2px}}
+@media(max-width:360px){.an-app .an-topbar{flex-wrap:wrap;height:auto;min-height:58px;padding-block:10px;gap:10px}.an-app .an-top-actions{margin-left:auto}}

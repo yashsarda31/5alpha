@@ -1,0 +1,239 @@
+/* Signal alert toasts + sidebar bell */
+
+.toast-stack {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 4000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(340px, calc(100vw - 36px));
+  pointer-events: none;
+}
+
+.signal-toast {
+  pointer-events: auto;
+  position: relative;
+  background: rgba(20, 20, 24, 0.86);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  border-left: 3px solid var(--text-secondary);
+  border-radius: 14px;
+  padding: 14px 16px 14px 15px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  animation: toast-in 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.signal-toast:hover { transform: translateX(-3px); }
+.signal-toast.long  { border-left-color: var(--green-gain, #32d74b); }
+.signal-toast.short { border-left-color: var(--red-loss, #ff453a); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(24px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.signal-toast .st-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  padding-right: 20px;
+}
+.signal-toast .st-side {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+.signal-toast.long  .st-side { color: var(--green-gain, #32d74b); background: rgba(50, 215, 75, 0.14); }
+.signal-toast.short .st-side { color: var(--red-loss, #ff453a); background: rgba(255, 69, 58, 0.14); }
+.signal-toast .st-sym { color: var(--text-primary, #f5f5f7); }
+.signal-toast .st-score {
+  margin-left: auto;
+  font-family: "SF Mono", ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--primary-gold, #e8c47c);
+  white-space: nowrap;
+}
+.signal-toast .st-levels {
+  margin-top: 7px;
+  font-family: "SF Mono", ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--text-secondary, rgba(245, 245, 247, 0.6));
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.signal-toast .st-levels .k { color: var(--faint, rgba(245, 245, 247, 0.35)); }
+
+.signal-toast .st-close {
+  position: absolute;
+  top: 8px;
+  right: 9px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, rgba(245, 245, 247, 0.55));
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0;
+}
+.signal-toast .st-close:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-primary, #fff); }
+
+@media (max-width: 850px) {
+  .toast-stack {
+    top: calc(60px + env(safe-area-inset-top, 0px));
+    right: 12px;
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 132px - env(safe-area-inset-bottom, 0px));
+  }
+
+  .signal-toast {
+    padding-right: 52px;
+  }
+
+  .signal-toast .st-close {
+    min-width: 44px;
+    min-height: 44px;
+    top: 2px;
+    right: 2px;
+  }
+}
+
+/* Sidebar bell toggle */
+.alert-bell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.alert-bell:hover { background: rgba(255, 255, 255, 0.08); }
+.alert-bell.on {
+  color: var(--primary-gold, #e8c47c);
+  border-color: rgba(232, 196, 124, 0.4);
+  background: rgba(232, 196, 124, 0.08);
+}
+.alert-bell .ab-ico { font-size: 14px; }
+.alert-bell .ab-state { margin-left: auto; font-size: 10px; letter-spacing: 0.08em; opacity: 0.8; }
+
+/* One-tap push-enable nudge (permission prompts need a user gesture) */
+.notif-nudge {
+  position: fixed;
+  /* centered via auto margins — transform centering breaks when the entry
+     animation's transform overrides it (throttled tabs freeze frame 0) */
+  left: 12px;
+  right: 12px;
+  margin: 0 auto;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 4500;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(460px, calc(100vw - 24px));
+  padding: 12px 14px;
+  background: rgba(20, 20, 24, 0.92);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 14px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  animation: nudge-in 0.32s ease;
+}
+
+@keyframes nudge-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (max-width: 900px) {
+  /* clear the mobile bottom tab bar */
+  .notif-nudge { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+}
+
+.notif-nudge-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.notif-nudge-text strong { font-size: 13px; color: var(--text-primary, #f5f5f7); }
+.notif-nudge-text span { font-size: 12px; color: var(--text-secondary, #a1a1aa); }
+
+.notif-nudge-actions { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.notif-nudge-actions button {
+  width: auto;
+  padding: 7px 14px;
+  font-size: 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.notif-nudge-later {
+  background: transparent;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
+  color: var(--text-secondary, #a1a1aa);
+}
+.notif-nudge-enable {
+  background: var(--primary-gold, #f5dc8c);
+  border: 1px solid var(--primary-gold, #f5dc8c);
+  color: #000;
+  font-weight: 700;
+}
+
+.auth-intent-prompt {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1200;
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
+  border-radius: 12px;
+  background: var(--surface-grad), var(--bg-panel);
+  box-shadow: var(--shadow-raised);
+}
+
+.auth-intent-prompt strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.auth-intent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.auth-intent-actions button {
+  width: auto;
+}
+
+@media (max-width: 900px) {
+  .auth-intent-prompt {
+    right: 16px;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+}

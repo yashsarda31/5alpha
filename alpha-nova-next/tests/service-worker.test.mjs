@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
+
+const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
+function fixture() {
+  const handlers = {};
+  const stored = new Map([['/', new Response('healthy app shell', { headers: { 'content-type': 'text/html' } })]]);
+  const cache = { match: async key => stored.get(key)?.clone(), put: async (key, response) => stored.set(key, response) };
+  let network = new Response('new app shell', { headers: { 'content-type': 'text/html' } });
+  vm.runInNewContext(source, {
+    URL, self: { location: { origin: 'https://example.test' }, addEventListener: (name, handler) => { handlers[name] = handler; } },
+    caches: { open: async () => cache, match: cache.match },
+    fetch: async () => { if (network instanceof Error) throw network; return network.clone(); },
+  });
+  return {
+    stored,
+    network: response => { network = response; },
+    async navigate(path) {
+      let response;
+      const pending = [];
+      handlers.fetch({ request: { url: `https://example.test${path}`, method: 'GET', mode: 'navigate' },
+        respondWith: value => { response = value; }, waitUntil: value => pending.push(value) });
+      const result = await response;
+      await Promise.all(pending);
+      await Promise.resolve();
+      return result;
+    },
+  };
+}
+
+test('a failed navigation cannot overwrite the healthy offline shell', async () => {
+  const app = fixture();
+  app.network(new Response('upstream error', { status: 503, headers: { 'content-type': 'text/html' } }));
+  assert.equal((await app.navigate('/dashboard')).status, 503);
+  app.network(new Error('offline'));
+  assert.equal(await (await app.navigate('/dashboard')).text(), 'healthy app shell');
+});
+
+test('standalone share documents cannot replace the offline application', async () => {
+  const app = fixture();
+  app.network(new Response('standalone share document', { headers: { 'content-type': 'text/html' } }));
+  await app.navigate('/s/test-share');
+  app.network(new Error('offline'));
+  assert.equal(await (await app.navigate('/signals')).text(), 'healthy app shell');
+});
+
+test('non-HTML navigation responses cannot replace the offline shell', async () => {
+  const app = fixture();
+  app.network(new Response('{}', { headers: { 'content-type': 'application/json' } }));
+  await app.navigate('/dashboard');
+  assert.equal(await app.stored.get('/').text(), 'healthy app shell');
+});
+
+test('a successful dashboard navigation updates the offline shell', async () => {
+  const app = fixture();
+  await app.navigate('/dashboard');
+  app.network(new Error('offline'));
+  assert.equal(await (await app.navigate('/watchlist')).text(), 'new app shell');
+});

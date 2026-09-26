@@ -1,0 +1,201 @@
+/* ============================================================
+   Glass Terminal UI kit — shared component styles
+   All values come from the design tokens in index.css.
+   ============================================================ */
+
+/* Tone color roles (shared by StatTile values and Badges) */
+.tone-neutral { color: var(--text-primary); }
+.tone-gain    { color: var(--green-gain); }
+.tone-loss    { color: var(--red-loss); }
+.tone-gold    { color: var(--primary-gold); }
+.tone-accent  { color: var(--primary-accent); }
+
+/* Mono "command" chip */
+.ui-code-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary-accent);
+  background: var(--primary-accent-soft);
+  border: 1px solid var(--primary-accent-border);
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* PageHeader */
+.ui-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.ui-ph-titlerow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ui-ph-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 3vw, 34px);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.ui-ph-subtitle { color: var(--text-secondary); font-size: 15px; margin-top: 7px; }
+.ui-ph-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* SectionTitle */
+.ui-section-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 26px 0 12px;
+}
+
+/* Panel */
+.ui-panel {
+  background: var(--surface-grad), var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-card);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+
+/* StatTile + StatGrid */
+.ui-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 12px;
+}
+.ui-stat-tile {
+  background: var(--surface-grad), var(--surface-tile);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-tile);
+  padding: 13px 15px;
+  box-shadow: var(--inset-hl);
+  transition: border-color 0.18s ease;
+}
+.ui-stat-tile:hover { border-color: var(--border-highlight); }
+.ui-stat-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.ui-stat-value { font-size: 24px; font-weight: 600; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.ui-stat-sub { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+/* Badge */
+.ui-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background: var(--surface-tile);
+  white-space: nowrap;
+}
+
+/* StatusPill */
+.ui-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 13px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+.ui-status-pill.open { color: var(--green-gain); border-color: rgba(50, 215, 75, 0.35); background: rgba(50, 215, 75, 0.10); }
+.ui-status-pill.closed { color: var(--text-secondary); background: var(--surface-tile); }
+
+/* Live dot — breathes while the market is open (reduced-motion collapses it) */
+.ui-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+.ui-status-pill.open .ui-status-dot {
+  opacity: 1;
+}
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* DataTable */
+.ui-table-wrap {
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-card);
+  overflow-x: auto;
+}
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ui-table th {
+  text-align: left;
+  padding: 11px 15px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.025);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+.ui-table th.sortable { user-select: none; }
+.ui-table th.sortable:hover { color: var(--text-primary); }
+.ui-sort-button {
+  width: auto;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.ui-table td {
+  padding: 9px 15px;
+  border-bottom: 1px solid var(--border-hairline);
+  color: var(--text-primary);
+}
+.ui-table tbody tr:last-child td { border-bottom: none; }
+.ui-table tbody tr:hover td { background: rgba(255, 255, 255, 0.03); }
+.ui-table .cell-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.ui-sort-ind { color: var(--primary-gold); }
+.ui-sort-ind.inactive { opacity: 0.3; color: inherit; }
+
+/* EmptyState */
+.ui-empty {
+  text-align: center;
+  padding: 40px 24px;
+  color: var(--text-secondary);
+}
+.ui-empty-icon { font-size: 30px; margin-bottom: 10px; }
+.ui-empty-title { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
+.ui-empty-body { font-size: 15px; color: var(--text-secondary); margin: 0; }
+
+/* Skeleton */
+.ui-skel {
+  background: var(--surface-tile);
+  background-image: linear-gradient(90deg, rgba(255,255,255,0) 0, rgba(255,255,255,0.06) 20%, rgba(255,255,255,0) 40%);
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite linear forwards;
+  border-radius: var(--r-sm);
+}

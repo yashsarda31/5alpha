@@ -1,0 +1,108 @@
+/* Position Sizing — trade-plan layout (visual language from index.css tokens) */
+
+.ps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 24px;
+}
+
+.ps-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.ps-form-head h3 { font-size: 18px; margin: 0; }
+.ps-toggle { display: flex; gap: 8px; }
+
+.ps-price-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: -6px 0 12px;
+}
+
+.ps-risk-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ps-risk-row input { flex: 1; min-width: 90px; }
+
+.ps-presets { display: flex; gap: 6px; }
+.ps-preset {
+  width: auto;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: var(--text-secondary);
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.ps-preset:hover { color: var(--text-primary); }
+.ps-preset.active {
+  border-color: var(--primary-gold, #F5DC8C);
+  background: rgba(245, 220, 140, 0.12);
+  color: var(--primary-gold, #F5DC8C);
+}
+
+.ps-warnings { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+.ps-warning {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--red-loss, #FF453A);
+  background: rgba(255, 69, 58, 0.08);
+  border: 1px solid rgba(255, 69, 58, 0.25);
+  border-radius: var(--r-sm, 8px);
+  padding: 9px 12px;
+}
+
+.ps-hero { text-align: center; padding: 18px 15px; }
+
+/* R-multiple targets */
+.ps-targets { margin-top: 20px; }
+.ps-targets-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.ps-targets-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ps-targets-table th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  white-space: nowrap;
+}
+.ps-targets-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.06));
+  white-space: nowrap;
+}
+.ps-num { text-align: right; }
+.ps-r { font-weight: 700; color: var(--primary-gold, #F5DC8C); }
+
+.ps-note {
+  margin-top: 20px;
+  padding: 14px;
+  border-radius: var(--r-sm, 8px);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}

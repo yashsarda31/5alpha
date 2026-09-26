@@ -1,0 +1,29 @@
+.wl-star {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  margin: 0;
+  cursor: pointer;
+  line-height: 1;
+  color: var(--text-secondary);
+  opacity: 0.55;
+  transition: opacity 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  width: auto;
+}
+
+.wl-star:hover {
+  opacity: 1;
+  color: var(--primary-gold);
+  transform: scale(1.12);
+}
+
+.wl-star.on {
+  color: var(--primary-gold);
+  opacity: 1;
+}
+
+.wl-star:active {
+  transform: scale(0.9);
+}
+.wl-star-control { position: relative; display: inline-flex; align-items: center; }
+.wl-star-error { position: absolute; z-index: 20; top: calc(100% + 4px); right: 0; width: 210px; padding: 7px 9px; border: 1px solid #70474a; border-radius: 6px; background: #2f2224; color: #ffc7c4; font-size: 11px; line-height: 1.35; text-align: left; }

@@ -1,0 +1,71 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+const source = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
+
+test('Today prioritizes state, setups, next actions, then watchlist', () => {
+  const dashboard = source('../pages/Dashboard.jsx');
+  const order = [
+    '<PulseStrip',
+    '<PrioritySetups',
+    '<NextActions',
+    '<MyWatchlist',
+    '<SectionTitle>Market Details</SectionTitle>',
+  ].map((token) => dashboard.lastIndexOf(token));
+  assert.ok(order.every((index) => index >= 0));
+  assert.deepEqual(order, [...order].sort((a, b) => a - b));
+  assert.match(dashboard, /to="\/signals"[^>]*>Review Signals/);
+  assert.match(dashboard, /to="\/chart"[^>]*>Analyse a symbol/);
+  assert.match(dashboard, /to="\/position-sizing"[^>]*>Size a position/);
+});
+
+test('mobile uses one More sheet with search and recent tools', () => {
+  const app = source('../App.jsx');
+  const css = source('../index.css');
+  assert.doesNotMatch(app, /aria-label="Open navigation menu"/);
+  assert.match(app, /placeholder="Search tools"/);
+  assert.match(app, /Recent tools/);
+  assert.match(app, /filterToolSections/);
+  assert.match(app, /recordRecentTool/);
+  assert.ok(css.lastIndexOf('.tool-search { display: block; }') > css.lastIndexOf('.tool-search,'));
+});
+
+test('empty watchlist offers neutral starter symbols without bypassing auth', () => {
+  const watchlist = source('../pages/Watchlist.jsx');
+  const emptyState = source('../components/ui/EmptyState.jsx');
+  assert.match(watchlist, /Example symbols — not recommendations/);
+  assert.match(watchlist, /WATCHLIST_STARTERS/);
+  assert.match(watchlist, /Choose from Today’s movers/);
+  assert.match(watchlist, /requireWatchlistAuth/);
+  assert.match(emptyState, /<div className="ui-empty-body">/);
+  assert.doesNotMatch(emptyState, /<p className="ui-empty-body">/);
+});
+
+test('shared headings and sortable tables expose native semantics', () => {
+  const header = source('../components/ui/PageHeader.jsx');
+  const section = source('../components/ui/SectionTitle.jsx');
+  const table = source('../components/ui/DataTable.jsx');
+  assert.match(header, /<h1 className="ui-ph-title">/);
+  assert.match(section, /const Heading = `h\$\{level\}`/);
+  assert.match(table, /aria-sort=/);
+  assert.match(table, /className="ui-sort-button"/);
+  assert.match(table, /<button/);
+});
+
+test('mobile essentials keep readable type and touch-sized controls', () => {
+  const css = source('../index.css');
+  assert.match(css, /--touch-target:\s*44px/);
+  assert.match(css, /\.disclaimer-alert[\s\S]*?font-size:\s*var\(--font-body-min\)/);
+});
+
+test('Signals announces refresh state and keeps methodology on demand', () => {
+  const status = source('../components/DataStatus.jsx');
+  const signals = source('../pages/MarketSignals.jsx');
+  assert.match(status, /refreshing = false/);
+  assert.match(status, /role="status"/);
+  assert.match(signals, /signals-refresh-error" role="status"/);
+  assert.match(signals, /Showing the previous snapshot/);
+  assert.match(signals, /title="How scoring works"/);
+  assert.match(signals, /signals-methodology/);
+});

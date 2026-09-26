@@ -1,0 +1,50 @@
+/* Explicit layout resets keep legacy tool controls from affecting the new shell. */
+body,#root{display:block;width:100%}.an-app{width:100%;min-width:0}
+.an-app .an-index-card{display:block;position:relative;align-items:initial;justify-content:initial;white-space:normal;overflow:hidden}
+.an-sidebar .an-nav-item{font-size:13px;min-height:43px}
+.an-sidebar-label{font-size:10px}
+.an-topbar .an-global-search{font-size:12px}
+.an-page-heading p{font-size:13px}
+.an-panel-heading h2{font-size:15px}
+.an-panel-heading p{font-size:12px}
+.an-text-link{font-size:12px}
+.an-index-name{font-size:12px}
+.an-index-name>span{font-size:8px}
+.an-index-caption{font-size:10px}
+.an-index-value{font-size:26px}
+.an-change{font-size:12px}
+.an-regime-panel>p{font-size:12px}
+.an-regime-details>div{font-size:12px}
+.an-regime-details strong{font-size:11px}
+.an-breadth>div:first-child{font-size:10px}
+.an-breadth small{font-size:10px;line-height:1.7}
+.an-regime-panel>.an-text-link{font-size:11px}
+.an-radar-name strong{font-size:14px}
+.an-radar-name>span{font-size:11px}
+.an-direction{font-size:11px}
+.an-score>span{font-size:10px}
+.an-score strong{font-size:17px}
+.an-panel-footnote{font-size:10px;line-height:1.7}
+.an-chart-note{font-size:10px;line-height:1.6}
+.an-watch-empty h3{font-size:14px}
+.an-watch-empty p{font-size:12px}
+.an-quick-tools strong{font-size:12px}
+.an-quick-tools small{font-size:11px;line-height:1.6}
+.an-movers-table th{font-size:10px}
+.an-movers-table td,.an-movers-table strong{font-size:13px}
+.an-movers-table small{font-size:10px}
+.an-research-note p{font-size:12px}
+.an-footer{font-size:10px}
+.an-app .an-button{font-size:12px;min-height:38px}
+.an-app .an-icon-button{min-width:38px;width:38px;height:38px}
+.an-chart-quote>span:last-child{font-size:11px;margin-top:-3px}
+.an-tool-card h3{font-size:14px}
+.an-tool-card p{font-size:12px}
+.an-tool-section>h2{font-size:15px}
+@media(max-width:1250px){.an-sidebar .an-nav-item{font-size:12px}.an-index-value{font-size:23px}.an-regime-details>div{font-size:11px}.an-panel-heading p{font-size:11px}.an-text-link{font-size:11px}.an-quick-tools small{font-size:10px}}
+@media(max-width:760px){.an-app .an-icon-button{min-width:42px;width:42px;height:42px}.an-app .an-button{min-height:44px}.an-app .an-market-switch button{min-height:30px}.an-app .an-index-tabs button,.an-app .an-segments button{min-height:32px;font-size:11px}.an-session-pill{font-size:11px}.an-index-value{font-size:24px}.an-index-card .an-spark{width:55px}.an-panel-heading p{max-width:220px}.an-movers-table td,.an-movers-table strong{font-size:12px}.an-movers-table th{font-size:9px}.an-movers-table small{font-size:10px}.an-movers-table .an-change{font-size:11px}.an-radar-name strong{font-size:13px}.an-radar-name>span{font-size:10px}.an-direction{font-size:10px}.an-panel-footnote{font-size:9px}.an-chart-note{font-size:9px}.an-mobile-dock a{font-size:10px;min-height:48px}.an-main .an-quick-tools small{font-size:11px}.an-panel-heading h2{font-size:15px}}
+@media(max-width:380px){.an-index-value{font-size:22px}.an-index-card .an-spark{width:37px}.an-index-name{font-size:11px}.an-index-name>span{display:none}.an-index-caption{font-size:9px}.an-movers-table td{padding-inline:7px}.an-movers-table td:first-child{padding-left:14px}.an-chart-quote>strong{font-size:22px}.an-text-link{font-size:10px}.an-page-heading h1{font-size:25px}}
+@media(max-width:480px){.an-index-card .an-spark{display:none}.an-index-caption{display:block;margin-top:4px;white-space:nowrap}.an-chart-toolbar .an-segments{flex-shrink:0}.an-watchlist__legacy,.an-analyse__legacy{overflow-x:auto}}
+
+/* Keep account and settings reachable on shorter desktop windows. */
+.an-sidebar{overflow-y:auto;overscroll-behavior:contain}.an-sidebar>*{flex-shrink:0}

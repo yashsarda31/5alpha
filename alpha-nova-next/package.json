@@ -1,0 +1,51 @@
+{
+  "name": "alpha-nova-next",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node scripts/generate-seo-pages.mjs",
+    "lint": "eslint .",
+    "test:seo": "node scripts/generate-seo-pages.test.mjs",
+    "preview": "vite preview",
+    "ad:pressure-test:build": "node scripts/build-pressure-test-ad.mjs",
+    "ad:pressure-test:test": "node --test scripts/build-pressure-test-ad.test.mjs",
+    "ad:pressure-test:check": "node scripts/validate-pressure-test-ad.mjs",
+    "ad:market-domino:build": "node scripts/build-market-domino-ad.mjs",
+    "ad:market-domino:test": "node --test scripts/build-market-domino-ad.test.mjs",
+    "ad:market-domino:check": "node scripts/validate-market-domino-ad.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-isolation=none tests/*.test.mjs src/pages/*.test.js src/pages/*.test.mjs"
+  },
+  "dependencies": {
+    "@vercel/analytics": "2.0.1",
+    "axios": "^1.15.0",
+    "html-to-image": "^1.11.13",
+    "lightweight-charts": "^5.2.1",
+    "lucide-react": "^1.23.0",
+    "plotly.js": "^4.1.1",
+    "plotly.js-finance-dist-min": "^3.7.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "react-plotly.js": "^2.6.0",
+    "react-router-dom": "^7.14.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "gsap": "3.12.5",
+    "three": "0.166.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.0",
+    "vite": "^8.0.4"
+  }
+}

@@ -1,0 +1,6 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+function change(path,fn){const url=new URL(`../${path}`,import.meta.url);writeFileSync(url,fn(readFileSync(url,'utf8')));}
+change('src/pages/Today.tsx',s=>s.replace('to={`/signals?market=${market}`} key={`${plan.symbol}-${plan.side}`}', 'to={symbolPath(plan.symbol,market)} key={`${plan.symbol}-${plan.side}`}'));
+change('src/pages/Signals.tsx',s=>s.replace('Published setups, early observations and their source evidence—kept in distinct lifecycle lanes.','Review setups, compare the evidence, and keep risk in view.').replace('placeholder="Search symbol"','placeholder="Search symbol" aria-label="Filter signals by symbol"').replace("qualifying signal${filteredPublished.length === 1 ? '' : 's'} · publication rules passed", "recorded setup${filteredPublished.length === 1 ? '' : 's'} · check source freshness"));
+change('src/pages/Signals.css',s=>s+'\n@media(max-width:430px){.an-signals__snapshot{grid-template-columns:1fr 1fr}.an-signals__snapshot>div:first-child{grid-column:1/-1}.an-signals__snapshot>div{padding:13px 12px;min-height:105px}.an-signals__snapshot strong{font-size:17px}.an-signals__snapshot small{font-size:11px}.an-signals__snapshot>div:nth-child(even){border-right:1px solid #2a3a42}}\n');
+change('public/sw.js',s=>s.replace("const CACHE = 'alphanova-v5';","const CACHE = 'alphanova-next-v1';"));
