@@ -31,13 +31,15 @@ export default function MagicCanvas() {
     const count = particleCountFor(level, isMobile);
     const pos = new Float32Array(count * 3);
     const col = new Float32Array(count * 3);
-    const gold = new THREE.Color('#e4c58b');
-    const ice = new THREE.Color('#8be2df');
+    const gold = new THREE.Color('#f2d894');
+    const ice = new THREE.Color('#9df0ec');
+    const ember = new THREE.Color('#ffffff');
     for (let i = 0; i < count; i++) {
       pos[i * 3] = (Math.random() - 0.5) * 24;
       pos[i * 3 + 1] = (Math.random() - 0.5) * 14;
       pos[i * 3 + 2] = (Math.random() - 0.5) * 10;
-      const c = Math.random() > 0.5 ? gold : ice;
+      const roll = Math.random();
+      const c = roll > 0.92 ? ember : roll > 0.45 ? gold : ice;
       col[i * 3] = c.r;
       col[i * 3 + 1] = c.g;
       col[i * 3 + 2] = c.b;
@@ -45,9 +47,25 @@ export default function MagicCanvas() {
     let geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    // Soft round sprite so points render as glowing dust, not squares.
+    const sprite = (() => {
+      const s = document.createElement('canvas');
+      s.width = 64;
+      s.height = 64;
+      const ctx = s.getContext('2d');
+      const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.35, 'rgba(255,255,255,0.7)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 64, 64);
+      const tex = new THREE.CanvasTexture(s);
+      tex.needsUpdate = true;
+      return tex;
+    })();
     const mat = new THREE.PointsMaterial({
-      size: 0.045, vertexColors: true, transparent: true, opacity: 0.75,
-      blending: THREE.AdditiveBlending, depthWrite: false,
+      size: 0.14, map: sprite, vertexColors: true, transparent: true, opacity: 0.9,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
     });
     const points = new THREE.Points(geo, mat);
     scene.add(points);
@@ -63,14 +81,15 @@ export default function MagicCanvas() {
     let mx = 0;
     let my = 0;
     const onMove = (e) => {
-      mx = (e.clientX / window.innerWidth - 0.5) * 0.6;
-      my = (e.clientY / window.innerHeight - 0.5) * -0.4;
+      mx = (e.clientX / window.innerWidth - 0.5) * 0.9;
+      my = (e.clientY / window.innerHeight - 0.5) * -0.6;
     };
     if (!isMobile) window.addEventListener('pointermove', onMove);
 
     let raf = 0;
     let last = performance.now();
     let frames = 0;
+    const start = performance.now();
     const loop = (now) => {
       raf = requestAnimationFrame(loop);
       if (document.hidden) { last = now; return; }
@@ -96,9 +115,11 @@ export default function MagicCanvas() {
           geo = g2;
         }
       }
-      points.rotation.y += 0.0006;
-      points.rotation.x += (my * 0.3 - points.rotation.x) * 0.02;
-      points.rotation.y += mx * 0.3 * 0.01;
+      const t = (now - start) / 1000;
+      points.rotation.y += 0.0009;
+      points.position.y = Math.sin(t * 0.25) * 0.35;
+      points.rotation.x += (my * 0.35 - points.rotation.x) * 0.02;
+      points.rotation.y += mx * 0.35 * 0.01;
       renderer.render(scene, camera);
     };
     raf = requestAnimationFrame(loop);
@@ -109,9 +130,16 @@ export default function MagicCanvas() {
       window.removeEventListener('pointermove', onMove);
       geo.dispose();
       mat.dispose();
+      sprite.dispose();
       renderer.dispose();
     };
   }, []);
 
-  return <canvas ref={ref} className="magic-canvas" aria-hidden="true" />;
+  return (
+    <>
+      <div className="magic-aurora magic-aurora-a" aria-hidden="true" />
+      <div className="magic-aurora magic-aurora-b" aria-hidden="true" />
+      <canvas ref={ref} className="magic-canvas" aria-hidden="true" />
+    </>
+  );
 }

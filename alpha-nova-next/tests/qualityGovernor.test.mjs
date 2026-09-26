@@ -14,10 +14,10 @@ test('high fps never upgrades automatically', () => {
 });
 
 test('particle budgets respect level and mobile', () => {
-  assert.equal(particleCountFor('full', false), 900);
-  assert.equal(particleCountFor('reduced', false), 450);
+  assert.equal(particleCountFor('full', false), 1400);
+  assert.equal(particleCountFor('reduced', false), 700);
   assert.equal(particleCountFor('static', false), 0);
-  assert.equal(particleCountFor('full', true), 350);
+  assert.equal(particleCountFor('full', true), 500);
 });
 
 test('magic disables on flag, no WebGL, or reduced motion', () => {

@@ -6,8 +6,8 @@ export function nextQuality(fps, current) {
 
 export function particleCountFor(level, isMobile) {
   if (level === 'static') return 0;
-  if (level === 'reduced') return isMobile ? 180 : 450;
-  return isMobile ? 350 : 900;
+  if (level === 'reduced') return isMobile ? 260 : 700;
+  return isMobile ? 500 : 1400;
 }
 
 export function shouldUseMagic({ flag, webgl, reducedMotion }) {
