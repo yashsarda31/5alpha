@@ -1,0 +1,29 @@
+name: alphanova-cron
+
+# Replaces the Vercel crons in vercel.json now the backend runs on Render's
+# free plan (no in-process scheduler, no paid cron jobs). Runs every 5 minutes
+# across both market windows; cron.py decides which routes are actually due.
+on:
+  schedule:
+    - cron: "*/5 2-21 * * 1-6"
+  workflow_dispatch: {}
+
+concurrency:
+  group: alphanova-cron
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/owner-traffic-dashboard
+          sparse-checkout: .github/workflows/cron.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python .github/workflows/cron.py
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

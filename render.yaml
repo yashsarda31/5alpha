@@ -34,3 +34,16 @@ services:
         sync: false
       - key: VAPID_SUB
         value: mailto:ssarda75@gmail.com
+
+  - type: web
+    name: alphanova-web
+    env: static
+    buildCommand: cd alpha-nova-next && npm ci && npm run build
+    staticPublishPath: ./alpha-nova-next/dist
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://alphanova-api.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
