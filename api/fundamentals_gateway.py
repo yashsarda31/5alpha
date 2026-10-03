@@ -29,6 +29,26 @@ _LEGACY_FIELDS = (
 )
 
 
+def supplement_market_cap(payload, fetch_cap):
+    """Use Yahoo's separate quote metadata only for an absent market cap."""
+    if payload.get("marketCap") is not None:
+        return payload
+    try:
+        value = fetch_cap()
+        if isinstance(value, bool) or value is None:
+            return payload
+        value = float(value)
+        if not math.isfinite(value) or value <= 0:
+            return payload
+    except Exception:
+        return payload
+    payload["marketCap"] = value
+    quality = payload.setdefault("dataQuality", {})
+    quality.setdefault("fieldSources", {})["marketCap"] = "Yahoo Finance fast_info"
+    quality["missingFields"] = [field for field in _LEGACY_FIELDS if payload.get(field) is None]
+    return payload
+
+
 def fetch_openbb_fundamentals(
     ticker, *, client=None, fetchers=None, retrieved_at=None
 ):
