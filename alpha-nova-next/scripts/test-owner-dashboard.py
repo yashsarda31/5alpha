@@ -42,7 +42,7 @@ with sync_playwright() as p:
     page.route('**/*', intercept)
     page.goto('http://localhost:4179/owner-analytics.html')
     assert page.locator('#apiUrl').input_value() == 'http://localhost:4179/api/admin/metrics'
-    for target in ['https://example.com/api/admin/metrics', 'https://alphanova48.in/api/admin/metrics?key=leak', 'https://alphanova48.in/api/admin/metrics#leak', 'https://alphanova48.in:444/api/admin/metrics']:
+    for target in ['https://example.com/api/admin/metrics', 'https://abovealphasolutions.com/api/admin/metrics?key=leak', 'https://abovealphasolutions.com/api/admin/metrics#leak', 'https://abovealphasolutions.com:444/api/admin/metrics']:
         page.locator('#apiUrl').fill(target)
         page.locator('#adminKey').fill('synthetic-secret')
         page.locator('#connectButton').click()
@@ -69,7 +69,7 @@ with sync_playwright() as p:
     assert '7 days' in page.locator('#campaignSubtitle').inner_text()
     page.locator('#campaignLabel').fill('september_ad')
     page.locator('#landingPath').select_option('/signals')
-    assert page.locator('#campaignUrl').input_value() == 'https://alphanova48.in/signals?utm_source=youtube&utm_medium=paid_video&utm_campaign=september_ad'
+    assert page.locator('#campaignUrl').input_value() == 'https://abovealphasolutions.com/signals?utm_source=youtube&utm_medium=paid_video&utm_campaign=september_ad'
     if os.environ.get('OWNER_TEST_SCREENSHOTS'):
         folder = ROOT / '.tmp' / 'owner-dashboard-qa'
         folder.mkdir(parents=True, exist_ok=True)

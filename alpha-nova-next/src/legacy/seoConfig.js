@@ -1,4 +1,4 @@
-export const SITE_ORIGIN = 'https://alphanova48.in';
+export const SITE_ORIGIN = 'https://abovealphasolutions.com';
 export const DEFAULT_SOCIAL_IMAGE = '/api/public-preview/alpha-nova.png';
 
 const research = (title, description, extra = {}) => ({ title, description, index: true, image: DEFAULT_SOCIAL_IMAGE, ...extra });

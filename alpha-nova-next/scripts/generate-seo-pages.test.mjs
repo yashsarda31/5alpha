@@ -9,8 +9,8 @@ const shell = '<!doctype html><html><head><title>Alpha Nova</title></head><body>
 test('public delivery route gets unique canonical and social metadata in raw HTML', () => {
   const html = injectSeo(shell, '/high-delivery-volume-stocks-today', SEO_ROUTES['/high-delivery-volume-stocks-today']);
   assert.match(html, /<title>High Delivery Volume Stocks Today/);
-  assert.match(html, /rel="canonical" href="https:\/\/alphanova48\.in\/high-delivery-volume-stocks-today"/);
-  assert.match(html, /property="og:image" content="https:\/\/alphanova48\.in\/api\/public-preview\/delivery-radar\.png"/);
+  assert.match(html, /rel="canonical" href="https:\/\/abovealphasolutions\.com\/high-delivery-volume-stocks-today"/);
+  assert.match(html, /property="og:image" content="https:\/\/abovealphasolutions\.com\/api\/public-preview\/delivery-radar\.png"/);
   assert.match(html, /name="twitter:card" content="summary_large_image"/);
   assert.match(html, /application\/ld\+json/);
 });

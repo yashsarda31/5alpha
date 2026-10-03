@@ -8,7 +8,7 @@ test('canonical share URL uses the public host and stable allowlisted parameters
   const url = canonicalShareUrl(
     'http://localhost:5173/screener?token=secret&benchmark=%5ENSEI&universe=nifty200&max_pe=30#results',
   );
-  assert.equal(url, 'https://alphanova48.in/screener?benchmark=%5ENSEI&max_pe=30&universe=nifty200');
+  assert.equal(url, 'https://abovealphasolutions.com/screener?benchmark=%5ENSEI&max_pe=30&universe=nifty200');
 });
 
 test('route state excludes credentials and unsupported values', () => {
@@ -22,11 +22,11 @@ test('route state excludes credentials and unsupported values', () => {
 test('canonical URL accepts overrides and removes empty or excessive custom values', () => {
   assert.equal(
     canonicalShareUrl('/delivery-radar', { symbol: 'RELIANCE', token: 'nope', market: '' }),
-    'https://alphanova48.in/delivery-radar?symbol=RELIANCE',
+    'https://abovealphasolutions.com/delivery-radar?symbol=RELIANCE',
   );
   assert.equal(
     canonicalShareUrl('/screener', { tickers: 'A'.repeat(600) }),
-    'https://alphanova48.in/screener',
+    'https://abovealphasolutions.com/screener',
   );
 });
 
@@ -37,7 +37,7 @@ test('share UI sends and copies the canonical public URL', () => {
   assert.match(button, /canonicalShareUrl\(window\.location\)/);
   assert.match(button, /navigator\.clipboard\.writeText\(shareUrl\)/);
   assert.match(card, /url: shareUrl/);
-  assert.match(card, /const APP_URL = 'alphanova48\.in'/);
+  assert.match(card, /const APP_URL = 'abovealphasolutions\.com'/);
   assert.match(app, /const RouteShareAction/);
   assert.match(app, /<RouteShareAction \/>/);
 });
@@ -59,10 +59,10 @@ test('public share creation sends only path, query, and bounded title', async ()
     'A'.repeat(150),
     async (path, options) => {
       request = { path, options, body: JSON.parse(options.body) };
-      return { ok: true, json: async () => ({ url: 'https://alphanova48.in/s/abc123' }) };
+      return { ok: true, json: async () => ({ url: 'https://abovealphasolutions.com/s/abc123' }) };
     },
   );
-  assert.equal(url, 'https://alphanova48.in/s/abc123');
+  assert.equal(url, 'https://abovealphasolutions.com/s/abc123');
   assert.equal(request.path, '/api/public-shares');
   assert.deepEqual(request.body, { path: '/screener', query: 'universe=nifty200', title: 'A'.repeat(100) });
 });

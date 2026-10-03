@@ -5,4 +5,4 @@ Disallow: /login
 Disallow: /watchlist
 Disallow: /trading-game
 
-Sitemap: https://alphanova48.in/sitemap.xml
+Sitemap: https://abovealphasolutions.com/sitemap.xml

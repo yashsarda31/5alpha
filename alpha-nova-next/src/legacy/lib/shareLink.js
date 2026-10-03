@@ -1,4 +1,4 @@
-export const PUBLIC_ORIGIN = 'https://alphanova48.in';
+export const PUBLIC_ORIGIN = 'https://abovealphasolutions.com';
 
 const ROUTE_KEYS = {
   '/dashboard': ['market'],

@@ -1,4 +1,4 @@
-const PRODUCTION_HOSTS = new Set(['alphanova48.in', 'www.alphanova48.in']);
+const PRODUCTION_HOSTS = new Set(['abovealphasolutions.com', 'www.abovealphasolutions.com', 'alphanova48.in', 'www.alphanova48.in']);
 
 // Only public, fixed routes are eligible. New and dynamic routes must be reviewed
 // before opting in, so URLs containing account IDs or credentials fail closed.

@@ -11,7 +11,7 @@ const COLORS = {
   gold: '#F5DC8C', text: '#F5F5F7', dim: '#A1A1AA',
   bg: '#0B0B0E', hairline: 'rgba(255,255,255,0.14)',
 };
-const APP_URL = 'alphanova48.in';
+const APP_URL = 'abovealphasolutions.com';
 const FONT = "'Segoe UI', system-ui, -apple-system, sans-serif";
 
 let boltPromise = null;
@@ -108,7 +108,7 @@ export async function renderPageCapture(node) {
   return new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('canvas export failed'))), 'image/png'));
 }
 
-export async function sharePageCapture(node, { shareText = 'Alpha Nova analysis', filename = 'alpha-nova-analysis.png', shareUrl = 'https://alphanova48.in' } = {}) {
+export async function sharePageCapture(node, { shareText = 'Alpha Nova analysis', filename = 'alpha-nova-analysis.png', shareUrl = 'https://abovealphasolutions.com' } = {}) {
   const blob = await renderPageCapture(node);
   const file = new File([blob], filename, { type: 'image/png' });
 
