@@ -9043,7 +9043,7 @@ def get_stock_delivery(symbol: str, response: Response, limit: int = 90):
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=1800"
     return {
         **result,
-        "canonical_url": f"https://alphanova48.in/stocks/{result['symbol']}/delivery-percentage",
+        "canonical_url": f"https://abovealphasolutions.com/stocks/{result['symbol']}/delivery-percentage",
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "source_status": status,
         "availability_message": message,

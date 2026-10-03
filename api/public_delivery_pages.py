@@ -8,7 +8,7 @@ import json
 from urllib.parse import quote
 
 
-ORIGIN = "https://alphanova48.in"
+ORIGIN = "https://abovealphasolutions.com"
 
 
 def _fmt(value, decimals=2):

@@ -24,8 +24,8 @@ def test_radar_html_contains_substantive_dated_table_and_canonical_metadata():
     assert "2026-07-31" in html
     assert "M&amp;M" in html
     assert "30-day" not in html
-    assert '<link rel="canonical" href="https://alphanova48.in/high-delivery-volume-stocks-today"' in html
-    assert 'property="og:image" content="https://alphanova48.in/api/public-preview/delivery-radar.png"' in html
+    assert '<link rel="canonical" href="https://abovealphasolutions.com/high-delivery-volume-stocks-today"' in html
+    assert 'property="og:image" content="https://abovealphasolutions.com/api/public-preview/delivery-radar.png"' in html
     assert "not proof of institutional buying" in html
 
 
