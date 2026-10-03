@@ -40,6 +40,11 @@ services:
     env: static
     buildCommand: cd alpha-nova-next && npm ci && npm run build
     staticPublishPath: ./alpha-nova-next/dist
+    envVars:
+      # Baked into the JS bundle at build time; must match the backend's
+      # GOOGLE_CLIENT_ID and have the production origins authorized.
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
     routes:
       - type: rewrite
         source: /api/*
