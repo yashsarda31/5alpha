@@ -9,6 +9,7 @@ statuses (401/403/5xx are surfaced, 200/204 pass).
 
 import os
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
@@ -63,13 +64,27 @@ def fire(route: str) -> int:
     req = urllib.request.Request(
         BASE_URL + route, headers={"Authorization": f"Bearer {SECRET}"}
     )
-    try:
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            print(f"{route} -> HTTP {resp.status}", flush=True)
-            return 0 if resp.status < 400 else 1
-    except Exception as exc:  # noqa: BLE001 — surfaced, not swallowed
-        print(f"{route} -> FAILED: {exc}", flush=True)
-        return 1
+    # Render can close a long request while an idempotent data refresh finishes.
+    # One retry verifies the stored result; alert/dispatch jobs are never retried.
+    attempts = 2 if route in {"/api/delivery/refresh", "/api/fiidii/refresh"} else 1
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                print(f"{route} -> HTTP {resp.status}", flush=True)
+                return 0 if resp.status < 400 else 1
+        except urllib.error.HTTPError as exc:
+            print(f"{route} -> FAILED: {exc}", flush=True)
+            return 1
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
+            if attempt + 1 < attempts:
+                print(f"{route} -> interrupted; retrying data refresh once", flush=True)
+                continue
+            print(f"{route} -> FAILED: {exc}", flush=True)
+            return 1
+        except Exception as exc:  # noqa: BLE001 — surfaced, not swallowed
+            print(f"{route} -> FAILED: {exc}", flush=True)
+            return 1
+    return 1
 
 
 def main() -> int:

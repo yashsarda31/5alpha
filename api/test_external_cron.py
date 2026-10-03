@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 from datetime import datetime, timezone
+import http.client
+import urllib.error
 
 def load_cron(monkeypatch):
     monkeypatch.setenv('CRON_SECRET', 'test-only')
@@ -34,3 +36,36 @@ def test_targeted_delivery_refresh_never_dispatches_alerts(monkeypatch):
     monkeypatch.setattr(cron, 'fire', lambda route: fired.append(route) or 0)
     assert cron.main() == 0
     assert fired == ['/api/delivery/refresh']
+
+def test_delivery_refresh_retries_interrupted_connection_once(monkeypatch):
+    cron = load_cron(monkeypatch)
+    calls = []
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    def request(*args, **kwargs):
+        calls.append(args[0].full_url)
+        if len(calls) == 1:
+            raise http.client.RemoteDisconnected('connection closed')
+        return Response()
+    monkeypatch.setattr(cron.urllib.request, 'urlopen', request)
+    assert cron.fire('/api/delivery/refresh') == 0
+    assert len(calls) == 2
+
+def test_dispatch_and_http_errors_are_not_retried(monkeypatch):
+    cron = load_cron(monkeypatch)
+    calls = []
+    def interrupted(*args, **kwargs):
+        calls.append(1)
+        raise http.client.RemoteDisconnected('connection closed')
+    monkeypatch.setattr(cron.urllib.request, 'urlopen', interrupted)
+    assert cron.fire('/api/push/dispatch') == 1
+    assert len(calls) == 1
+    calls.clear()
+    def unauthorized(*args, **kwargs):
+        calls.append(1)
+        raise urllib.error.HTTPError(args[0].full_url, 401, 'unauthorized', {}, None)
+    monkeypatch.setattr(cron.urllib.request, 'urlopen', unauthorized)
+    assert cron.fire('/api/delivery/refresh') == 1
+    assert len(calls) == 1
