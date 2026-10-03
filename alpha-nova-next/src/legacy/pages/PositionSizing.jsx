@@ -6,6 +6,7 @@ import TickerSearch from '../components/TickerSearch';
 import ShareButton from '../components/ShareButton';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
 import { markFirstRunStep, trackProductEvent } from '../lib/productAnalytics.js';
+import { calculatePositionSize } from '../lib/positionSizing.js';
 import './PositionSizing.css';
 
 const PREFS_KEY = 'alphanova_sizing_prefs';
@@ -14,8 +15,6 @@ const SIZED_KEY = 'alphanova_sized_today'; // read by the Discipline Arena's "pl
 const loadPrefs = () => {
   try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch { return {}; }
 };
-
-const R_TARGETS = [1, 1.5, 2, 3];
 
 const PositionSizing = () => {
   const completionTracked = useRef(false);
@@ -56,15 +55,10 @@ const PositionSizing = () => {
     }
   };
 
-  const riskAmount = (capital * riskPercent) / 100;
-  const riskPerShare = entryPrice - stopLoss;
-  const shares = riskPerShare > 0 ? Math.floor(riskAmount / riskPerShare) : 0;
-  const positionSize = shares * entryPrice;
-  const percentOfCapital = capital > 0 ? (positionSize / capital) * 100 : 0;
-  const stopPct = entryPrice > 0 && riskPerShare > 0 ? (riskPerShare / entryPrice) * 100 : null;
+  const { riskAmount, riskPerShare, shares, positionSize, percentOfCapital, stopPct,
+    actualRisk, targets, error: sizingError } = calculatePositionSize({ capital, riskPercent, entryPrice, stopLoss });
 
   const warnings = [];
-  if (entryPrice > 0 && stopLoss >= entryPrice) warnings.push('Stop must sit below entry for a long trade — risk per share is zero or negative.');
   if (riskPercent > 2) warnings.push(`Risking ${riskPercent}% of the account per trade is aggressive — professionals usually stay at or under 2%.`);
   if (positionSize > capital && shares > 0) warnings.push('The position is bigger than your capital — this needs margin/leverage.');
 
@@ -119,7 +113,7 @@ const PositionSizing = () => {
   useAutoAiInsight('mount', runAiAnalysis);
 
   const numInput = (setter) => (e) => {
-    setter(Number(e.target.value));
+    setter(e.target.value === '' ? '' : Number(e.target.value));
     stampSized();
   };
 
@@ -165,17 +159,19 @@ const PositionSizing = () => {
           />
           {priceNote && <div className="ps-price-note">{priceNote}</div>}
 
-          <label>Total Account Capital ({cur})</label>
+          <label htmlFor="sizing-capital">Total Account Capital ({cur})</label>
           <input
+            id="sizing-capital" min="0" step="any"
             type="number"
             value={capital}
             onChange={numInput(setCapital)}
             placeholder="e.g. 100000"
           />
 
-          <label>Account Risk per Trade (%)</label>
+          <label htmlFor="sizing-risk">Account Risk per Trade (%)</label>
           <div className="ps-risk-row">
             <input
+              id="sizing-risk" min="0" max="100"
               type="number"
               step="0.1"
               value={riskPercent}
@@ -194,22 +190,25 @@ const PositionSizing = () => {
             </div>
           </div>
 
-          <label>Entry Price ({cur})</label>
+          <label htmlFor="sizing-entry">Entry Price ({cur})</label>
           <input
+            id="sizing-entry" min="0" step="any"
             type="number"
             value={entryPrice}
             onChange={numInput(setEntryPrice)}
             placeholder="e.g. 100"
           />
 
-          <label>Stop Loss Price ({cur})</label>
+          <label htmlFor="sizing-stop">Stop Loss Price ({cur})</label>
           <input
+            id="sizing-stop" min="0" step="any"
             type="number"
             value={stopLoss}
             onChange={numInput(setStopLoss)}
             placeholder="e.g. 95"
           />
 
+          {sizingError && <div className="ps-warning" role="alert">{sizingError}</div>}
           {warnings.length > 0 && (
             <div className="ps-warnings">
               {warnings.map((w) => <div key={w} className="ps-warning">⚠ {w}</div>)}
@@ -225,13 +224,13 @@ const PositionSizing = () => {
             <div className="ui-stat-value tnum tone-gold" style={{ fontSize: 34 }}>{shares.toLocaleString(locale)}</div>
             <div className="ui-stat-sub">
               {shares > 0
-                ? `${cur}${fmt(positionSize)} position · ${percentOfCapital.toFixed(1)}% of capital`
-                : 'Set a stop below your entry to size the trade'}
+                ? `${cur}${fmt(positionSize)} position · ${percentOfCapital.toFixed(1)}% of capital · ${cur}${fmt(actualRisk)} risk at stop`
+                : sizingError ? 'Correct the trade parameters to calculate a plan.' : 'Risk budget is too small for one share.'}
             </div>
           </div>
 
           <StatGrid style={{ marginTop: 12 }}>
-            <StatTile label="Risk Amount" value={`${cur}${fmt(riskAmount)}`} tone="loss" sub={`${riskPercent}% of capital`} />
+            <StatTile label="Risk Budget" value={`${cur}${fmt(riskAmount)}`} tone="loss" sub={`${riskPercent}% of capital`} />
             <StatTile label="Risk / Share" value={riskPerShare > 0 ? `${cur}${fmt(riskPerShare)}` : '—'} sub={stopPct !== null ? `stop ${stopPct.toFixed(1)}% below entry` : undefined} />
             <StatTile label="Total Position" value={`${cur}${fmt(positionSize)}`} />
             <StatTile label="% of Capital" value={`${percentOfCapital.toFixed(2)}%`} tone={percentOfCapital > 100 ? 'loss' : 'neutral'} />
@@ -245,15 +244,13 @@ const PositionSizing = () => {
                   <tr><th>Target</th><th className="ps-num">Price</th><th className="ps-num">Gain</th><th className="ps-num">Profit</th><th className="ps-num">Reward : Risk</th></tr>
                 </thead>
                 <tbody>
-                  {R_TARGETS.map((r) => {
-                    const price = entryPrice + riskPerShare * r;
-                    const gainPct = (riskPerShare * r / entryPrice) * 100;
+                  {targets.map(({ r, price, gainPct, profit }) => {
                     return (
                       <tr key={r}>
                         <td className="ps-r">{r}R</td>
                         <td className="ps-num tnum">{cur}{fmt(price)}</td>
                         <td className="ps-num tnum tone-gain">+{gainPct.toFixed(1)}%</td>
-                        <td className="ps-num tnum tone-gain">{cur}{fmt(riskAmount * r, 0)}</td>
+                        <td className="ps-num tnum tone-gain">{cur}{fmt(profit)}</td>
                         <td className="ps-num tnum">{r} : 1</td>
                       </tr>
                     );

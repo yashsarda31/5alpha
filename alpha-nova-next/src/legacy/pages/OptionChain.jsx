@@ -28,6 +28,7 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
   const refreshIntervalRef = useRef(null);
   const atmRowRef = useRef(null);
   const chainReqSeqRef = useRef(0);
+  const chainControllerRef = useRef(null);
   const requestedExpiryRef = useRef(searchParams.get('expiryDate') || '');
 
   useEffect(() => {
@@ -56,11 +57,12 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
   // API Calls
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     const fetchExpiries = async () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await axios.get(`/api/option-chain/expiries/${activeSymbol}`);
+        const res = await axios.get(`/api/option-chain/expiries/${encodeURIComponent(activeSymbol)}`, { signal: controller.signal, timeout: 45000 });
         if (cancelled) return;
         if (res.data && res.data.expiries && res.data.expiries.length > 0) {
           setExpiries(res.data.expiries);
@@ -80,17 +82,22 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
       }
     };
     fetchExpiries();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
   }, [activeSymbol]);
 
   const fetchChainData = async (showLoading = true) => {
     if (!selectedExpiry) return;
+    // A scheduled poll must not supersede a slow in-flight request.
+    if (!showLoading && chainControllerRef.current) return;
+    chainControllerRef.current?.abort();
+    const controller = new AbortController();
+    chainControllerRef.current = controller;
     const seq = ++chainReqSeqRef.current;
     if (showLoading) setLoading(true);
 
     try {
-      const res = await axios.get(`/api/option-chain/data/${activeSymbol}`, {
-        params: { expiryDate: selectedExpiry }
+      const res = await axios.get(`/api/option-chain/data/${encodeURIComponent(activeSymbol)}`, {
+        params: { expiryDate: selectedExpiry }, signal: controller.signal, timeout: 45000
       });
       if (seq !== chainReqSeqRef.current) return; // a newer request superseded this one
       setChainData(res.data.optionChain || null);
@@ -99,15 +106,17 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
       setError(null);
     } catch (err) {
       if (seq !== chainReqSeqRef.current) return;
-      if (showLoading) setError(err.response?.data?.detail || 'Failed to fetch option chain matrix.');
+      setError(err.response?.data?.detail || 'The option chain could not refresh. Retry to load current evidence.');
     } finally {
       if (seq === chainReqSeqRef.current && showLoading) setLoading(false);
+      if (chainControllerRef.current === controller) chainControllerRef.current = null;
     }
   };
 
   useEffect(() => {
     fetchChainData(true);
     if (selectedExpiry) setSearchParams({ expiryDate: selectedExpiry, symbol: activeSymbol }, { replace: true });
+    return () => { ++chainReqSeqRef.current; chainControllerRef.current?.abort(); chainControllerRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedExpiry, activeSymbol]);
 
@@ -128,8 +137,21 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
   // Handlers — clear the expiry alongside the symbol (React batches both), or the
   // chain-data effect fires once with the OLD symbol's expiry and 400s.
   const switchSymbol = (sym) => {
-    if (sym !== activeSymbol) setSelectedExpiry('');
+    if (sym !== activeSymbol) {
+      invalidateChain();
+      setExpiries([]);
+      setSelectedExpiry('');
+      setSearchParams({ symbol: sym }, { replace: true });
+    }
     setActiveSymbol(sym);
+  };
+
+  const invalidateChain = () => {
+    ++chainReqSeqRef.current;
+    chainControllerRef.current?.abort();
+    chainControllerRef.current = null;
+    setChainData(null); setSpotData(null); setVixData(null);
+    setError(null); setLoading(true);
   };
 
   const handlePreset = (sym) => {
@@ -145,9 +167,9 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
   };
 
   // Metrics Calculation
-  let calculatedPcr = 0;
-  let atmStrike = 0;
-  const spotPrice = spotData?.last_trade_price || 0;
+  let calculatedPcr = null;
+  let atmStrike = null;
+  const spotPrice = spotData?.last_trade_price ?? null;
 
   if (chainData?.opDatas && chainData.opDatas.length > 0 && spotPrice > 0) {
     let totalCallsOi = 0;
@@ -163,7 +185,7 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
       totalPutsOi += row.puts_oi || 0;
     });
     
-    calculatedPcr = totalCallsOi > 0 ? (totalPutsOi / totalCallsOi) : 0;
+    calculatedPcr = totalCallsOi > 0 ? (totalPutsOi / totalCallsOi) : null;
   }
 
   return (
@@ -176,7 +198,7 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
             <h1 className="ui-ph-title">Option Chain</h1>
           </div>
           <p className="ui-ph-subtitle" style={{ margin: '4px 0 0' }}>
-            Real-time derivative analytics and structural mapping.
+            Provider option snapshots and open-interest structure. Quotes may be delayed.
           </p>
         </div>
 
@@ -221,7 +243,7 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
               <select
                 className="expiry-select"
                 value={selectedExpiry}
-                onChange={(e) => setSelectedExpiry(e.target.value)}
+                onChange={(e) => { if (e.target.value !== selectedExpiry) { invalidateChain(); setSelectedExpiry(e.target.value); } }}
               >
                 {expiries.map(exp => {
                   let displayStr = exp;
@@ -251,7 +273,7 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
         <div className="oc-metrics-grid fade-in">
           <div className="oc-metric-box">
             <span className="oc-metric-label">Put/Call Ratio</span>
-            <span className={`oc-metric-value ${calculatedPcr >= 1 ? 'text-green' : 'text-red'}`}>
+            <span className={`oc-metric-value ${calculatedPcr === null ? 'text-neutral' : calculatedPcr >= 1 ? 'text-green' : 'text-red'}`}>
               {formatDec(calculatedPcr, 3)}
             </span>
           </div>
@@ -289,6 +311,7 @@ const OptionChain = ({ defaultSymbol = 'NIFTY' }) => {
         <div style={{ background: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.3)', padding: '24px', borderRadius: '12px', color: '#ff453a', textAlign: 'center' }}>
           <h3 style={{ margin: '0 0 8px 0' }}>Data Sync Failed</h3>
           <p style={{ margin: 0 }}>{error}</p>
+          {selectedExpiry && <button className="preset-button" onClick={() => fetchChainData(true)}>Retry option chain</button>}
         </div>
       ) : chainData?.opDatas ? (
         <div className="oc-table-wrapper fade-in">

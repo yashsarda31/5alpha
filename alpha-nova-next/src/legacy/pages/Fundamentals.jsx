@@ -5,6 +5,14 @@ import LazyMarkdown from '../components/LazyMarkdown';
 import { PageHeader } from '../components/ui';
 import TickerSearch from '../components/TickerSearch';
 import useAutoAiInsight from '../lib/useAutoAiInsight';
+import { number } from '../../lib/market';
+
+// Preserve missing provider values; Number(null) would fabricate a zero.
+// eslint-disable-next-line react-refresh/only-export-components
+export const formatFundamentalValue = (value, suffix = '') => {
+  const parsed = number(value);
+  return parsed === null ? 'N/A' : `${parsed.toFixed(2)}${suffix}`;
+};
 
 const currencyFor = (ticker) => {
   const t = (ticker || '').toUpperCase();
@@ -185,19 +193,19 @@ const Fundamentals = () => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Trailing P/E</div>
-                <div style={{ fontWeight: 'bold' }}>{data.trailingPE !== 'N/A' ? Number(data.trailingPE).toFixed(2) : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.trailingPE)}</div>
               </div>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Forward P/E</div>
-                <div style={{ fontWeight: 'bold' }}>{data.forwardPE !== 'N/A' ? Number(data.forwardPE).toFixed(2) : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.forwardPE)}</div>
               </div>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>PEG Ratio</div>
-                <div style={{ fontWeight: 'bold' }}>{data.pegRatio !== 'N/A' ? Number(data.pegRatio).toFixed(2) : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.pegRatio)}</div>
               </div>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Price to Book</div>
-                <div style={{ fontWeight: 'bold' }}>{data.priceToBook !== 'N/A' ? Number(data.priceToBook).toFixed(2) : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.priceToBook)}</div>
               </div>
             </div>
           </div>
@@ -207,19 +215,19 @@ const Fundamentals = () => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Profit Margin</div>
-                <div style={{ fontWeight: 'bold' }}>{data.profitMargin !== 'N/A' ? `${Number(data.profitMargin).toFixed(2)}%` : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.profitMargin, '%')}</div>
               </div>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Operating Margin</div>
-                <div style={{ fontWeight: 'bold' }}>{data.operatingMargin !== 'N/A' ? `${Number(data.operatingMargin).toFixed(2)}%` : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.operatingMargin, '%')}</div>
               </div>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Return on Equity</div>
-                <div style={{ fontWeight: 'bold' }}>{data.returnOnEquity !== 'N/A' ? `${Number(data.returnOnEquity).toFixed(2)}%` : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.returnOnEquity, '%')}</div>
               </div>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Return on Assets</div>
-                <div style={{ fontWeight: 'bold' }}>{data.returnOnAssets !== 'N/A' ? `${Number(data.returnOnAssets).toFixed(2)}%` : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.returnOnAssets, '%')}</div>
               </div>
             </div>
           </div>
@@ -229,19 +237,19 @@ const Fundamentals = () => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Debt to Equity</div>
-                <div style={{ fontWeight: 'bold' }}>{data.debtToEquity !== 'N/A' ? `${Number(data.debtToEquity).toFixed(2)}%` : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.debtToEquity, '%')}</div>
               </div>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Current Ratio</div>
-                <div style={{ fontWeight: 'bold' }}>{data.currentRatio !== 'N/A' ? Number(data.currentRatio).toFixed(2) : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.currentRatio)}</div>
               </div>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Revenue Growth</div>
-                <div style={{ fontWeight: 'bold' }}>{data.revenueGrowth !== 'N/A' ? `${Number(data.revenueGrowth).toFixed(2)}%` : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.revenueGrowth, '%')}</div>
               </div>
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85em' }}>Earnings Growth</div>
-                <div style={{ fontWeight: 'bold' }}>{data.earningsGrowth !== 'N/A' ? `${Number(data.earningsGrowth).toFixed(2)}%` : 'N/A'}</div>
+                <div style={{ fontWeight: 'bold' }}>{formatFundamentalValue(data.earningsGrowth, '%')}</div>
               </div>
             </div>
           </div>

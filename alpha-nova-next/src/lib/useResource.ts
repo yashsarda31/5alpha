@@ -9,13 +9,14 @@ export function useResource<T>(url: string | null, interval = 0) {
     let controller: AbortController | null = null;
     let stopped = false;
     const load = async () => {
-      // Polling must not restart a slow request before its 45s deadline.
+      // Polling must not restart a slow request before its deadline.
       // Explicit refreshes and URL changes still cancel through effect cleanup.
       if (!url || stopped || controller) return;
       controller = new AbortController();
       const requestId = ++latest.current;
       const active = controller;
-      const timer = window.setTimeout(() => active.abort(), 45000);
+      // Render's free instances can need 50+ seconds to wake after inactivity.
+      const timer = window.setTimeout(() => active.abort(), 90000);
       // A retry does not validate the retained snapshot. Keep the warning (and
       // signal-level guard) until a successful response replaces that evidence.
       setState(previous => ({ key: url, data: previous.key === url ? previous.data : null, error: previous.key === url ? previous.error : null, refreshing: true }));

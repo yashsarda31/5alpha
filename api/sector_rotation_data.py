@@ -4,6 +4,10 @@ from io import BytesIO
 
 import pandas as pd
 import requests
+try:
+    from api.exchange_calendar import is_nse_session
+except ImportError:
+    from exchange_calendar import is_nse_session
 
 
 ARCHIVE_URL = "https://nsearchives.nseindia.com/content/indices/ind_close_all_{stamp}.csv"
@@ -17,7 +21,13 @@ def _key(value):
 
 def weekly_snapshot_dates(as_of, weeks=32):
     friday = as_of - timedelta(days=(as_of.weekday() - 4) % 7)
-    return [friday - timedelta(days=7 * offset) for offset in range(weeks)]
+    dates = []
+    for offset in range(weeks):
+        close = friday - timedelta(days=7 * offset)
+        while not is_nse_session(close):
+            close -= timedelta(days=1)
+        dates.append(close)
+    return dates
 
 
 def fetch_weekly_index_closes(index_names, dates, fetcher=requests.get, min_points=18):

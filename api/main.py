@@ -17,6 +17,10 @@ import time
 import io
 import re
 try:
+    from api.exchange_calendar import is_nse_session
+except ImportError:
+    from exchange_calendar import is_nse_session
+try:
     from api.intraday_chart import intraday_payload
 except ImportError:
     from intraday_chart import intraday_payload
@@ -4023,7 +4027,7 @@ def _dashboard_movers_market(now_ist=None):
 def _is_indian_market_open(now_ist=None):
     ist = timezone(timedelta(hours=5, minutes=30))
     now = now_ist or datetime.now(ist)
-    if now.weekday() >= 5:
+    if not is_nse_session(now.date()):
         return False
     minutes = now.hour * 60 + now.minute
     return 9 * 60 + 15 <= minutes < 15 * 60 + 30
@@ -4338,12 +4342,12 @@ def build_signal_data_status(
 
 
 def _expected_signal_session(market_open, market_note, now=None):
-    """Latest weekday session expected from the reported market state."""
+    """Latest NSE session, skipping published holidays as well as weekends."""
     today = (now or datetime.now(_IST)).date()
     candidate = today
     if not market_open and market_note in {"pre-open", "weekend"}:
         candidate -= timedelta(days=1 if market_note == "pre-open" else 0)
-    while candidate.weekday() >= 5:
+    while not is_nse_session(candidate):
         candidate -= timedelta(days=1)
     return candidate.isoformat()
 
@@ -4422,14 +4426,16 @@ def _signals_live(sig_market):
     """Whether the explicitly selected signal market is in cash-session hours."""
     return _is_us_market_open() if sig_market == "US" else _signals_market_open()[0]
 
-def _signals_market_open():
-    ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+def _signals_market_open(now_ist=None):
+    ist = now_ist or datetime.now(timezone(timedelta(hours=5, minutes=30)))
     if ist.weekday() >= 5:
         return False, "weekend"
+    if not is_nse_session(ist.date()):
+        return False, "holiday"
     mins = ist.hour * 60 + ist.minute
     if mins < 9 * 60 + 15:
         return False, "pre-open"
-    if mins > 15 * 60 + 30:
+    if mins >= 15 * 60 + 30:
         return False, "after-hours"
     return True, "live"
 
@@ -5392,7 +5398,7 @@ async def _us_market_signals(capital, risk_pct):
     }
 
     observed_at = datetime.now(_IST).isoformat(timespec="seconds")
-    session_date = _expected_signal_session(is_open, why_closed)
+    session_date = _signal_expected_session("US", is_open, why_closed)
     data_status = build_signal_data_status(
         market_open=is_open,
         market_note=why_closed,
@@ -8822,7 +8828,7 @@ def _delivery_expected_day(now=None):
     published = (now.hour, now.minute) >= (DELIVERY_PUBLISH_HOUR, DELIVERY_PUBLISH_MINUTE)
     if now.weekday() >= 5 or not published:
         d -= timedelta(days=1)
-    while d.weekday() >= 5:
+    while not is_nse_session(d):
         d -= timedelta(days=1)
     return d
 

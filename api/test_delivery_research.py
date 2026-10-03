@@ -119,6 +119,11 @@ def test_stock_history_returns_latest_first_and_marks_incomplete_baseline():
     assert result["baseline_samples"] == 4
     assert len(result["data"]) == 3
     assert result["data"][0]["trade_date"] == "2026-07-31"
+    for row in result["data"]:
+        assert row["delivery_pct_avg_20"] is None
+        assert row["delivered_qty_avg_20"] is None
+        assert row["delivery_pct_ratio"] is None
+        assert row["delivered_qty_ratio"] is None
     conn.close()
 
 

@@ -10,8 +10,7 @@ test('global ticker search implementation is loaded only when search opens', () 
   assert.match(app, /const TickerSearch = lazy\(\(\) => import\('\.\/legacy\/components\/TickerSearch'\)\)/);
 });
 
-test('analytics SDK is deferred until after the application starts', () => {
-  assert.doesNotMatch(main, /import \{ inject \} from '@vercel\/analytics'/);
-  assert.match(main, /import\('@vercel\/analytics'\)/);
-  assert.match(main, /requestIdleCallback/);
+test('no third-party analytics SDK is bundled with the application shell', () => {
+  assert.doesNotMatch(main, /@vercel\/analytics/);
+  assert.doesNotMatch(main, /requestIdleCallback/);
 });

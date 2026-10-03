@@ -22,6 +22,11 @@ def test_weekly_snapshot_dates_end_on_or_before_as_of_friday():
     assert dates == [date(2026, 8, 21), date(2026, 8, 14), date(2026, 8, 7)]
 
 
+def test_holiday_friday_uses_thursday_close_without_dropping_the_week():
+    assert weekly_snapshot_dates(date(2026, 10, 3), weeks=3) == [
+        date(2026, 10, 1), date(2026, 9, 25), date(2026, 9, 18)]
+
+
 def test_fetch_weekly_index_closes_parses_official_archive_rows():
     csv_by_date = {
         "21082026": "Index Name,Index Date,Closing Index Value\nNIFTY 50,21-08-2026,25000\nNIFTY Midcap 100,21-08-2026,63000\n",

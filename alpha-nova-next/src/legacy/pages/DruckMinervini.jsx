@@ -4,6 +4,7 @@ import Plot from '../components/Plot';
 import LazyMarkdown from '../components/LazyMarkdown';
 import { PageHeader } from '../components/ui';
 import TickerSearch from '../components/TickerSearch';
+import { calculatePositionSize } from '../lib/positionSizing';
 
 const DruckMinervini = () => {
   // Form Inputs
@@ -135,17 +136,9 @@ const DruckMinervini = () => {
   const parsedEntry = parseFloat(entryPrice) || 0;
   const parsedStop = parseFloat(stopLoss) || 0;
   
-  const capitalAtRisk = capital * (riskPercent / 100);
-  const stopLossPct = parsedEntry > 0 && parsedStop > 0 && parsedEntry > parsedStop 
-    ? ((parsedEntry - parsedStop) / parsedEntry) * 100 
-    : 0;
-  
-  const maxShares = parsedEntry > 0 && parsedStop > 0 && parsedEntry > parsedStop
-    ? Math.floor(capitalAtRisk / (parsedEntry - parsedStop))
-    : 0;
-
-  const positionSize = maxShares * parsedEntry;
-  const positionSizePct = capital > 0 ? (positionSize / capital) * 100 : 0;
+  const sizing = calculatePositionSize({ capital, riskPercent, entryPrice: parsedEntry, stopLoss: parsedStop });
+  const { actualRisk: capitalAtRisk, shares: maxShares, positionSize, percentOfCapital: positionSizePct } = sizing;
+  const stopLossPct = sizing.stopPct || 0;
 
   // Strategic score parsing helper
   const getStrategicScore = () => {
@@ -348,18 +341,22 @@ const DruckMinervini = () => {
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div>
-                <label style={{ marginBottom: '4px' }}>Account Capital ($)</label>
+                <label htmlFor="druck-capital" style={{ marginBottom: '4px' }}>Account Capital ($)</label>
                 <input
+                  id="druck-capital"
                   type="number"
+                  min="0" step="any"
                   value={capital}
                   onChange={(e) => setCapital(parseFloat(e.target.value) || 0)}
                   style={{ padding: '8px 12px', marginBottom: 0 }}
                 />
               </div>
               <div>
-                <label style={{ marginBottom: '4px' }}>Account Risk (%)</label>
+                <label htmlFor="druck-risk" style={{ marginBottom: '4px' }}>Account Risk (%)</label>
                 <input
+                  id="druck-risk"
                   type="number"
+                  min="0" max="100"
                   step="0.1"
                   value={riskPercent}
                   onChange={(e) => setRiskPercent(parseFloat(e.target.value) || 0)}
@@ -370,9 +367,11 @@ const DruckMinervini = () => {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
               <div>
-                <label style={{ marginBottom: '4px' }}>Entry Price ($)</label>
+                <label htmlFor="druck-entry" style={{ marginBottom: '4px' }}>Entry Price ($)</label>
                 <input
+                  id="druck-entry"
                   type="number"
+                  min="0"
                   step="0.01"
                   value={entryPrice}
                   placeholder="Suggested by AI..."
@@ -381,9 +380,11 @@ const DruckMinervini = () => {
                 />
               </div>
               <div>
-                <label style={{ marginBottom: '4px' }}>Stop Loss ($)</label>
+                <label htmlFor="druck-stop" style={{ marginBottom: '4px' }}>Stop Loss ($)</label>
                 <input
+                  id="druck-stop"
                   type="number"
+                  min="0"
                   step="0.01"
                   value={stopLoss}
                   placeholder="Suggested by AI..."
@@ -393,7 +394,7 @@ const DruckMinervini = () => {
               </div>
             </div>
 
-            {parsedEntry > 0 && parsedStop > 0 ? (
+            {parsedEntry > 0 && parsedStop > 0 && !sizing.error ? (
               <div style={{ background: 'rgba(255, 255, 255, 0.03)', borderRadius: '10px', padding: '16px', border: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Capital at Risk:</span>
@@ -422,8 +423,8 @@ const DruckMinervini = () => {
                 )}
               </div>
             ) : (
-              <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px', padding: '10px 0' }}>
-                Enter Entry and Stop-Loss prices to calculate allocation sizing.
+              <div role={parsedEntry > 0 && parsedStop > 0 ? 'alert' : undefined} style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px', padding: '10px 0' }}>
+                {parsedEntry > 0 && parsedStop > 0 ? sizing.error : 'Enter Entry and Stop-Loss prices to calculate allocation sizing.'}
               </div>
             )}
           </div>

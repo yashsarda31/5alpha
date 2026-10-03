@@ -165,9 +165,10 @@ def _ratio(value, baseline):
 
 
 def _public_row(row, baseline: list) -> dict:
-    avg_pct = sum(item["deliv_per"] for item in baseline) / len(baseline) if baseline else None
+    complete = len(baseline) == BASELINE_SESSIONS
+    avg_pct = sum(item["deliv_per"] for item in baseline) / len(baseline) if complete else None
     qty_values = [item["delivered_qty"] for item in baseline if item["delivered_qty"] is not None]
-    avg_qty = sum(qty_values) / len(qty_values) if len(qty_values) == len(baseline) and baseline else None
+    avg_qty = sum(qty_values) / len(qty_values) if complete and len(qty_values) == BASELINE_SESSIONS else None
     prev_close = row["prev_close"]
     price_change = ((row["close"] / prev_close) - 1) * 100 if prev_close and row["close"] is not None else None
     return {

@@ -5,6 +5,11 @@ from urllib.parse import urlparse
 import numpy as np
 import pandas as pd
 
+try:
+    from .exchange_calendar import NSE_HOLIDAYS
+except ImportError:
+    from exchange_calendar import NSE_HOLIDAYS
+
 HORIZON = 21
 MIN_BARS = 252
 
@@ -159,7 +164,9 @@ def build_forecast(ticker, history, fundamentals, news=None, now=None, ticker_un
         last_day = dates[-1].date()
         if last_day >= local_today:
             raise ValueError("Price history contains an uncompleted or future session.")
-        if (local_today - last_day).days > 5 or np.busday_count(last_day, local_today) > 2:
+        session_age = np.busday_count(last_day, local_today,
+            holidays=sorted(day.isoformat() for day in NSE_HOLIDAYS) if market == "IN" else [])
+        if (local_today - last_day).days > 5 or session_age > 2:
             raise ValueError("Price history is stale; refresh before producing a target.")
         if max(np.diff(dates.values).astype('timedelta64[D]').astype(int)) > 10:
             raise ValueError("Price history has a gap longer than ten calendar days.")
@@ -172,8 +179,8 @@ def build_forecast(ticker, history, fundamentals, news=None, now=None, ticker_un
         return result
     result["current_price"] = round(float(close[-1]), 2)
     result["sources"]["price_as_of"] = last_day.isoformat()
-    if np.busday_count(last_day, local_today) > 1:
-        warnings.append("The latest completed price is more than one weekday old; provider data may be delayed.")
+    if session_age > 1:
+        warnings.append("The latest completed price is more than one trading session old; provider data may be delayed.")
     missing = [name for name, key in (("ROE", "roe_pct"), ("P/E", "trailing_pe"), ("earnings growth", "earnings_growth_pct")) if context[key] is None]
     if context["trailing_pe"] == 0:
         missing.append("meaningful P/E")

@@ -1,4 +1,5 @@
 from api import main
+from datetime import datetime, timedelta, timezone
 
 
 PLAN = {
@@ -7,6 +8,47 @@ PLAN = {
     "score": 80,
     "coverage_pct": 100,
 }
+
+
+def test_holiday_weekend_expects_thursday_session():
+    now = datetime(2026, 10, 3, 12, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    assert main._expected_signal_session(False, "weekend", now) == "2026-10-01"
+
+
+def test_preopen_after_holiday_weekend_expects_thursday_session():
+    now = datetime(2026, 10, 5, 8, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    assert main._expected_signal_session(False, "pre-open", now) == "2026-10-01"
+
+
+def test_india_holiday_is_closed_and_preserves_last_session():
+    now = datetime(2026, 10, 2, 12, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    assert main._is_indian_market_open(now) is False
+    assert main._expected_signal_session(False, "holiday", now) == "2026-10-01"
+
+
+def test_delivery_publish_date_skips_the_holiday_weekend():
+    now = datetime(2026, 10, 3, 12, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    assert main._delivery_expected_day(now).isoformat() == "2026-10-01"
+
+
+def test_signal_market_clock_holiday_and_close_boundary():
+    zone = timezone(timedelta(hours=5, minutes=30))
+    assert main._signals_market_open(datetime(2026, 10, 2, 12, tzinfo=zone)) == (False, "holiday")
+    assert main._signals_market_open(datetime(2026, 10, 5, 15, 30, tzinfo=zone)) == (False, "after-hours")
+
+
+def test_us_session_does_not_use_indian_holidays(monkeypatch):
+    monkeypatch.setattr(main, "_ny_now", lambda: datetime(2026, 10, 3, 12))
+    assert main._signal_expected_session("US", False, "US weekend") == "2026-10-02"
+
+
+def test_regular_session_still_rejects_older_evidence():
+    now = datetime(2026, 10, 5, 12, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    expected = main._expected_signal_session(True, "live", now)
+    assert expected == "2026-10-05"
+    status = main.build_signal_data_status(True, "live", "2026-10-01T15:40:00+05:30",
+        ["NSE"], {"price": True, "open_interest": True}, "2026-10-01", expected)
+    assert status["status"] == "stale"
 
 
 def test_weekend_latest_session_is_valid_last_session():
