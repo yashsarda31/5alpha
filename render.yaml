@@ -25,7 +25,7 @@ services:
       - key: BLOB_READ_WRITE_TOKEN
         sync: false
       - key: GOOGLE_CLIENT_ID
-        sync: false
+        value: 663067522587-r4mjulmjpbk4fo4p8vvup98af4s4m0pu.apps.googleusercontent.com
       - key: NEWS_API_KEY
         sync: false
       - key: VAPID_PUBLIC_KEY
@@ -43,8 +43,9 @@ services:
     envVars:
       # Baked into the JS bundle at build time; must match the backend's
       # GOOGLE_CLIENT_ID and have the production origins authorized.
+      # (OAuth client IDs are public identifiers shipped in frontend JS.)
       - key: VITE_GOOGLE_CLIENT_ID
-        sync: false
+        value: 663067522587-r4mjulmjpbk4fo4p8vvup98af4s4m0pu.apps.googleusercontent.com
     routes:
       - type: rewrite
         source: /api/*
