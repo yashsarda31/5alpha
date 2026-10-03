@@ -26,8 +26,8 @@ JOBS = [
     ("/api/predict/resolve", "30", "10", "1-5"),
     ("/api/watchlist/buy-alerts/IN", "0", "14,16", "1-5"),
     ("/api/watchlist/buy-alerts/US", "0", "2,4", "2-6"),
-    ("/api/push/dispatch/after-close-in", "*/5", "14-16", "1-5"),
-    ("/api/push/dispatch/after-close-us", "*/5", "2-4", "2-6"),
+    ("/api/push/dispatch", "*/5", "14-16", "1-5"),
+    ("/api/push/dispatch", "*/5", "2-4", "2-6"),
 ]
 
 
@@ -51,7 +51,9 @@ def due(route_spec, now: datetime) -> bool:
     # Python Monday=0..Sunday=6 -> cron Sunday=0..Saturday=6
     cron_weekday = (now.weekday() + 1) % 7
     return (
-        _in(minute_spec, now.minute)
+        # Actions starts can be delayed off the five-minute grid. Daily jobs
+        # are idempotent, so retry in the remainder of their scheduled hour.
+        (minute_spec.startswith("*/") or now.minute >= int(minute_spec))
         and _in(hour_spec, now.hour)
         and _in(weekday_spec, cron_weekday)
     )
@@ -71,12 +73,20 @@ def fire(route: str) -> int:
 
 
 def main() -> int:
+    maintenance = os.environ.get("MAINTENANCE_ROUTE", "")
+    if maintenance:
+        if maintenance not in {"/api/delivery/refresh", "/api/fiidii/refresh"}:
+            print("Unsupported maintenance route", flush=True)
+            return 1
+        return fire(maintenance)
     now = datetime.now(timezone.utc)
     print(f"cron tick {now.strftime('%Y-%m-%dT%H:%M')}Z", flush=True)
     failures = 0
     fired = 0
+    fired_routes = set()
     for job in JOBS:
-        if due(job, now):
+        if due(job, now) and job[0] not in fired_routes:
+            fired_routes.add(job[0])
             fired += 1
             failures += fire(job[0])
     print(f"fired={fired} failures={failures}", flush=True)

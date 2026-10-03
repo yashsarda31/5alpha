@@ -6,7 +6,16 @@ name: alphanova-cron
 on:
   schedule:
     - cron: "*/5 2-21 * * 1-6"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      maintenance_route:
+        description: Optional data refresh only (no alerts or signal jobs)
+        type: choice
+        default: ""
+        options:
+          - ""
+          - /api/delivery/refresh
+          - /api/fiidii/refresh
 
 concurrency:
   group: alphanova-cron
@@ -27,3 +36,4 @@ jobs:
       - run: python .github/workflows/cron.py
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MAINTENANCE_ROUTE: ${{ inputs.maintenance_route }}
