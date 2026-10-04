@@ -50,6 +50,193 @@ services:
       - type: rewrite
         source: /api/*
         destination: https://alphanova-api.onrender.com/api/*
+      # Serve route-specific SEO documents before the SPA fallback.
+      - type: rewrite
+        source: /dashboard
+        destination: /dashboard/index.html
+      - type: rewrite
+        source: /dashboard/
+        destination: /dashboard/index.html
+      - type: rewrite
+        source: /delivery-radar
+        destination: /delivery-radar/index.html
+      - type: rewrite
+        source: /delivery-radar/
+        destination: /delivery-radar/index.html
+      - type: rewrite
+        source: /high-delivery-volume-stocks-today
+        destination: /high-delivery-volume-stocks-today/index.html
+      - type: rewrite
+        source: /high-delivery-volume-stocks-today/
+        destination: /high-delivery-volume-stocks-today/index.html
+      - type: rewrite
+        source: /signals
+        destination: /signals/index.html
+      - type: rewrite
+        source: /signals/
+        destination: /signals/index.html
+      - type: rewrite
+        source: /chart
+        destination: /chart/index.html
+      - type: rewrite
+        source: /chart/
+        destination: /chart/index.html
+      - type: rewrite
+        source: /screener
+        destination: /screener/index.html
+      - type: rewrite
+        source: /screener/
+        destination: /screener/index.html
+      - type: rewrite
+        source: /momentum
+        destination: /momentum/index.html
+      - type: rewrite
+        source: /momentum/
+        destination: /momentum/index.html
+      - type: rewrite
+        source: /stocks-at-52-week-high-today
+        destination: /stocks-at-52-week-high-today/index.html
+      - type: rewrite
+        source: /stocks-at-52-week-high-today/
+        destination: /stocks-at-52-week-high-today/index.html
+      - type: rewrite
+        source: /sectors
+        destination: /sectors/index.html
+      - type: rewrite
+        source: /sectors/
+        destination: /sectors/index.html
+      - type: rewrite
+        source: /track-record
+        destination: /track-record/index.html
+      - type: rewrite
+        source: /track-record/
+        destination: /track-record/index.html
+      - type: rewrite
+        source: /fiidii
+        destination: /fiidii/index.html
+      - type: rewrite
+        source: /fiidii/
+        destination: /fiidii/index.html
+      - type: rewrite
+        source: /fii-dii-data-today
+        destination: /fii-dii-data-today/index.html
+      - type: rewrite
+        source: /fii-dii-data-today/
+        destination: /fii-dii-data-today/index.html
+      - type: rewrite
+        source: /option-chain
+        destination: /option-chain/index.html
+      - type: rewrite
+        source: /option-chain/
+        destination: /option-chain/index.html
+      - type: rewrite
+        source: /nifty-pcr-today
+        destination: /nifty-pcr-today/index.html
+      - type: rewrite
+        source: /nifty-pcr-today/
+        destination: /nifty-pcr-today/index.html
+      - type: rewrite
+        source: /bank-nifty-oi-analysis
+        destination: /bank-nifty-oi-analysis/index.html
+      - type: rewrite
+        source: /bank-nifty-oi-analysis/
+        destination: /bank-nifty-oi-analysis/index.html
+      - type: rewrite
+        source: /deals
+        destination: /deals/index.html
+      - type: rewrite
+        source: /deals/
+        destination: /deals/index.html
+      - type: rewrite
+        source: /bulk-block-deals-today
+        destination: /bulk-block-deals-today/index.html
+      - type: rewrite
+        source: /bulk-block-deals-today/
+        destination: /bulk-block-deals-today/index.html
+      - type: rewrite
+        source: /fundamentals
+        destination: /fundamentals/index.html
+      - type: rewrite
+        source: /fundamentals/
+        destination: /fundamentals/index.html
+      - type: rewrite
+        source: /dcf
+        destination: /dcf/index.html
+      - type: rewrite
+        source: /dcf/
+        destination: /dcf/index.html
+      - type: rewrite
+        source: /forecast
+        destination: /forecast/index.html
+      - type: rewrite
+        source: /forecast/
+        destination: /forecast/index.html
+      - type: rewrite
+        source: /arima
+        destination: /arima/index.html
+      - type: rewrite
+        source: /arima/
+        destination: /arima/index.html
+      - type: rewrite
+        source: /flcl
+        destination: /flcl/index.html
+      - type: rewrite
+        source: /flcl/
+        destination: /flcl/index.html
+      - type: rewrite
+        source: /position-sizing
+        destination: /position-sizing/index.html
+      - type: rewrite
+        source: /position-sizing/
+        destination: /position-sizing/index.html
+      - type: rewrite
+        source: /news
+        destination: /news/index.html
+      - type: rewrite
+        source: /news/
+        destination: /news/index.html
+      - type: rewrite
+        source: /learn
+        destination: /learn/index.html
+      - type: rewrite
+        source: /learn/
+        destination: /learn/index.html
+      - type: rewrite
+        source: /druck-minervini
+        destination: /druck-minervini/index.html
+      - type: rewrite
+        source: /druck-minervini/
+        destination: /druck-minervini/index.html
+      - type: rewrite
+        source: /explore
+        destination: /explore/index.html
+      - type: rewrite
+        source: /explore/
+        destination: /explore/index.html
+      - type: rewrite
+        source: /login
+        destination: /login/index.html
+      - type: rewrite
+        source: /login/
+        destination: /login/index.html
+      - type: rewrite
+        source: /watchlist
+        destination: /watchlist/index.html
+      - type: rewrite
+        source: /watchlist/
+        destination: /watchlist/index.html
+      - type: rewrite
+        source: /leaderboard
+        destination: /leaderboard/index.html
+      - type: rewrite
+        source: /leaderboard/
+        destination: /leaderboard/index.html
+      - type: rewrite
+        source: /trading-game
+        destination: /trading-game/index.html
+      - type: rewrite
+        source: /trading-game/
+        destination: /trading-game/index.html
       - type: rewrite
         source: /*
         destination: /index.html

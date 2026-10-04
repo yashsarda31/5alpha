@@ -9,16 +9,11 @@ export default function PageTransition({ children }) {
     const el = ref.current;
     if (!el) return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    let cancelled = false;
-    import('gsap').then(({ gsap }) => {
-      if (cancelled) return;
-      gsap.fromTo(
-        el,
-        { opacity: 0, y: 14 },
-        { opacity: 1, y: 0, duration: 0.35, ease: 'power2.out', overwrite: true },
-      );
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    const animation = el.animate?.(
+      [{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'translateY(0)' }],
+      { duration: 200, easing: 'ease-out' },
+    );
+    return () => animation?.cancel();
   }, [pathname]);
 
   return <div ref={ref}>{children}</div>;

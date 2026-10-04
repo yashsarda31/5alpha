@@ -1,11 +1,12 @@
 export const SITE_ORIGIN = 'https://abovealphasolutions.com';
+export const SITE_NAME = 'Above Alpha Solutions';
 export const DEFAULT_SOCIAL_IMAGE = '/api/public-preview/alpha-nova.png';
 
 const research = (title, description, extra = {}) => ({ title, description, index: true, image: DEFAULT_SOCIAL_IMAGE, ...extra });
 const privatePage = (title) => ({ title, description: 'Alpha Nova private workspace.', index: false });
 
 export const SEO_ROUTES = {
-  '/': research('Alpha Nova — NSE Delivery Intelligence for Indian Swing Traders', 'Turn official NSE delivery data into a dated daily shortlist with price context, transparent baselines, and shareable research.'),
+  '/': research('Above Alpha Solutions | Alpha Nova Market Research', 'Above Alpha Solutions brings you Alpha Nova: Indian stock market research, NSE delivery data, stock screeners, charts and risk tools. Explore the workspace.'),
   '/dashboard': research('Today’s Indian Market Research Dashboard | Alpha Nova', 'Review market context, signals, delivery activity, and the next research actions for the latest available session.', { canonicalPath: '/' }),
   '/delivery-radar': research('NSE Delivery Radar — Unusual Delivered Quantity | Alpha Nova', 'Compare delivered quantity and delivery percentage with each NSE stock’s prior 20-session average.', { image: '/api/public-preview/delivery-radar.png' }),
   '/high-delivery-volume-stocks-today': research('High Delivery Volume Stocks Today — NSE | Alpha Nova', 'See NSE stocks with unusual delivered quantity versus their prior 20-session average, with delivery percentage, price move, source date, and coverage.', { image: '/api/public-preview/delivery-radar.png' }),
@@ -40,6 +41,7 @@ export const SEO_ROUTES = {
 };
 
 export function seoForPath(pathname) {
+  pathname = pathname.replace(/\/+$/, '') || '/';
   if (/^\/stocks\/[^/]+\/delivery-percentage$/.test(pathname)) {
     const encoded = pathname.split('/')[2];
     let symbol = 'NSE stock';
@@ -47,4 +49,22 @@ export function seoForPath(pathname) {
     return research(`${symbol} Delivery Percentage and History | Alpha Nova`, `Review ${symbol} delivered quantity, delivery percentage, price move, and prior 20-session comparisons from official NSE files.`, { image: `/api/public-preview/delivery-radar.png` });
   }
   return SEO_ROUTES[pathname] || { title:'Page not found | Alpha Nova', description:'This address does not exist. Explore Alpha Nova research tools.', index:false };
+}
+
+export function canonicalForPath(pathname, config = seoForPath(pathname)) {
+  const route = (config.canonicalPath || pathname).replace(/\/+$/, '') || '/';
+  return `${SITE_ORIGIN}${route}`;
+}
+
+export function structuredDataForPath(pathname, config = seoForPath(pathname)) {
+  if (!config.index) return null;
+  const canonical = canonicalForPath(pathname, config);
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      { '@type': 'Organization', '@id': `${SITE_ORIGIN}/#organization`, name: SITE_NAME, url: `${SITE_ORIGIN}/` },
+      { '@type': 'WebSite', '@id': `${SITE_ORIGIN}/#website`, name: SITE_NAME, alternateName: 'Alpha Nova', url: `${SITE_ORIGIN}/`, publisher: { '@id': `${SITE_ORIGIN}/#organization` } },
+      { '@type': 'WebPage', '@id': `${canonical}#webpage`, name: config.title, description: config.description, url: canonical, isPartOf: { '@id': `${SITE_ORIGIN}/#website` }, about: { '@id': `${SITE_ORIGIN}/#organization` } },
+    ],
+  };
 }

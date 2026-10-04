@@ -4,6 +4,7 @@ import './legacy/index.css';
 import './legacy/App.css';
 import './legacy/components/ui/ui.css';
 import './styles.css';
+import './home.css';
 import './magic/magic.css';
 import './readability.css';
 import App from './App';

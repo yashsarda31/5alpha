@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { ArrowDownRight, ArrowUpRight, AlertCircle, RefreshCw, Search } from 'lucide-react';
 import { formatChange, number } from '../lib/market';
-export function PageHeading({ eyebrow, title, description, actions }: { eyebrow?: ReactNode; title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
-  return <header className="an-page-heading"><div>{eyebrow && <div className="an-kicker">{eyebrow}</div>}<h1>{title}</h1>{description && <p>{description}</p>}</div>{actions && <div className="an-heading-actions">{actions}</div>}</header>;
+export function PageHeading({ eyebrow, title, description, actions, as: Heading = 'h1' }: { eyebrow?: ReactNode; title: ReactNode; description?: ReactNode; actions?: ReactNode; as?: 'h1' | 'h2' }) {
+  return <header className="an-page-heading"><div>{eyebrow && <div className="an-kicker">{eyebrow}</div>}<Heading>{title}</Heading>{description && <p>{description}</p>}</div>{actions && <div className="an-heading-actions">{actions}</div>}</header>;
 }
 export function Panel({ title, subtitle, action, children, className = '' }: { title?: ReactNode; subtitle?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`an-panel ${className}`}>{(title || action) && <header className="an-panel-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{action}</header>}{children}</section>;

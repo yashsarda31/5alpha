@@ -33,6 +33,7 @@ function localPreviewPages(): Plugin {
 }
 
 export default defineConfig({
+  build: { manifest: true },
   plugins: [react(), localPreviewPages()],
   server: { host: '127.0.0.1', port: 5178, allowedHosts: ['.trycloudflare.com', 'alphanova48.in', 'www.alphanova48.in', 'abovealphasolutions.com', 'www.abovealphasolutions.com'], proxy },
   preview: { host: '127.0.0.1', port: 4178, allowedHosts: ['.trycloudflare.com', 'alphanova48.in', 'www.alphanova48.in', 'abovealphasolutions.com', 'www.abovealphasolutions.com'], proxy },

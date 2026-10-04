@@ -9,7 +9,7 @@
 @keyframes magic-drift-a{from{transform:translate(0,0) scale(1)}to{transform:translate(9vmax,7vh) scale(1.12)}}
 @keyframes magic-drift-b{from{transform:translate(0,0) scale(1.08)}to{transform:translate(-8vmax,9vh) scale(1)}}
 
-/* Staggered card entrances on first paint — route changes are handled by GSAP. */
+/* Staggered card entrances on first paint — route changes use the browser animation API. */
 .an-panel{animation:magic-rise .55s cubic-bezier(.16,1,.3,1) both}
 .an-index-grid>.an-index-card{animation:magic-rise .55s cubic-bezier(.16,1,.3,1) both}
 .an-index-grid>.an-index-card:nth-child(2){animation-delay:.06s}
