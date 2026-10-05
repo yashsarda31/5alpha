@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowDownRight, ArrowUpRight, AlertCircle, RefreshCw, Search } from 'lucide-react';
 import { formatChange, number } from '../lib/market';
 export function PageHeading({ eyebrow, title, description, actions, as: Heading = 'h1' }: { eyebrow?: ReactNode; title: ReactNode; description?: ReactNode; actions?: ReactNode; as?: 'h1' | 'h2' }) {
@@ -11,7 +11,9 @@ export function EmptyState({ title, description, action }: { title: ReactNode; d
   return <div className="an-empty"><span className="an-empty-icon"><Search size={24} /></span><h3>{title}</h3>{description && <p>{description}</p>}{action}</div>;
 }
 export function Loading({ label = 'Loading research' }: { label?: string }) {
-  return <div className="an-loading" role="status" aria-live="polite"><div className="an-skeleton"/><div className="an-skeleton"/><div className="an-skeleton"/><span>{label}…</span></div>;
+  const [slow, setSlow] = useState(false);
+  useEffect(() => { const timer = window.setTimeout(() => setSlow(true), 12000); return () => window.clearTimeout(timer); }, []);
+  return <div className="an-loading" role="status" aria-live="polite"><div className="an-skeleton"/><div className="an-skeleton"/><div className="an-skeleton"/><span>{label}…</span>{slow && <small>The research service is taking longer than usual. You can keep browsing while it loads.</small>}</div>;
 }
 export function ErrorState({ message, retry }: { message: ReactNode; retry?: () => void }) {
   return <div className="an-error" role="status"><AlertCircle size={18}/><span>{message}</span>{retry && <button className="an-button" onClick={retry}><RefreshCw size={14}/>Retry</button>}</div>;

@@ -5,7 +5,7 @@
  * - /api/* is never touched: market data and auth must always be live.
  */
 // Rotate the cache to discard shells contaminated by older navigation caching.
-const CACHE = 'alphanova-next-v2';
+const CACHE = 'alphanova-next-v3';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -30,10 +30,12 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/assets/')) {
     // Content-hashed: cache-first, populate on miss.
     event.respondWith(
-      caches.match(event.request).then((hit) => hit || fetch(event.request).then((res) => {
-        if (res.ok) {
+      caches.match(event.request).catch(() => undefined).then((hit) => hit || fetch(event.request).then((res) => {
+        // SPA fallbacks can return HTML with 200 for obsolete chunk URLs.
+        // Never retain that response as executable code.
+        if (res.ok && !res.headers.get('content-type')?.includes('text/html')) {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(event.request, copy));
+          event.waitUntil(caches.open(CACHE).then((c) => c.put(event.request, copy)).catch(() => {}));
         }
         return res;
       }))

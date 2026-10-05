@@ -37,6 +37,9 @@ const TickerSearch = ({ value, onChange, onSelect, placeholder, inputStyle, inpu
     setHi(-1);
   }, [cancelSearch]);
 
+  // A pending India lookup must not repopulate the dropdown in US mode.
+  useEffect(() => { dismiss(); }, [market, dismiss]);
+
   useEffect(() => {
     const onDoc = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) dismiss(); };
     document.addEventListener('mousedown', onDoc);
