@@ -3,6 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DEFAULT_SOCIAL_IMAGE, SEO_ROUTES, SITE_ORIGIN, SITE_NAME, canonicalForPath, structuredDataForPath } from '../src/seoConfig.js';
 import { HOME_CONTENT } from '../src/homeContent.js';
+import { FUNDAMENTALS_GUIDE } from '../src/fundamentalsContent.js';
 
 const escapeAttr = (value) => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 const canonicalFor = canonicalForPath;
@@ -34,6 +35,9 @@ export function injectSeo(shell, route, config) {
   let html = shell.replace(/\s*<title>[\s\S]*?<\/title>/i, '').replace('</head>', `    ${metadata}\n  </head>`);
   if (route === '/') {
     html = html.replace('<div id="root"></div>', `<div id="root"><main class="an-static-home">${HOME_CONTENT}<p><a href="/dashboard">Open the market dashboard</a></p><noscript>Enable JavaScript to use interactive charts and market data.</noscript></main></div>`);
+  }
+  if (route === '/fundamentals') {
+    html = html.replace('<div id="root"></div>', `<div id="root"><main class="an-static-home"><h1>Company Fundamentals</h1><p>Research stock valuation, profitability and financial health with clear source dates.</p>${FUNDAMENTALS_GUIDE}<noscript>Enable JavaScript to search companies and load financial metrics.</noscript></main></div>`);
   }
   return html;
 }

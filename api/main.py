@@ -148,12 +148,14 @@ try:
         fetch_openbb_fundamentals,
         normalize_yfinance_fundamentals,
         supplement_market_cap,
+        fetch_statement_supplement,
     )
 except ImportError:  # local `uvicorn main:app` with api/ as working directory
     from fundamentals_gateway import (
         fetch_openbb_fundamentals,
         normalize_yfinance_fundamentals,
         supplement_market_cap,
+        fetch_statement_supplement,
     )
 
 try:
@@ -2395,22 +2397,30 @@ def ai_sector_summary(req: AISectorRequest):
     except Exception as e:
         return _ai_error_report(e)
 
+try:
+    from api.fundamentals_cache import FundamentalsCache
+except ImportError:
+    from fundamentals_cache import FundamentalsCache
+
+_FUNDAMENTALS_CACHE = FundamentalsCache()
+
 @app.get("/api/fundamentals/{ticker}")
 async def get_fundamentals(ticker: str):
-    ticker = _validate_symbol(ticker)
+    ticker = _validate_symbol(ticker).upper()
     def fetch_fundamentals():
         try:
             metrics = fetch_openbb_fundamentals(ticker)
         except Exception as openbb_error:
             resolved, _stock, info = _yf_resolve_info(ticker)
             if not (info.get("currentPrice") or info.get("regularMarketPrice") or info.get("marketCap")):
-                return {"error": f"Ticker '{ticker}' not found on Yahoo Finance"}
+                raise HTTPException(status_code=503, detail="Company data is unavailable from the provider. Check the symbol and retry.")
 
             metrics = normalize_yfinance_fundamentals(
                 ticker=resolved,
                 info=info,
                 warning=f"OpenBB unavailable: {type(openbb_error).__name__}",
             )
+            metrics = fetch_statement_supplement(metrics, _stock)
         supplement_market_cap(metrics, lambda: yf.Ticker(metrics.get("ticker") or ticker).fast_info["market_cap"])
         metrics["alphaScore"] = _alpha_nova_score(
             metrics.get("lastPrice"),
@@ -2425,10 +2435,14 @@ async def get_fundamentals(ticker: str):
         )
         return metrics
 
-    data = await asyncio.to_thread(fetch_fundamentals)
-    if "error" in data:
-        raise HTTPException(status_code=404, detail="Ticker not found or data unavailable")
-    return data
+    try:
+        return await _FUNDAMENTALS_CACHE.get(ticker, lambda: asyncio.to_thread(fetch_fundamentals))
+    except HTTPException:
+        raise
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="The company-data provider took too long. Please retry.")
+    except Exception:
+        raise HTTPException(status_code=503, detail="Company research is temporarily unavailable. Please retry.")
 
 # --- News sentiment (keyless, finance-tuned VADER lexicon) ---
 # Spec: docs/superpowers/specs/2026-07-04-news-sentiment-alpha-score-v2-design.md

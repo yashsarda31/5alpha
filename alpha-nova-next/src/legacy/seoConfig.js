@@ -24,7 +24,7 @@ export const SEO_ROUTES = {
   '/bank-nifty-oi-analysis': research('Bank Nifty OI Analysis — Expiry and Strike Map | Alpha Nova', 'Review BANKNIFTY expiry-specific call and put open interest, changes, PCR, and strike distribution.'),
   '/deals': research('Bulk, Block and Insider Deals | Alpha Nova', 'Research exchange-reported deals and disclosed counterparties with source dates.', { canonicalPath: '/bulk-block-deals-today' }),
   '/bulk-block-deals-today': research('Bulk and Block Deals Today — NSE | Alpha Nova', 'Review the latest available NSE bulk and block deals with counterparties, quantities, prices, values, and source date.'),
-  '/fundamentals': research('Stock Fundamentals Research | Alpha Nova', 'Review provider-dated financial and valuation fields without hiding unavailable evidence.'),
+  '/fundamentals': research('Stock Fundamentals: P/E, ROE & Financial Health | Alpha Nova', 'Research Indian and US stock fundamentals: P/E, ROE, margins, debt and cash flow. Review source dates, annual calculation bases and unavailable fields.'),
   '/dcf': research('DCF Calculator | Alpha Nova', 'Build and share a transparent discounted cash-flow scenario with editable assumptions.'),
   '/forecast': research('One-Month Stock Forecast | Alpha Nova', 'Explore historical price scenarios, invalidation levels, ROE, earnings growth and dated news with explicit data limitations.'),
   '/arima': research('SARIMAX Stock Forecast Research | Alpha Nova', 'Explore a dated statistical forecast with model limitations and shareable inputs.'),

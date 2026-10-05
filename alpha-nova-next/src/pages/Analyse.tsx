@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, RefreshCw, Search, TrendingUp } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState, ErrorState, Loading, PageHeading, Panel, Change } from '../components/ui';
 import { formatMarketCap, formatNumber, formatPrice, formatStamp, number } from '../lib/market';
 import { useResource } from '../lib/useResource';
@@ -55,7 +55,7 @@ interface FundamentalsResponse {
   dividendYield?: number | string;
   alphaScore?: number | string;
   error?: string;
-  dataQuality?: { provider?: string; retrievedAt?: string; missingFields?: string[]; fieldSources?: Record<string, string> };
+  dataQuality?: { provider?: string; retrievedAt?: string; missingFields?: string[]; fieldSources?: Record<string, string>; fieldPeriods?: Record<string, string> };
 }
 
 const LegacyChart = lazy(() => import('../legacy/pages/Chart'));
@@ -175,7 +175,7 @@ export default function Analyse() {
             </Panel>
           </aside>
 
-          <Panel className="an-analyse__fundamentals" title="Company research" subtitle="Available provider data" action={<BarChart3 size={18} aria-hidden="true" />}>
+          <Panel className="an-analyse__fundamentals" title="Company research" subtitle="Available provider data" action={<Link className="an-button" to={`/fundamentals?symbol=${encodeURIComponent(resolvedSymbol)}&market=${marketForSymbol}`}><BarChart3 size={16} aria-hidden="true" />Full fundamentals</Link>}>
             {fundamentals.loading && <Loading label="Loading fundamentals" />}
             {fundamentals.error && <EmptyState title="Fundamentals unavailable" description="Price history is available, but the company-data provider did not return a usable response." action={<button className="an-button" onClick={fundamentals.refresh}>Retry</button>} />}
             {!fundamentals.loading && !fundamentals.error && fundamentals.data && !fundamentals.data.error && (
@@ -186,8 +186,8 @@ export default function Analyse() {
                 <Metric label="Price / book" value={metricValue(fundamentals.data.priceToBook)} />
                 <Metric label="EPS · TTM" value={metricValue(fundamentals.data.trailingEps)} />
                 <Metric label="Forward EPS" value={metricValue(fundamentals.data.forwardEps)} />
-                <Metric label="ROE" value={metricValue(fundamentals.data.returnOnEquity, '%')} />
-                <Metric label="Debt / equity" value={metricValue(fundamentals.data.debtToEquity)} />
+                <Metric label="ROE" value={metricValue(fundamentals.data.returnOnEquity, '%')} detail={fundamentals.data.dataQuality?.fieldPeriods?.returnOnEquity ? `Annual · ${formatStamp(fundamentals.data.dataQuality.fieldPeriods.returnOnEquity)}` : undefined} />
+                <Metric label="Debt / equity" value={metricValue(fundamentals.data.debtToEquity, '%')} />
               </div>
             )}
             {!fundamentals.loading && !fundamentals.error && (!fundamentals.data || fundamentals.data.error) && <EmptyState title="No fundamentals returned" description="This instrument may not have company fundamentals from the current provider." />}

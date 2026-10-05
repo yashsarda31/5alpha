@@ -8,6 +8,15 @@ import { HOME_CONTENT } from '../src/homeContent.js';
 
 const shell = '<!doctype html><html><head><title>Alpha Nova</title></head><body><div id="root"></div></body></html>';
 
+test('fundamentals explains metrics and links to related research without JavaScript', () => {
+  const html = injectSeo(shell, '/fundamentals', SEO_ROUTES['/fundamentals']);
+  assert.match(html, /<h1>Company Fundamentals<\/h1>/);
+  assert.match(html, /Return on equity/);
+  assert.match(html, /href="\/screener"/);
+  assert.match(html, /href="\/dcf"/);
+  assert.match(html, /rel="canonical" href="https:\/\/abovealphasolutions.com\/fundamentals"/);
+});
+
 test('public delivery route gets unique canonical and social metadata in raw HTML', () => {
   const html = injectSeo(shell, '/high-delivery-volume-stocks-today', SEO_ROUTES['/high-delivery-volume-stocks-today']);
   assert.match(html, /<title>High Delivery Volume Stocks Today/);

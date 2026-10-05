@@ -4,6 +4,84 @@ from datetime import datetime, timezone
 import asyncio
 import concurrent.futures
 import math
+from copy import deepcopy
+
+
+def supplement_annual_statements(payload, income, balance, cash, now=None):
+    """Fill absent fields only; comparable periods and explicit annual provenance."""
+    import pandas as pd
+    output = deepcopy(payload)
+    today = pd.Timestamp(now or datetime.now(timezone.utc)).date()
+    quality = output.setdefault('dataQuality', {})
+
+    def dates(frame, max_age=550):
+        if not isinstance(frame, pd.DataFrame) or not frame.columns.is_unique or not frame.index.is_unique:
+            return []
+        return sorted(date for date in frame.columns if isinstance(date, pd.Timestamp)
+                      and 0 < (today - date.date()).days <= max_age)
+
+    def value(frame, row, date):
+        if row not in frame.index or date not in frame.columns:
+            return None
+        try:
+            number = float(frame.loc[row, date])
+            return number if math.isfinite(number) else None
+        except (TypeError, ValueError):
+            return None
+
+    def fill(field, number, date, method):
+        if output.get(field) is not None or number is None or not math.isfinite(number):
+            return
+        output[field] = round(number, 2)
+        quality.setdefault('fieldSources', {})[field] = 'Yahoo Finance annual statements'
+        quality.setdefault('fieldPeriods', {})[field] = date.date().isoformat()
+        quality.setdefault('fieldMethods', {})[field] = method
+        quality.setdefault('derivedFields', []).append(field)
+
+    balance_dates = dates(balance, 1100)
+    if balance_dates and (today - balance_dates[-1].date()).days <= 550:
+        current = balance_dates[-1]
+        assets = value(balance, 'CurrentAssets', current)
+        liabilities = value(balance, 'CurrentLiabilities', current)
+        if assets is not None and liabilities is not None and liabilities > 0:
+            fill('currentRatio', assets / liabilities, current, 'Annual current assets / current liabilities.')
+        income_dates = dates(income)
+        if current in income_dates and len(balance_dates) >= 2:
+            previous = balance_dates[-2]
+            if 320 <= (current - previous).days <= 410:
+                for field, profit_row, equity_row in (
+                    ('returnOnEquity', 'NetIncomeCommonStockholders', 'CommonStockEquity'),
+                    ('returnOnAssets', 'NetIncome', 'TotalAssets'),
+                ):
+                    profit = value(income, profit_row, current)
+                    begin, end = value(balance, equity_row, previous), value(balance, equity_row, current)
+                    if profit is not None and begin is not None and end is not None and min(begin, end) > 0:
+                        method = ('Annual net income attributable to common shareholders / average opening and closing common equity, percent.'
+                                  if field == 'returnOnEquity' else 'Annual net income / average opening and closing total assets, percent.')
+                        fill(field, profit / ((begin + end) / 2) * 100, current, method)
+    cash_dates = dates(cash)
+    if cash_dates:
+        current = cash_dates[-1]
+        fill('freeCashflow', value(cash, 'FreeCashFlow', current), current, 'Reported annual free cash flow.')
+    quality['missingFields'] = [field for field in _LEGACY_FIELDS if output.get(field) is None]
+    return output
+
+
+def fetch_statement_supplement(payload, stock):
+    if all(payload.get(field) is not None for field in ('returnOnEquity', 'returnOnAssets', 'currentRatio', 'freeCashflow')):
+        return payload
+    import pandas as pd
+    datasets = {}
+    calls = {'income': stock.get_income_stmt, 'balance': stock.get_balance_sheet, 'cash': stock.get_cashflow}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        pending = {executor.submit(call, pretty=False): name for name, call in calls.items()}
+        for future in concurrent.futures.as_completed(pending):
+            name = pending[future]
+            try:
+                datasets[name] = future.result()
+            except Exception:
+                datasets[name] = pd.DataFrame()
+    return supplement_annual_statements(payload, **datasets)
 
 
 _LEGACY_FIELDS = (
